@@ -11,7 +11,7 @@ It is designed for engineers, QA teams, and security practitioners who need a un
 
 > **Authorized testing only.** Use Sift only against systems you own or have explicit written permission to test. Unauthorized load generation, scanning, or exploitation attempts may be illegal and harmful.
 
-![Sift Dashboard](docs/images/dashboard-ui.png)
+![Sift Dashboard — Overview](docs/images/01-overview-run-console.png)
 
 ---
 
@@ -711,11 +711,11 @@ sift pentest --target https://example.com --dry-run
 
 > **Important:** Always run scans/pentests only with proper authorization and within approved scope.
 
+![Dashboard Security Scanners](docs/images/04-security-1.png)
+
 ---
 
 ## Web Dashboard
-
-![Sift Dashboard UI](docs/images/dashboard-ui.png)
 
 Start the dashboard:
 ```bash
@@ -727,6 +727,24 @@ Run a test and control/view it in dashboard mode:
 ```bash
 sift run --url https://api.example.com --users 50 --duration 60 --mode dashboard -listen 127.0.0.1:8888
 ```
+
+### Overview / Run Console
+![Dashboard Overview and Run Console](docs/images/01-overview-run-console.png)
+
+### Report View
+![Dashboard Report View](docs/images/03-report.png)
+
+### Insights (5th section — New Features)
+![Dashboard Insights — Digital Twin / X-Ray / Bounty](docs/images/02-insights-1.png)
+![Dashboard Insights — Correlation and Analysis](docs/images/02-insights-2.png)
+![Dashboard Insights — Bounty and Triage Workflows](docs/images/02-insights-3.png)
+
+### Security Scanners
+![Dashboard Security Scanners](docs/images/04-security-1.png)
+![Dashboard Security Scanner Results](docs/images/04-security-2.png)
+
+### Certificate / Attestation
+![Dashboard Certificate and Attestation](docs/images/05-certificate.png)
 
 ### Capabilities
 - Live telemetry: RPS, latency percentiles, status/error trends
@@ -754,6 +772,8 @@ sift run --url https://api.example.com --users 50 --duration 60 --mode dashboard
 ## Capacity Digital Twin (`simulate`)
 
 `sift simulate` builds an evidence-based capacity model from a completed Sift run report and answers what-if questions **without touching the target service**.
+
+![Insights — Digital Twin](docs/images/02-insights-1.png)
 
 ### Commands
 - `fit` — fit a model from a report JSON
@@ -783,6 +803,8 @@ sift simulate compare --model reports/twin/twin-model.json --out reports/twin/co
 
 `sift xray` provides opt-in, aggregate-only host/runtime observability to correlate external Sift signals with host evidence.
 
+![Insights — Host X-Ray](docs/images/02-insights-2.png)
+
 ### Commands
 - `capabilities` — show available evidence sources and platform capability facts
 - `collect` — sample metrics to JSONL (**requires `--allow`**)
@@ -806,6 +828,8 @@ sift xray report --input reports/xray.jsonl --signals signals.json --window 5s -
 ## Bounty & Triage (`bounty`)
 
 `sift bounty` implements a verifiable, staged bug-bounty/triage evidence workflow.
+
+![Insights — Bounty & Triage](docs/images/02-insights-3.png)
 
 ### Commands
 - `package` — build `bounty-package.json` by hashing referenced artifacts
@@ -873,6 +897,8 @@ See `docs/DISTRIBUTED.md`, `docs/DEPLOY-REMOTE.md`, `docs/K8S.md`, and `docs/DEP
 
 Sift includes controls for approved testing workflows and traceability.
 
+![Dashboard Certificate and Attestation](docs/images/05-certificate.png)
+
 ### Authorization and Audit
 ```bash
 # Record an authorization
@@ -907,6 +933,8 @@ See `docs/AUTHORIZATION.md` for policy details.
 ## Verifiable Evidence (VPMP v1)
 
 Sift can emit cryptographically verifiable evidence bundles for runs.
+
+![Dashboard Certificate and Attestation](docs/images/05-certificate.png)
 
 ### Example Workflow
 ```bash
@@ -990,6 +1018,8 @@ Refer to the `api` package for supported config/result fields and behavior.
 ## Reports, Artifacts, SLA Gates, and Exit Codes
 
 ### Reports and Artifacts
+![Dashboard Report View](docs/images/03-report.png)
+
 - CLI run reports (terminal)
 - JSON/TXT report files (commonly under `reports/`)
 - Optional timeline CSV and debug/capture artifacts (feature/flag dependent)
