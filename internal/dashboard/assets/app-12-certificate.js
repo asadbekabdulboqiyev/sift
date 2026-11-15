@@ -374,7 +374,15 @@ function certViewLatest() {
   var id = certLatest.certificate_id;
   certLatestStatus('Loading certificate ' + id + '\u2026', 'busy');
   fetch(API + '/api/certificate/download/' + encodeURIComponent(id) + '?format=json')
-    .then(function(r) { return r.json(); })
+    .then(function(r) {
+      return r.json().catch(function() { return {}; }).then(function(body) {
+        if (!r.ok) {
+          var msg = (body && (body.error || body.reason || body.message)) || ('HTTP ' + r.status);
+          throw new Error(msg);
+        }
+        return body;
+      });
+    })
     .then(function(cert) {
       certState.cert = cert;
       certState.certId = cert.certificate_id || id;
