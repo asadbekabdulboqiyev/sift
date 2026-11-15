@@ -591,8 +591,10 @@ function certIssueApi(raw, issuer, experimentRef) {
     headers: { 'Content-Type': 'application/json' },
     body: body
   }).then(function(r) {
-    return r.json().then(function(j) { return { ok: r.ok, body: j }; });
+    if (typeof guardStatus === 'function' && guardStatus(r)) return null;
+    return r.json().catch(function() { return {}; }).then(function(j) { return { ok: r.ok, body: j }; });
   }).then(function(res) {
+    if (!res) return;
     if (!res.ok) {
       certStatus((res.body && res.body.error) || 'Could not issue certificate.', 'bad');
       return;
@@ -689,7 +691,11 @@ function certVerifyFile(file) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: raw
-    }).then(function(r) { return r.json(); }).then(function(res) {
+    }).then(function(r) {
+      if (typeof guardStatus === 'function' && guardStatus(r)) return null;
+      return r.json().catch(function() { return null; });
+    }).then(function(res) {
+      if (!res) return;
       var wrap = document.getElementById('certVerifyResult');
       var verdict = document.getElementById('certVerifyVerdict');
       var facts = document.getElementById('certVerifyFacts');
@@ -774,18 +780,28 @@ function certLoadHistory() {
   body.textContent = '';
   if (chainStatus) chainStatus.textContent = 'Loading…';
   fetch(API + '/api/certificate/history', { cache: 'no-store' })
-    .then(function(r) { return r.json(); })
+    .then(function(r) {
+      if (typeof guardStatus === 'function' && guardStatus(r)) return null;
+      return r.json().catch(function() { return null; }).then(function(j) {
+        return { ok: r.ok, status: r.status, body: j };
+      });
+    })
     .then(function(res) {
-      var certs = res.certificates || [];
-      if (chainStatus) chainStatus.textContent = 'Certificates: ' + res.count;
+      if (!res) return;
+      if (!res.ok || !res.body) {
+        if (chainStatus) chainStatus.textContent = 'Failed to load history' + (res.status ? ' (HTTP ' + res.status + ')' : '') + '.';
+        return;
+      }
+      var certs = res.body.certificates || [];
+      if (chainStatus) chainStatus.textContent = 'Certificates: ' + (res.body.count != null ? res.body.count : certs.length);
       certs.forEach(function(c) {
         var tr = document.createElement('tr');
-        var tdId = document.createElement('td'); tdId.textContent = c.certificate_id;
-        var tdTarget = document.createElement('td'); tdTarget.textContent = c.target;
-        var tdGrade = document.createElement('td'); tdGrade.textContent = c.grade;
-        var tdVerdict = document.createElement('td'); tdVerdict.textContent = c.verdict;
-        var tdRisk = document.createElement('td'); tdRisk.textContent = c.risk_score + '/100';
-        var tdSigned = document.createElement('td'); tdSigned.textContent = c.signed_at;
+        var tdId = document.createElement('td'); tdId.textContent = c.certificate_id || '';
+        var tdTarget = document.createElement('td'); tdTarget.textContent = c.target || '';
+        var tdGrade = document.createElement('td'); tdGrade.textContent = c.grade || '';
+        var tdVerdict = document.createElement('td'); tdVerdict.textContent = c.verdict || '';
+        var tdRisk = document.createElement('td'); tdRisk.textContent = (c.risk_score != null ? c.risk_score : '—') + '/100';
+        var tdSigned = document.createElement('td'); tdSigned.textContent = c.signed_at || '';
         var tdDl = document.createElement('td');
         ['json', 'html', 'pdf'].forEach(function(fmt) {
           var btn = document.createElement('button');
@@ -793,7 +809,7 @@ function certLoadHistory() {
           btn.type = 'button';
           btn.textContent = fmt.toUpperCase();
           btn.addEventListener('click', (function(cid, f) {
-            return function() { certDownloadApi(cid, f); };
+            return function() { if (cid) certDownloadApi(cid, f); };
           })(c.certificate_id, fmt));
           tdDl.appendChild(btn);
         });
