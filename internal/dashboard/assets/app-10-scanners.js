@@ -1,5 +1,5 @@
 /* ==========================================================================
-   app-10-scanners.js — part 10 of 14 of the dashboard bundle.
+   app-10-scanners.js — part 10 of 15 of the dashboard bundle.
 
    Crawler, fuzz, subdomain, port, dir, TLS, JWT, GraphQL, WebSocket
 
@@ -111,13 +111,17 @@ function crawlRun(ev) {
     return;
   }
 
+  function crawlToggleOn(id) {
+    var el = document.getElementById(id);
+    return !!(el && (el.classList.contains('active') || el.getAttribute('aria-pressed') === 'true' || el.checked));
+  }
   var payload = {
     target: target,
     depth: parseInt(document.getElementById('crawlDepth').value, 10) || 3,
     pages: parseInt(document.getElementById('crawlPages').value, 10) || 100,
     concurrency: parseInt(document.getElementById('crawlConcur').value, 10) || 5,
-    offsite: document.getElementById('crawlOffsite').checked,
-    dryRun: document.getElementById('crawlDryRun').checked
+    offsite: crawlToggleOn('crawlOffsite'),
+    dryRun: crawlToggleOn('crawlDryRun')
   };
 
   _crawlBtn.classList.add('loading');
@@ -149,6 +153,18 @@ function crawlRun(ev) {
   });
 }
 
+function initCrawlToggles(ids) {
+  ids.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el || el.tagName !== 'BUTTON') return;
+    el.addEventListener('click', function() {
+      var on = !(el.classList.contains('active') || el.getAttribute('aria-pressed') === 'true');
+      el.classList.toggle('active', on);
+      el.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  });
+}
+initCrawlToggles(['crawlOffsite', 'crawlDryRun']);
 if (_crawlForm) _crawlForm.addEventListener('submit', crawlRun);
 
 /* ---- Fuzz (HTTP fuzzer) ---- */
@@ -211,11 +227,15 @@ function fuzzRun(ev) {
   if (!_fuzzForm || _fuzzBtn.classList.contains('loading')) return;
   var target = document.getElementById('fuzzTarget').value.trim();
   if (!target) { fuzzStatusSet('Enter a target URL first.', 'err'); return; }
+  function fuzzToggleOn(id) {
+    var el = document.getElementById(id);
+    return !!(el && (el.classList.contains('active') || el.getAttribute('aria-pressed') === 'true' || el.checked));
+  }
   var payload = {
     target: target,
     paths: (document.getElementById('fuzzPaths').value || '').split(',').map(function(s){return s.trim();}).filter(Boolean),
     mutations: parseInt(document.getElementById('fuzzMutations').value, 10) || 100,
-    intrusive: document.getElementById('fuzzIntrusive').checked
+    intrusive: fuzzToggleOn('fuzzIntrusive')
   };
   _fuzzBtn.classList.add('loading');
   _fuzzResults.classList.add('hidden');
@@ -242,6 +262,18 @@ function fuzzRun(ev) {
   }).then(function() { _fuzzBtn.classList.remove('loading'); });
 }
 
+function initFuzzToggles(ids) {
+  ids.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el || el.tagName !== 'BUTTON') return;
+    el.addEventListener('click', function() {
+      var on = !(el.classList.contains('active') || el.getAttribute('aria-pressed') === 'true');
+      el.classList.toggle('active', on);
+      el.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  });
+}
+initFuzzToggles(['fuzzIntrusive']);
 if (_fuzzForm) _fuzzForm.addEventListener('submit', fuzzRun);
 
 /* ---- Subdomain enumeration ---- */

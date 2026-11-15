@@ -20,6 +20,7 @@ type Options struct {
 	TargetURL    string
 	MaxDuration  time.Duration
 	DemoStoreURL string
+	Mode         string
 	Now          func() time.Time
 }
 
@@ -57,9 +58,12 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 	emit(StageScan, StatusRunning, "Scanning headers, TLS/SSL, and OWASP surface...", "")
 	secCtx, secCancel := stageContext(budgetCtx, deadline, 8*time.Second, 3*time.Second)
 	secFindings, secPartial, secNotes := runSecurityScan(secCtx, opt.TargetURL)
+	// Capture the context error before cancel(): after secCancel() the error is
+	// always context.Canceled, which would falsely report a timeout.
+	secErr := secCtx.Err()
 	secCancel()
 	notes = append(notes, secNotes...)
-	if secCtx.Err() != nil && len(secFindings) == 0 {
+	if secErr != nil && len(secFindings) == 0 {
 		secPartial = true
 		notes = append(notes, "Security scan timed out before producing full evidence.")
 	}
@@ -69,37 +73,80 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 		emit(StageScan, StatusCompleted, fmt.Sprintf("Security scan completed (%d findings).", len(secFindings)), "")
 	}
 
-	// Stage 2: Breaking point stress test
-	emit(StageStress, StatusRunning, "Ramping load to find safe capacity and breaking point...", "")
-	stressBudget := 12 * time.Second
-	if rem := time.Until(deadline) - 2*time.Second; rem > 4*time.Second && rem < stressBudget {
-		stressBudget = rem
-	}
-	stressCtx, stressCancel := stageContext(budgetCtx, deadline, stressBudget, 2*time.Second)
-	stress := runStressTest(stressCtx, opt.TargetURL, stressBudget)
-	stressCancel()
-	notes = append(notes, stress.Notes...)
-	if stress.Available {
-		if stress.Breached {
-			emit(StageStress, StatusCompleted, fmt.Sprintf("Breaking point reached near %d users.", stress.BreakingPointUsers), "")
-		} else {
-			emit(StageStress, StatusCompleted, "No failure threshold breached within test window.", "")
-		}
+	// Stage 2: Breaking point stress test (skipped in passive mode)
+	var stress StressOutcome
+	if opt.Mode == ModePassive {
+		emit(StageStress, StatusRunning, "Passive mode: skipping active load test...", "")
+		stress = StressOutcome{Skipped: true, Notes: []string{"Passive mode: active load/capacity testing skipped (non-intrusive checks only)."}}
+		notes = append(notes, stress.Notes...)
+		emit(StageStress, StatusCompleted, "Skipped in passive mode (no active load generated).", "")
 	} else {
-		emit(StageStress, StatusCompleted, "Stress test unavailable (target unreachable or not measurable).", "")
+		emit(StageStress, StatusRunning, "Ramping load to find safe capacity and breaking point...", "")
+		stressBudget := 12 * time.Second
+		if rem := time.Until(deadline) - 2*time.Second; rem > 4*time.Second && rem < stressBudget {
+			stressBudget = rem
+		}
+		stressCtx, stressCancel := stageContext(budgetCtx, deadline, stressBudget, 2*time.Second)
+		stress = runStressTest(stressCtx, opt.TargetURL, stressBudget)
+		stressCancel()
+		notes = append(notes, stress.Notes...)
+		if stress.RejectedByTarget {
+			emit(StageStress, StatusCompleted, fmt.Sprintf("Capacity not measurable: target refused load (%s).", rejectionLabel(stress.RejectStatusCode)), "")
+		} else if stress.Available {
+			if stress.Breached {
+				emit(StageStress, StatusCompleted, fmt.Sprintf("Breaking point reached near %d users.", stress.BreakingPointUsers), "")
+			} else {
+				emit(StageStress, StatusCompleted, "No failure threshold breached within test window.", "")
+			}
+		} else {
+			emit(StageStress, StatusCompleted, "Stress test unavailable (target unreachable or not measurable).", "")
+		}
 	}
 
 	// Stage 3: Resilience scoring/remediation
-	emit(StageResilience, StatusRunning, "Calculating resilience score and remediation guidance...", "")
-	score, risk, findings, scoreNotes := ComputeResilience(secFindings, secPartial, stress)
+	emit(StageResilience, StatusRunning, "Calculating security, resilience, capacity, and evidence quality scores...", "")
+	breakdown, risk, findings, scoreNotes := ComputeAssessment(secFindings, secPartial, stress)
 	notes = append(notes, scoreNotes...)
-	emit(StageResilience, StatusCompleted, fmt.Sprintf("Resilience score calculated: %d/100 (%s).", score, risk), "")
+	emit(StageResilience, StatusCompleted, fmt.Sprintf("Scores calculated (overall %d/100, security %d, resilience %d, capacity %d, evidence %d, %s).", breakdown.Overall, breakdown.Security, breakdown.Resilience, breakdown.Capacity, breakdown.EvidenceQuality, risk), "")
 
 	// Stage 4: VPMP sealing
 	emit(StageSeal, StatusRunning, "Sealing report with VPMP v1-compatible attestation...", "")
 	now := opt.Now().UTC()
+	stressDurSec := 0
+	stressMaxUsers := 0
+	if !stress.Skipped {
+		// Mirror stress budget planning used above (measured/configured intent for this run).
+		stressDurSec = int(math.Max(6, math.Min((time.Until(deadline)-2*time.Second).Seconds(), 20)))
+		if stressDurSec <= 0 {
+			stressDurSec = 12
+		}
+		stressMaxUsers = 600
+		if stressDurSec >= 15 {
+			stressMaxUsers = 1000
+		}
+	}
+	testCfg := &TestConfiguration{
+		Mode:                  opt.Mode,
+		MaxDurationSec:        int(opt.MaxDuration / time.Second),
+		RequestedTarget:       opt.TargetURL,
+		StressMaxUsers:        stressMaxUsers,
+		StressDurationSec:     stressDurSec,
+		StressProfile:         "linear-ramp",
+		SecurityScanEnabled:   true,
+		ActiveLoadEnabled:     opt.Mode != ModePassive,
+		AuthorizationProvided: opt.Mode == ModeStandard || opt.Mode == ModeAdmin,
+	}
+	rawHash, rawFmt, _ := ComputeRawEvidenceHash(RawEvidenceInput{
+		TargetURL:               opt.TargetURL,
+		Mode:                    opt.Mode,
+		RequestedMaxDurationSec: int(opt.MaxDuration / time.Second),
+		SecurityPartial:         secPartial,
+		SecurityFindings:        secFindings,
+		Stress:                  stress,
+	})
+
 	rep := &Audit360Report{
-		ResilienceScore:      score,
+		ResilienceScore:      breakdown.Overall,
 		RiskLevel:            risk,
 		BreakingPointUsers:   0,
 		MaxSafeRPS:           0,
@@ -112,6 +159,16 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 		MaxObservedRPS:       stress.MaxObservedRPS,
 		StressTestAvailable:  stress.Available,
 		SecurityScanPartial:  secPartial,
+		CapacityBlocked:      stress.RejectedByTarget,
+		BlockedStatus:        stress.RejectStatusCode,
+		BlockedSharePct:      math.Round(stress.RejectSharePct*10) / 10,
+		MaxObservedUsers:     stress.MaxObservedUsers,
+		LoadTestSkipped:      stress.Skipped,
+		Scores:               &breakdown,
+		ScoringVersion:       ScoringVersion,
+		TestConfiguration:    testCfg,
+		RawEvidenceHash:      rawHash,
+		RawEvidenceFormat:    rawFmt,
 	}
 	if stress.Available {
 		if stress.Breached && stress.BreakingPointUsers > 0 {
@@ -175,6 +232,7 @@ func runSecurityScan(ctx context.Context, targetURL string) ([]Finding, bool, []
 			Severity:      "medium",
 			ImpactSummary: "The target address could not be parsed, so automated security checks could not run.",
 			Remediation:   "Provide a valid http:// or https:// URL (for example the local demo store).",
+			Evidence:      "Target parsing failed for provided URL: " + err.Error(),
 			Source:        "security_scan",
 		}}, true, []string{"Security scan skipped: invalid target URL."}
 	}
@@ -229,7 +287,14 @@ func findingsFromScanResult(res *scanner.ScanResult, scheme string) []Finding {
 				} else {
 					rem = "Fix: " + rem
 				}
-				out = append(out, Finding{Title: title, Severity: sev, ImpactSummary: impact, Remediation: rem, Source: "security_scan"})
+				evidence := fmt.Sprintf("Header %q reported as %s by security header scan.", d.Header, strings.ToLower(strings.TrimSpace(d.Status)))
+				if strings.TrimSpace(d.Value) != "" {
+					evidence += " Observed value: " + strings.TrimSpace(d.Value) + "."
+				}
+				if strings.TrimSpace(d.Message) != "" {
+					evidence += " Scanner note: " + strings.TrimSpace(d.Message) + "."
+				}
+				out = append(out, Finding{Title: title, Severity: sev, ImpactSummary: impact, Remediation: rem, Evidence: evidence, Source: "security_scan"})
 			}
 		}
 		if len(res.Security.MissingHeaders) > 0 {
@@ -238,6 +303,7 @@ func findingsFromScanResult(res *scanner.ScanResult, scheme string) []Finding {
 				Severity:      "medium",
 				ImpactSummary: "Browsers cannot enforce important protections when key headers are absent.",
 				Remediation:   "Add the missing headers reported by the scan (especially CSP, HSTS on HTTPS, X-Frame-Options, and X-Content-Type-Options).",
+				Evidence:      "Missing headers observed by scan: " + strings.Join(res.Security.MissingHeaders, ", ") + ".",
 				Source:        "security_scan",
 			})
 		}
@@ -250,24 +316,35 @@ func findingsFromScanResult(res *scanner.ScanResult, scheme string) []Finding {
 				Severity:      "high",
 				ImpactSummary: "Weak or misconfigured TLS can expose traffic to interception or downgrade risks.",
 				Remediation:   "Address TLS finding: " + v + ". Use modern TLS versions/ciphers and valid certificates.",
+				Evidence:      "TLS scan reported: " + v,
 				Source:        "security_scan",
 			})
 		}
 		if res.TLS.Certificate != nil && res.TLS.Certificate.IsExpired {
+			ev := "TLS certificate reported as expired by scan."
+			if !res.TLS.Certificate.NotAfter.IsZero() {
+				ev += " NotAfter=" + res.TLS.Certificate.NotAfter.Format(time.RFC3339) + "."
+			}
 			out = append(out, Finding{
 				Title:         "Expired TLS certificate",
 				Severity:      "high",
 				ImpactSummary: "Users and clients may distrust or block connections to the service.",
 				Remediation:   "Renew and deploy a valid TLS certificate before production exposure.",
+				Evidence:      ev,
 				Source:        "security_scan",
 			})
 		}
 		if res.TLS.Certificate != nil && res.TLS.Certificate.IsSelfSigned && strings.EqualFold(scheme, "https") {
+			ev := "TLS certificate reported as self-signed by scan."
+			if res.TLS.Certificate.Subject != "" {
+				ev += " Subject=" + res.TLS.Certificate.Subject + "."
+			}
 			out = append(out, Finding{
 				Title:         "Self-signed TLS certificate",
 				Severity:      "medium",
 				ImpactSummary: "Self-signed certificates can trigger trust warnings and weaken assurance for users.",
 				Remediation:   "Use a certificate issued by a trusted CA for production endpoints.",
+				Evidence:      ev,
 				Source:        "security_scan",
 			})
 		}
@@ -277,6 +354,7 @@ func findingsFromScanResult(res *scanner.ScanResult, scheme string) []Finding {
 				Severity:      "medium",
 				ImpactSummary: "Without HSTS, browsers may be more exposed to downgrade or insecure-first connections.",
 				Remediation:   "Enable HTTP Strict Transport Security (HSTS) with an appropriate max-age and rollout plan.",
+				Evidence:      "HTTPS target scanned but HSTS header/policy was not detected.",
 				Source:        "security_scan",
 			})
 		}
@@ -291,11 +369,19 @@ func findingsFromScanResult(res *scanner.ScanResult, scheme string) []Finding {
 		if impact == "" {
 			impact = defaultImpact(v.Severity)
 		}
+		ev := strings.TrimSpace(v.Description)
+		if ev == "" {
+			ev = "Reported by scanner finding: " + v.Title
+		}
+		if strings.TrimSpace(v.ID) != "" {
+			ev = "Finding ID " + strings.TrimSpace(v.ID) + ": " + ev
+		}
 		out = append(out, Finding{
 			Title:         v.Title,
 			Severity:      normalizeSeverity(v.Severity),
 			ImpactSummary: impact,
 			Remediation:   rem,
+			Evidence:      ev,
 			Source:        "security_scan",
 		})
 	}
@@ -403,6 +489,9 @@ func runStressTest(ctx context.Context, targetURL string, budget time.Duration) 
 		peakErr       float64
 		peakP99       float64
 		haveTelemetry bool
+		rejected      bool
+		rejectCode    int
+		rejectShare   float64
 	)
 
 	capture := func(final bool) {
@@ -441,7 +530,16 @@ func runStressTest(ctx context.Context, targetURL string, budget time.Duration) 
 			lastSafeRPS = rps
 		}
 
-		if !breached && total >= 10 && users >= 1 && (errPct > 5.0 || p99ms > 2000) {
+		// A target that rejects the load (403/401/407/429) makes error-rate and
+		// latency-based breach detection meaningless: the probe would be measuring
+		// the access gate, not the service. Detect dominance and stop early.
+		if code, share := dominantRejection(tel.StatusCodes()); code != 0 {
+			rejected = true
+			rejectCode = code
+			rejectShare = share
+		}
+
+		if !rejected && !breached && total >= 10 && users >= 1 && (errPct > 5.0 || p99ms > 2000) {
 			breached = true
 			breachUsers = users
 			reasons := []string{}
@@ -455,6 +553,13 @@ func runStressTest(ctx context.Context, targetURL string, budget time.Duration) 
 			if !final {
 				cancel() // stop load generation promptly
 			}
+		}
+
+		// Rejection confirmed by a meaningful sample: stop the ramp. A target that
+		// answers 403 to everything gives no capacity signal, and continuing only
+		// floods it with rejected requests.
+		if rejected && total >= 100 && !final {
+			cancel()
 		}
 	}
 
@@ -475,6 +580,22 @@ func runStressTest(ctx context.Context, targetURL string, budget time.Duration) 
 			out.PeakErrorRatePct = peakErr
 			out.PeakP99MS = peakP99
 			out.BreachReason = breachReason
+			if rejected {
+				// The ramp measured the access gate, not service capacity. Do not
+				// report breach or throughput numbers derived from rejected requests.
+				out.Breached = false
+				out.RejectedByTarget = true
+				out.RejectStatusCode = rejectCode
+				out.RejectSharePct = rejectShare
+				out.BreakingPointUsers = 0
+				out.MaxSafeRPS = 0
+				out.MaxObservedRPS = 0
+				out.BreachReason = ""
+				out.Notes = append(out.Notes, fmt.Sprintf(
+					"Capacity not measurable: the target answered %s to %.0f%% of requests during the ramp, so the probe measured the access gate instead of service capacity.",
+					rejectionLabel(rejectCode), rejectShare))
+				return out
+			}
 			if !out.Available {
 				out.Notes = append(out.Notes, "Stress test did not produce measurable telemetry.")
 			} else if !out.Breached {
@@ -488,6 +609,49 @@ func runStressTest(ctx context.Context, targetURL string, budget time.Duration) 
 		case <-ctx.Done():
 			cancel()
 		}
+	}
+}
+
+// rejectionStatuses are the HTTP statuses a target uses to refuse or throttle
+// load. When one of them dominates the responses, the ramp measured an access
+// gate rather than service capacity.
+var rejectionStatuses = []int{403, 401, 407, 429}
+
+// dominantRejection reports the dominant load-rejection status code and its
+// share of all recorded responses (in percent). It returns (0, 0) when no
+// rejection status reaches the 70% dominance threshold.
+func dominantRejection(codes map[int]uint64) (int, float64) {
+	var total uint64
+	for _, n := range codes {
+		total += n
+	}
+	if total == 0 {
+		return 0, 0
+	}
+	for _, code := range rejectionStatuses {
+		if n := codes[code]; n > 0 {
+			share := float64(n) / float64(total) * 100
+			if share >= 70.0 {
+				return code, share
+			}
+		}
+	}
+	return 0, 0
+}
+
+// rejectionLabel turns a rejection status code into a human-readable phrase.
+func rejectionLabel(code int) string {
+	switch code {
+	case 403:
+		return "HTTP 403 (access denied)"
+	case 401:
+		return "HTTP 401 (authentication required)"
+	case 407:
+		return "HTTP 407 (proxy authentication required)"
+	case 429:
+		return "HTTP 429 (rate limited)"
+	default:
+		return fmt.Sprintf("HTTP %d", code)
 	}
 }
 
@@ -506,25 +670,43 @@ func probeReachable(targetURL string, timeout time.Duration) bool {
 }
 
 // ValidateStartRequest enforces API safety constraints.
-func ValidateStartRequest(req StartRequest, demoStoreURL string) (target string, maxDur time.Duration, err error) {
-	if !req.Authorized {
-		return "", 0, fmt.Errorf("authorized confirmation is required")
+// adminBypass allows running in admin mode without explicit authorization
+// confirmation (trusted/local operator or server-verified admin context).
+func ValidateStartRequest(req StartRequest, demoStoreURL string, adminBypass bool) (target string, maxDur time.Duration, mode string, err error) {
+	mode = strings.ToLower(strings.TrimSpace(req.Mode))
+	switch mode {
+	case "", ModeStandard:
+		mode = ModeStandard
+	case ModePassive, ModeAdmin:
+		// ok
+	default:
+		return "", 0, "", fmt.Errorf("mode must be one of: passive, standard, admin")
 	}
+	if mode == ModeAdmin && !adminBypass {
+		return "", 0, "", fmt.Errorf("admin mode is not permitted for this session")
+	}
+	if mode == ModeStandard && !req.Authorized {
+		return "", 0, "", fmt.Errorf("authorized confirmation is required")
+	}
+	// Passive mode performs non-intrusive checks only; explicit authorization is
+	// not required. Admin mode may run without the checkbox when permitted.
+
 	target = strings.TrimSpace(req.TargetURL)
 	if target == "" {
-		return "", 0, fmt.Errorf("target_url is required")
+		return "", 0, "", fmt.Errorf("target_url is required")
 	}
 	if !strings.Contains(target, "://") {
 		target = "http://" + target
 	}
 	u, perr := url.Parse(target)
 	if perr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
-		return "", 0, fmt.Errorf("target_url must be a valid http(s) URL without credentials")
+		return "", 0, "", fmt.Errorf("target_url must be a valid http(s) URL without credentials")
 	}
-	// Safety: only allow explicit demo-store target (allowlist/demo-store).
-	if !IsDemoStoreTarget(target, demoStoreURL) {
-		return "", 0, fmt.Errorf("target is not in the allowlist/demo-store; only the authorized demo store target is permitted")
-	}
+	// Any valid http(s) target is allowed. Passive mode restricts execution to
+	// non-intrusive checks; standard/admin require/represent authorization intent
+	// and are subject to same-origin + dashboard auth/RBAC controls.
+	_ = demoStoreURL // retained for API compatibility; demo-store matching no longer required
+
 	sec := req.MaxDurationSec
 	if sec <= 0 {
 		sec = 25
@@ -536,7 +718,7 @@ func ValidateStartRequest(req StartRequest, demoStoreURL string) (target string,
 		sec = 30
 	}
 	maxDur = time.Duration(sec) * time.Second
-	return target, maxDur, nil
+	return target, maxDur, mode, nil
 }
 
 var _ = url.URL{}

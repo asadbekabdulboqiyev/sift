@@ -1,5 +1,5 @@
 /* ==========================================================================
-   app-14-insights.js — part 14 of 14 of the dashboard bundle.
+   app-14-insights.js — part 14 of 15 of the dashboard bundle.
 
    INSIGHTS — Digital Twin, Host X-Ray, and Bounty triage helpers
 

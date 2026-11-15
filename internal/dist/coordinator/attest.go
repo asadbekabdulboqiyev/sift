@@ -315,30 +315,42 @@ func (m *Master) RejectedWorkers() map[string]string {
 	return out
 }
 
-// rejectWorker drops every claim made by addr: the snapshot already aggregated
-// is forgotten, the stream is closed, the worker is marked failed and the
-// reason is recorded for operators. It is deliberately terminal — one
-// unverifiable payload poisons the whole connection, because a stream that has
-// produced one forged frame can no longer be trusted for any other frame.
+// rejectWorker drops every future claim made by addr: the stream is closed, the
+// worker is marked failed and the reason is recorded for operators. It is
+// deliberately terminal for trust — one unverifiable payload poisons the
+// connection, because a stream that has produced one forged frame can no longer
+// be trusted for subsequent frames. However, previously accepted telemetry
+// snapshots (and any already-received final report) must be preserved so
+// measured evidence is not lost; forgetLive=true removes live aggregation state
+// only after partial synthesis.
 func (m *Master) rejectWorker(addr, workerID, reason string, stream distproto.MasterWorker_CoordinateClient) {
+	m.rejectWorkerWithPolicy(addr, workerID, reason, stream, true)
+}
+
+func (m *Master) rejectWorkerWithPolicy(addr, workerID, reason string, stream distproto.MasterWorker_CoordinateClient, forgetLive bool) {
 	if workerID == "" {
-		m.cfg.Logf("worker %s REJECTED: %s; discarding its telemetry", addr, reason)
+		m.cfg.Logf("worker %s REJECTED: %s; preserving existing telemetry evidence and stopping trust in this stream", addr, reason)
 	} else {
-		m.cfg.Logf("worker %s (id %s) REJECTED: %s; discarding its telemetry", addr, workerID, reason)
+		m.cfg.Logf("worker %s (id %s) REJECTED: %s; preserving existing telemetry evidence and stopping trust in this stream", addr, workerID, reason)
 	}
 	m.mu.Lock()
 	if m.rejected == nil {
 		m.rejected = make(map[string]string)
 	}
 	m.rejected[addr] = reason
+	m.failureReasons[addr] = reason
 	m.mu.Unlock()
 
 	if stream != nil {
 		// Closing the send side unblocks recvLoop, which then returns.
 		_ = stream.CloseSend()
 	}
-	m.agg.Forget(addr)
+	// Mark finished/failed first so workerFinished can synthesize a partial
+	// report from the last accepted snapshot when no trusted final report exists.
 	m.workerFinished(addr, true)
+	if forgetLive {
+		m.agg.Forget(addr)
+	}
 }
 
 // handleRunProgress verifies one progress snapshot from addr and, when it is

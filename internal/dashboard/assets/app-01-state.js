@@ -1,5 +1,5 @@
 /* ==========================================================================
-   app-01-state.js — part 01 of 14 of the dashboard bundle.
+   app-01-state.js — part 01 of 15 of the dashboard bundle.
 
    STATE, safe localStorage, WebSocket
 

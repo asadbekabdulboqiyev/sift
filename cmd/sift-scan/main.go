@@ -30,7 +30,7 @@ import (
 	"github.com/asadbekabdulboqiyev/sift/internal/version"
 )
 
-// version is stamped at build time: go build -ldflags "-X buildVersion=0.16.0"
+// version is stamped at build time: go build -ldflags "-X buildVersion=0.16.2"
 var buildVersion = version.Version
 
 const (

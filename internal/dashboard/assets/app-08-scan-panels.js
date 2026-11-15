@@ -1,5 +1,5 @@
 /* ==========================================================================
-   app-08-scan-panels.js — part 08 of 14 of the dashboard bundle.
+   app-08-scan-panels.js — part 08 of 15 of the dashboard bundle.
 
    Scan panels — OWASP Top 10, demo store
 
@@ -262,12 +262,16 @@ function owaspRun(ev) {
     return;
   }
 
+  function owaspToggleOn(id) {
+    var el = document.getElementById(id);
+    return !!(el && (el.classList.contains('active') || el.getAttribute('aria-pressed') === 'true' || el.checked));
+  }
   var payload = {
     target: target,
     paths: owaspSplitList(document.getElementById('owaspPaths').value),
-    passive: document.getElementById('owaspPassive').checked,
-    intrusive: document.getElementById('owaspIntrusive').checked,
-    dryRun: document.getElementById('owaspDryRun').checked
+    passive: owaspToggleOn('owaspPassive'),
+    intrusive: owaspToggleOn('owaspIntrusive'),
+    dryRun: owaspToggleOn('owaspDryRun')
   };
 
   _owaspBtn.classList.add('loading');
@@ -301,4 +305,16 @@ function owaspRun(ev) {
   });
 }
 
+function initScanToggles(ids) {
+  ids.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el || el.tagName !== 'BUTTON') return;
+    el.addEventListener('click', function() {
+      var on = !(el.classList.contains('active') || el.getAttribute('aria-pressed') === 'true');
+      el.classList.toggle('active', on);
+      el.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  });
+}
+initScanToggles(['owaspPassive', 'owaspIntrusive', 'owaspDryRun']);
 if (_owaspForm) _owaspForm.addEventListener('submit', owaspRun);

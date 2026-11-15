@@ -1,6 +1,9 @@
 package audit360
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math"
 	"net"
@@ -8,6 +11,10 @@ import (
 	"sort"
 	"strings"
 )
+
+// ScoringVersion identifies the scoring/capacity-assessment rules used.
+// Additive and deterministic; older reports may omit this field.
+const ScoringVersion = "sift.audit360-scoring/v2"
 
 func normalizeSeverity(s string) string {
 	switch strings.ToLower(strings.TrimSpace(s)) {
@@ -41,11 +48,6 @@ func dedupeFindings(in []Finding) []Finding {
 	seen := make(map[string]bool, len(in))
 	out := make([]Finding, 0, len(in))
 	for _, f := range in {
-		key := strings.ToLower(strings.TrimSpace(f.Title)) + "|" + normalizeSeverity(f.Severity) + "|" + strings.ToLower(strings.TrimSpace(f.Remediation))
-		if key == "||" || seen[key] {
-			continue
-		}
-		seen[key] = true
 		f.Severity = normalizeSeverity(f.Severity)
 		if strings.TrimSpace(f.ImpactSummary) == "" {
 			f.ImpactSummary = defaultImpact(f.Severity)
@@ -53,12 +55,36 @@ func dedupeFindings(in []Finding) []Finding {
 		if strings.TrimSpace(f.Remediation) == "" {
 			f.Remediation = "Review this issue and apply the recommended fix before production use."
 		}
+		if strings.TrimSpace(f.Evidence) == "" {
+			f.Evidence = defaultEvidence(f)
+		}
+		key := strings.ToLower(strings.TrimSpace(f.Title)) + "|" + f.Severity + "|" + strings.ToLower(strings.TrimSpace(f.Remediation)) + "|" + strings.ToLower(strings.TrimSpace(f.Source))
+		if strings.TrimSpace(f.Title) == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
 		out = append(out, f)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
-		return severityPenalty(out[i].Severity) > severityPenalty(out[j].Severity)
+		if severityPenalty(out[i].Severity) != severityPenalty(out[j].Severity) {
+			return severityPenalty(out[i].Severity) > severityPenalty(out[j].Severity)
+		}
+		return strings.ToLower(out[i].Title) < strings.ToLower(out[j].Title)
 	})
 	return out
+}
+
+func defaultEvidence(f Finding) string {
+	switch strings.ToLower(strings.TrimSpace(f.Source)) {
+	case "security_scan":
+		return "Observed during automated security scan checks (headers/TLS/OWASP/lightweight probes) for the target."
+	case "stress_test":
+		return "Observed from measured load-test telemetry during the audit run."
+	case "evidence_quality":
+		return "Derived from audit execution coverage and evidence availability for this run."
+	default:
+		return "Reported by audit analysis for this run; verify against raw evidence/artifacts when available."
+	}
 }
 
 func defaultImpact(sev string) string {
@@ -76,41 +102,100 @@ func defaultImpact(sev string) string {
 	}
 }
 
-// ComputeResilience calculates score/risk from scan and stress outcomes.
-// No values are fabricated: capacity metrics are only scored when measured.
-func ComputeResilience(secFindings []Finding, securityPartial bool, stress StressOutcome) (score int, risk string, findings []Finding, notes []string) {
-	findings = dedupeFindings(secFindings)
-	score = 100
+func clampScore(v int) int {
+	if v < 0 {
+		return 0
+	}
+	if v > 100 {
+		return 100
+	}
+	return v
+}
 
+func riskForOverall(score int) string {
+	switch {
+	case score >= 80:
+		return RiskLow
+	case score >= 55:
+		return RiskModerate
+	default:
+		return RiskCritical
+	}
+}
+
+// ComputeAssessment calculates component scores, overall score/risk, findings and notes.
+// No values are fabricated: capacity metrics are only scored/labeled when measured.
+func ComputeAssessment(secFindings []Finding, securityPartial bool, stress StressOutcome) (ScoreBreakdown, string, []Finding, []string) {
+	findings := dedupeFindings(secFindings)
+	notes := []string{}
+
+	securityScore := 100
+	capacityScore := 100
+	resilienceScore := 100
+	evidenceScore := 100
+
+	// Security component: penalties from security findings and partial coverage.
 	if securityPartial {
-		score -= 8
+		securityScore -= 8
+		evidenceScore -= 10
 		notes = append(notes, "Security scan completed partially; some checks may be unavailable or not tested.")
 		findings = append(findings, Finding{
 			Title:         "Security scan coverage incomplete",
 			Severity:      "medium",
 			ImpactSummary: "Some security checks did not complete, so the risk picture may be incomplete.",
 			Remediation:   "Rerun the audit with a reachable target and sufficient time/budget to complete all checks.",
-			Source:        "security_scan",
+			Evidence:      "Security scan stage reported partial coverage or did not complete all checks within the audit budget.",
+			Source:        "evidence_quality",
 		})
 	}
-
 	for _, f := range findings {
-		score -= severityPenalty(f.Severity)
+		if strings.EqualFold(strings.TrimSpace(f.Source), "security_scan") || (f.Source == "" && !strings.Contains(strings.ToLower(f.Title), "capacity") && !strings.Contains(strings.ToLower(f.Title), "evidence")) {
+			securityScore -= severityPenalty(f.Severity)
+		}
 	}
 
-	if !stress.Available {
-		score -= 20
+	// Capacity/resilience/evidence components from stress outcome.
+	switch {
+	case stress.RejectedByTarget:
+		capacityScore -= 20
+		evidenceScore -= 15
+		resilienceScore -= 5
+		findings = append(findings, Finding{
+			Title:    fmt.Sprintf("Capacity not measurable — target refused load (HTTP %d)", stress.RejectStatusCode),
+			Severity: "medium",
+			ImpactSummary: fmt.Sprintf(
+				"The target rejected %.0f%% of audit requests with HTTP %d, so its real breaking point could not be measured. This is an access-control/rate-limit response, not proof of a capacity limit.",
+				stress.RejectSharePct, stress.RejectStatusCode),
+			Remediation: "Re-run the audit against a target that accepts the load generator (allowlist its IP, disable the WAF/bot gate, or use a dedicated staging endpoint), then measure capacity.",
+			Evidence: fmt.Sprintf(
+				"Measured during ramp: dominant rejection status HTTP %d observed for %.1f%% of requests; peak observed users=%d (capacity/breaking-point figures suppressed as unmeasurable).",
+				stress.RejectStatusCode, stress.RejectSharePct, stress.MaxObservedUsers),
+			Source: "stress_test",
+		})
+		notes = append(notes, "Observed throughput/capacity figures suppressed because the target refused load traffic (access gate, not service capacity).")
+	case stress.Skipped:
+		evidenceScore -= 20
+		capacityScore -= 10
+		notes = append(notes, "Capacity/load testing skipped in passive mode (non-intrusive checks only); capacity metrics not measured.")
+		notes = append(notes, "Sustainable capacity and breaking point were not measured in Passive mode.")
+	case !stress.Available:
+		capacityScore -= 30
+		resilienceScore -= 15
+		evidenceScore -= 20
 		notes = append(notes, "Load/stress evidence unavailable: capacity could not be measured in this run.")
 		findings = append(findings, Finding{
 			Title:         "Capacity test unavailable",
 			Severity:      "high",
 			ImpactSummary: "Without a measured load test, the system's real breaking point is unknown.",
 			Remediation:   "Run the stress test against an authorized, reachable target to measure safe capacity and failure thresholds.",
-			Source:        "stress_test",
+			Evidence:      "Stress test stage did not produce measurable telemetry (unreachable target, execution error, or no samples).",
+			Source:        "evidence_quality",
 		})
-	} else {
+	default:
+		// Measured stress evidence available.
 		if stress.Breached {
-			score -= 20
+			capacityScore -= 30
+			resilienceScore -= 25
 			impact := "The service reached a failure threshold during ramp-up, which means users may see errors or severe slowdowns under load."
 			rem := "Increase capacity, optimize slow endpoints, add caching/queueing, and tune timeouts/autoscaling before higher traffic."
 			if stress.BreakingPointUsers > 0 {
@@ -121,44 +206,63 @@ func ComputeResilience(secFindings []Finding, securityPartial bool, stress Stres
 				Severity:      "high",
 				ImpactSummary: impact,
 				Remediation:   rem,
-				Source:        "stress_test",
+				Evidence: fmt.Sprintf(
+					"Measured ramp result: breached=%v, breaking_point_users=%d, peak_observed_rps=%.2f, safe_rps_estimate=%.2f, peak_error_rate=%.2f%%, peak_p99_ms=%.0f, reason=%q.",
+					stress.Breached, stress.BreakingPointUsers, stress.MaxObservedRPS, stress.MaxSafeRPS, stress.PeakErrorRatePct, stress.PeakP99MS, stress.BreachReason),
+				Source: "stress_test",
 			})
-			notes = append(notes, fmt.Sprintf("Breaking point detected: %s", stress.BreachReason))
+			notes = append(notes, fmt.Sprintf("Breaking point detected from measured telemetry: %s", stress.BreachReason))
 		} else {
-			// No breach observed within test window; modest credit only, not a guarantee.
-			if stress.MaxObservedUsers >= 200 {
-				score += 2
-			}
 			notes = append(notes, "No failure threshold breached within the audit's time/load window (not a guarantee under higher load).")
+			if stress.MaxObservedUsers >= 200 {
+				resilienceScore += 2
+			}
 		}
 
-		// Penalize poor observed reliability/latency even without formal breach.
+		// Penalize poor observed reliability/latency (resilience) even without formal breach.
 		if stress.PeakErrorRatePct > 1.0 {
-			score -= int(math.Min(12, math.Round(stress.PeakErrorRatePct)))
+			pen := int(math.Min(12, math.Round(stress.PeakErrorRatePct)))
+			resilienceScore -= pen
+			capacityScore -= pen / 2
 		}
 		if stress.PeakP99MS > 1000 {
-			score -= int(math.Min(10, math.Round((stress.PeakP99MS-1000)/300)))
+			pen := int(math.Min(10, math.Round((stress.PeakP99MS-1000)/300)))
+			resilienceScore -= pen
+			capacityScore -= pen / 2
+		}
+
+		notes = append(notes, fmt.Sprintf(
+			"Measured capacity evidence: observed peak throughput=%.2f RPS, observed peak users=%d, sustainable/safe capacity estimate=%.2f RPS (from samples meeting thresholds), peak error=%.2f%%, peak p99=%.0fms.",
+			stress.MaxObservedRPS, stress.MaxObservedUsers, stress.MaxSafeRPS, stress.PeakErrorRatePct, stress.PeakP99MS))
+		if stress.MaxSafeRPS > 0 && stress.MaxObservedRPS > stress.MaxSafeRPS {
+			notes = append(notes, "Observed peak throughput can exceed sustainable/safe capacity estimate; sustainable/safe estimate is derived only from measured samples meeting error/latency thresholds.")
 		}
 	}
 
-	if score < 0 {
-		score = 0
-	}
-	if score > 100 {
-		score = 100
-	}
+	securityScore = clampScore(securityScore)
+	capacityScore = clampScore(capacityScore)
+	resilienceScore = clampScore(resilienceScore)
+	evidenceScore = clampScore(evidenceScore)
+	overall := clampScore(int(math.Round(0.35*float64(securityScore) + 0.25*float64(resilienceScore) + 0.25*float64(capacityScore) + 0.15*float64(evidenceScore))))
 
-	switch {
-	case score >= 80:
-		risk = RiskLow
-	case score >= 55:
-		risk = RiskModerate
-	default:
-		risk = RiskCritical
+	breakdown := ScoreBreakdown{
+		Overall:         overall,
+		Security:        securityScore,
+		Resilience:      resilienceScore,
+		Capacity:        capacityScore,
+		EvidenceQuality: evidenceScore,
 	}
-
+	risk := riskForOverall(overall)
 	findings = dedupeFindings(findings)
-	return score, risk, findings, notes
+	return breakdown, risk, findings, notes
+}
+
+// ComputeResilience calculates score/risk from scan and stress outcomes.
+// Backward-compatible wrapper around ComputeAssessment.
+// No values are fabricated: capacity metrics are only scored when measured.
+func ComputeResilience(secFindings []Finding, securityPartial bool, stress StressOutcome) (score int, risk string, findings []Finding, notes []string) {
+	breakdown, risk, findings, notes := ComputeAssessment(secFindings, securityPartial, stress)
+	return breakdown.Overall, risk, findings, notes
 }
 
 // StressOutcome captures measured load-test results (no fabricated values).
@@ -166,13 +270,59 @@ type StressOutcome struct {
 	Available          bool
 	Breached           bool
 	BreakingPointUsers int
-	MaxSafeRPS         float64
-	MaxObservedRPS     float64
+	MaxSafeRPS         float64 // measured sustainable/safe RPS estimate from samples meeting thresholds
+	MaxObservedRPS     float64 // measured observed peak throughput
 	MaxObservedUsers   int
 	PeakErrorRatePct   float64
 	PeakP99MS          float64
 	BreachReason       string
-	Notes              []string
+	// RejectedByTarget is set when the target refused the traffic itself
+	// (dominant 401/403/407/429), making capacity unmeasurable in this run.
+	RejectedByTarget bool
+	RejectStatusCode int
+	RejectSharePct   float64
+	// Skipped indicates the stress/load stage was intentionally not executed
+	// (e.g. passive mode). No capacity penalty or fabricated measurement applies.
+	Skipped bool
+	Notes   []string
+}
+
+// RawEvidenceInput captures measured inputs for deterministic evidence hashing.
+// Only observed/measured or explicitly provided configuration fields are included.
+type RawEvidenceInput struct {
+	TargetURL               string        `json:"target_url"`
+	Mode                    string        `json:"mode,omitempty"`
+	RequestedMaxDurationSec int           `json:"requested_max_duration_sec,omitempty"`
+	SecurityPartial         bool          `json:"security_scan_partial"`
+	SecurityFindings        []Finding     `json:"security_findings,omitempty"`
+	Stress                  StressOutcome `json:"stress"`
+}
+
+// ComputeRawEvidenceHash returns a deterministic SHA-256 hash of measured/raw
+// evidence inputs and executed test configuration context. No synthetic metrics
+// are added; fields are included as observed/provided.
+func ComputeRawEvidenceHash(in RawEvidenceInput) (hash string, format string, err error) {
+	// Normalize for determinism.
+	normFindings := append([]Finding(nil), in.SecurityFindings...)
+	sort.SliceStable(normFindings, func(i, j int) bool {
+		if normFindings[i].Source != normFindings[j].Source {
+			return normFindings[i].Source < normFindings[j].Source
+		}
+		if normFindings[i].Severity != normFindings[j].Severity {
+			return normFindings[i].Severity < normFindings[j].Severity
+		}
+		if normFindings[i].Title != normFindings[j].Title {
+			return normFindings[i].Title < normFindings[j].Title
+		}
+		return normFindings[i].Evidence < normFindings[j].Evidence
+	})
+	in.SecurityFindings = normFindings
+	b, err := json.Marshal(in)
+	if err != nil {
+		return "", "", err
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:]), "sha256(json:sift.audit360.raw-evidence/v1)", nil
 }
 
 // IsDemoStoreTarget reports whether targetURL matches the configured demo-store URL.

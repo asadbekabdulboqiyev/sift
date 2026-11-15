@@ -84,7 +84,7 @@ type sealPayload struct {
 	Format               string    `json:"format"`
 	TargetURL            string    `json:"target_url"`
 	Timestamp            string    `json:"timestamp"`
-	ResilienceScore      int       `json:"resilience_score"`
+	ResilienceScore      int       `json:"resilience_score"` // overall (backward compatibility)
 	RiskLevel            string    `json:"risk_level"`
 	BreakingPointUsers   int       `json:"breaking_point_users,omitempty"`
 	MaxSafeRPS           float64   `json:"max_safe_rps,omitempty"`
@@ -94,11 +94,17 @@ type sealPayload struct {
 	Findings             []Finding `json:"findings"`
 	Notes                []string  `json:"notes,omitempty"`
 	DurationMS           int64     `json:"duration_ms"`
+	// Additive integrity fields.
+	ScoringVersion    string             `json:"scoring_version,omitempty"`
+	Scores            *ScoreBreakdown    `json:"scores,omitempty"`
+	TestConfiguration *TestConfiguration `json:"test_configuration,omitempty"`
+	RawEvidenceHash   string             `json:"raw_evidence_hash,omitempty"`
+	RawEvidenceFormat string             `json:"raw_evidence_format,omitempty"`
 }
 
 func canonicalSealPayload(report *Audit360Report) ([]byte, error) {
 	p := sealPayload{
-		Format:               "sift.audit360/v1",
+		Format:               "sift.audit360/v2",
 		TargetURL:            report.TargetURL,
 		Timestamp:            report.Timestamp,
 		ResilienceScore:      report.ResilienceScore,
@@ -111,8 +117,13 @@ func canonicalSealPayload(report *Audit360Report) ([]byte, error) {
 		Findings:             append([]Finding(nil), report.Findings...),
 		Notes:                append([]string(nil), report.Notes...),
 		DurationMS:           report.DurationMS,
+		ScoringVersion:       report.ScoringVersion,
+		Scores:               report.Scores,
+		TestConfiguration:    report.TestConfiguration,
+		RawEvidenceHash:      report.RawEvidenceHash,
+		RawEvidenceFormat:    report.RawEvidenceFormat,
 	}
-	// Deterministic enough for this use (struct field order fixed; findings kept in report order).
+	// Deterministic for this use (struct field order fixed; findings/notes preserved in report order).
 	b, err := json.Marshal(p)
 	if err != nil {
 		return nil, fmt.Errorf("audit360: marshal seal payload: %w", err)

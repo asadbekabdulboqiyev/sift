@@ -53,25 +53,28 @@ func (s *Server) handleAudit360Start(w http.ResponseWriter, r *http.Request) {
 	}
 
 	demoURL := s.demoStoreTargetURL()
-	target, maxDur, err := audit360.ValidateStartRequest(req, demoURL)
+	adminBypass := s.authMiddleware == nil
+	if s.auth != nil {
+		principal, roles, _ := PrincipalAndRolesFromContext(r.Context())
+		adminBypass = s.auth.rbacAllowed(principal, roles, "admin:access")
+	}
+	target, maxDur, mode, err := audit360.ValidateStartRequest(req, demoURL, adminBypass)
 	if err != nil {
-		// Requirement: reject with 403 Forbidden if authorized is false or target not in allowlist/demo-store.
-		// Also reject malformed/unsafe targets clearly (safety-first); use 403 for authz/allowlist violations.
 		msg := err.Error()
 		code := http.StatusForbidden
-		if strings.Contains(msg, "target_url") && (strings.Contains(msg, "required") || strings.Contains(msg, "valid")) {
-			// malformed target is not an allowlist pass; keep forbidden-safe posture? better 400 would be clearer,
-			// but requirement states 403 for specific cases. Use 403 for unauthorized/allowlist, 400 for format.
-			if strings.Contains(msg, "required") || strings.Contains(msg, "valid http(s)") || strings.Contains(msg, "credentials") {
-				code = http.StatusBadRequest
-			}
+		if strings.Contains(msg, "mode must be") {
+			code = http.StatusBadRequest
+		} else if strings.Contains(msg, "target_url") && (strings.Contains(msg, "required") || strings.Contains(msg, "valid") || strings.Contains(msg, "credentials")) {
+			code = http.StatusBadRequest
+		} else if strings.Contains(msg, "admin mode is not permitted") || strings.Contains(msg, "authorized confirmation") {
+			code = http.StatusForbidden
 		}
 		writeAudit360JSON(w, code, audit360.StartResponse{OK: false, Error: msg})
 		return
 	}
 
 	mgr := s.ensureAudit360Manager()
-	jobID, err := mgr.Start(context.Background(), target, maxDur, demoURL)
+	jobID, err := mgr.Start(context.Background(), target, maxDur, demoURL, mode)
 	if err != nil {
 		writeAudit360JSON(w, http.StatusInternalServerError, audit360.StartResponse{OK: false, Error: err.Error()})
 		return

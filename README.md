@@ -3,7 +3,7 @@
 [![Go 1.26+](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev/dl/)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
-[![Version](https://img.shields.io/badge/Version-0.16.0-green.svg)](https://github.com/asadbekabdulboqiyev/sift/releases/tag/v0.16.0)
+[![Version](https://img.shields.io/badge/Version-0.16.2-green.svg)](https://github.com/asadbekabdulboqiyev/sift/releases/tag/v0.16.2)
 
 **Sift** is a professional, self-hostable toolkit written in Go for **multi-protocol load testing**, **traffic replay**, **security scanning/pentest workflows**, **verifiable (cryptographically attestable) evidence**, and **planning/triage insights**.
 
@@ -19,7 +19,7 @@ It is designed for engineers, QA teams, and security practitioners who need a un
 
 - [Overview](#overview)
 - [Key Capabilities](#key-capabilities)
-- [What's Included in 0.16.0](#whats-included-in-0160)
+- [What's Included in 0.16.2](#whats-included-in-0161)
 - [Comparison with Paid Alternatives](#comparison-with-paid-alternatives)
 - [System Requirements](#system-requirements)
 - [Installation](#installation)
@@ -87,7 +87,13 @@ Sift unifies multiple testing, assessment, and evidence workflows in one toolcha
 ## Key Capabilities
 
 ### Sift 360° — 1-Click Security & Capacity Audit
-Unified 1-click full diagnostic: security scan (headers/TLS/OWASP), breaking-point stress test (linear-ramp from 50 VUs, stops at error rate >5% or p99 >2000ms), resilience scoring (0–100 with risk level and remediation), and VPMP v1 cryptographic attestation (Ed25519 signature over canonical report digest). Output includes `resilience_score`, `risk_level`, `breaking_point_users`, `max_safe_rps`, findings with business impact & fix instructions, `certificate_id`, `vpmp_signature`, and ISO8601 `timestamp`. Safety: `403 Forbidden` if `authorized==false` or target not in allowlist/demo-store. Real-time progress via SSE or polling. No-fabrication: unavailable metrics explicitly labeled. Modular `internal/audit360/` package, no breakage to P1–P4.
+Unified 1-click full diagnostic for **any `http(s)` target** with mode selection:
+- **Passive** — non-intrusive checks only (no active load/breaking-point test); capacity is reported as skipped/not measured.
+- **Standard** — requires explicit authorization confirmation and may run an active load/breaking-point test (linear ramp from 50 VUs, stops at error rate >5% or p99 >2000ms).
+
+Pipeline stages: **1. Scanning Security** (headers/TLS/OWASP) → **2. Testing Load Limit** (skipped in Passive) → **3. Calculating Resilience** (0–100, risk level/remediation) → **4. Sealing VPMP Certificate** (Ed25519 attestation over canonical report digest). Output includes `resilience_score`, `risk_level`, `breaking_point_users`, `max_safe_rps`, findings with business impact & fix instructions, `certificate_id`, `vpmp_signature`, and ISO8601 `timestamp`.
+
+Safety/behavior: same-origin checks for state-changing requests; Standard mode requires authorization confirmation; Passive performs non-intrusive checks only; unavailable metrics are explicitly labeled (no-fabrication). Backend may permit an operator **Admin** mode when allowed (not shown in the standard UI). Real-time progress via SSE or polling. Modular `internal/audit360/` package.
 
 ### Load & Performance
 - Protocols: HTTP/HTTPS, WebSocket (`ws`/`wss`), gRPC (`grpc`/`grpcs`), TCP, UDP
@@ -130,18 +136,21 @@ Unified 1-click full diagnostic: security scan (headers/TLS/OWASP), breaking-poi
 
 ---
 
-## What's Included in 0.16.0
+## What's Included in 0.16.2
 
-- **Sift 360° — 1-Click Security & Capacity Audit (flagship)**: `POST /api/audit-360` runs a 4-stage pipeline (security scan → breaking-point stress → resilience scoring → VPMP v1 attestation) with SSE/polling progress, `403` safety gating, and a full dashboard scorecard with print/export
-- **Reliability hardening (P0–P4)**: monotonic actual-duration timing, explicit evidence statuses (`INSUFFICIENT_DATA`/`NOT_CONFIGURED`/`unavailable`), partial-report synthesis on worker disconnect/liveness kill/timeout grace, and no-fabrication guarantees
-- **Dataset validation (P2)**: canonical `sift.twin-dataset-manifest/v1` manifests with provenance/ID/hash/boundary verification, leakage classification (`verified_no_leakage`/`leakage_detected`/`unverified`), and `--strict-validation`/`--strict-no-leakage` CLI gates
-- **Model verification (P3)**: deterministic seeded verification suites across twin, hostxray, and dashboard models, with legacy `sift.twin/v1` compatibility retained
-- **Resource evidence (P4)**: standardized `status`/`unit`/`source`/`reason` + observation-window propagation across run, xray, report, twin, and dashboard
-- **5th dashboard section — Insights**: Digital Twin (`simulate`), Host X-Ray (`xray`), and Bounty/Triage (`bounty`) workflows in one place
-- **Dashboard API parity**: `compare`/`backtest` accept inline datasets manifests and strict-validation flags, returning `manifest`, `verification`, and provenance-based `leakage`
-- **Stability/polish**: `gofmt`/`go vet`/`go build`/targeted `go test` verification, rebuilt release artifacts
+**Sift 360° audit integrity, scoring, and dashboard updates**
 
-> Results from `simulate`, `xray`, and Sift 360° are for planning/assessment support (estimates/correlations), not guarantees or causal proof. Bounty workflows support evidence integrity and auditable triage decisions, not automatic payouts.
+- **Split scoring (0–100) with additive breakdown**: overall score plus separate `security`, `resilience`, `capacity`, and `evidence_quality` assessments (`scores`, `scoring_version: sift.audit360-scoring/v2`), while preserving backward-compatible `resilience_score`/risk fields.
+- **Certificate integrity binding**: sealing now cryptographically binds target, timestamp, test configuration, raw evidence hash/format, scoring version, scores, findings, and notes (additive `sift.audit360/v2` seal payload fields: `test_configuration`, `raw_evidence_hash`, `raw_evidence_format`, `scores`, `scoring_version`).
+- **Capacity reporting clarity (measured only)**: distinguishes observed peak throughput/users from sustainable/safe capacity estimates; blocked/refused-load runs remain non-fabricated and unmeasurable for capacity.
+- **Findings with evidence and remediation**: normalized findings carry `evidence` and `remediation` (additive) and improved deduplication in Audit360 scoring/orchestration.
+- **Distributed reliability (data preservation)**: on worker attestation rejection, coordinator preserves previously accepted telemetry and synthesizes a partial report from last snapshot instead of discarding existing evidence.
+- **Dashboard/certificate UX**: real scannable QR preview for certificate verification reference, refreshed dashboard screenshots, and Sift 360°/certificate UI updates.
+
+**Notes**
+- No fabricated metrics: capacity/scores/findings are reported only from measured/observed or explicitly provided inputs.
+- Backward compatibility preserved for existing APIs/formats via additive fields and legacy wrappers.
+- Model validation/leakage-drift hardening and broad scanner/pentest finding dedupe-evidence across all subsystems were not fully reworked in this release beyond targeted Audit360/distributed improvements.
 
 ---
 
@@ -192,7 +201,7 @@ Sift can be installed in multiple ways depending on your environment and operati
 ```bash
 git clone https://github.com/asadbekabdulboqiyev/sift.git
 cd sift
-./scripts/install-local.sh 0.16.0
+./scripts/install-local.sh 0.16.2
 # or: make install
 ```
 This builds all binaries, installs them to `$(go env GOBIN)` (or `$SIFT_INSTALL_DIR`), and performs macOS signing/launch checks.
@@ -206,9 +215,9 @@ sift version
 
 #### Option C: Release installer script (review before running)
 ```bash
-curl -fsSL -o install.sh https://raw.githubusercontent.com/asadbekabdulboqiyev/sift/v0.16.0/scripts/install.sh
+curl -fsSL -o install.sh https://raw.githubusercontent.com/asadbekabdulboqiyev/sift/v0.16.2/scripts/install.sh
 less install.sh
-./install.sh v0.16.0
+./install.sh v0.16.2
 ```
 Notes:
 - The script downloads release archives, verifies checksums (and can verify signatures if `cosign` is installed), installs binaries, and performs macOS signature/launch validation.
@@ -218,7 +227,7 @@ Notes:
 ```bash
 git clone https://github.com/asadbekabdulboqiyev/sift.git
 cd sift
-./scripts/build-all.sh 0.16.0
+./scripts/build-all.sh 0.16.2
 # binaries in ./bin
 ```
 
@@ -228,7 +237,7 @@ cd sift
 ```bash
 git clone https://github.com/asadbekabdulboqiyev/sift.git
 cd sift
-./scripts/install-local.sh 0.16.0
+./scripts/install-local.sh 0.16.2
 # or: make build && copy ./bin/* to a PATH directory
 ```
 
@@ -240,9 +249,9 @@ export PATH="$PATH:$(go env GOPATH)/bin"
 
 #### Option C: Release installer script
 ```bash
-curl -fsSL -o install.sh https://raw.githubusercontent.com/asadbekabdulboqiyev/sift/v0.16.0/scripts/install.sh
+curl -fsSL -o install.sh https://raw.githubusercontent.com/asadbekabdulboqiyev/sift/v0.16.2/scripts/install.sh
 less install.sh
-./install.sh v0.16.0
+./install.sh v0.16.2
 ```
 
 #### Option D: Release archives (manual)
@@ -280,12 +289,12 @@ git clone https://github.com/asadbekabdulboqiyev/sift.git
 cd sift
 
 # Build all binaries for current platform
-./scripts/build-all.sh 0.16.0
+./scripts/build-all.sh 0.16.2
 # or
 make build
 
 # Optional: install locally (with macOS signing/launch checks on Darwin)
-./scripts/install-local.sh 0.16.0
+./scripts/install-local.sh 0.16.2
 ```
 
 Produced binaries (local build): `Sift`, `Sift-dashboard`, `Sift-master`, `Sift-worker`, `Sift-replay`, `Sift-scan` (canonical names). Build/install scripts also create lowercase aliases: `sift`, `sift-dashboard`, `sift-master`, `sift-worker`, `sift-replay`, `sift-scan` for cross-platform CLI usage.
@@ -324,20 +333,20 @@ Always download from the official repository release page and verify integrity b
 #### Build images from source
 ```bash
 # Main/all-in-one image (per Dockerfile)
-docker build -t sift:0.16.0 .
+docker build -t sift:0.16.2 .
 
 # Distributed images
-docker build -f Dockerfile.master -t sift-master:0.16.0 .
-docker build -f Dockerfile.worker -t sift-worker:0.16.0 .
+docker build -f Dockerfile.master -t sift-master:0.16.2 .
+docker build -f Dockerfile.worker -t sift-worker:0.16.2 .
 ```
 
 #### Run examples
 ```bash
 # CLI help
-docker run --rm sift:0.16.0 sift --help
+docker run --rm sift:0.16.2 sift --help
 
 # Dashboard (bind to localhost on host)
-docker run --rm -p 127.0.0.1:8888:8888 sift:0.16.0 sift dashboard -listen 0.0.0.0:8888 --insecure
+docker run --rm -p 127.0.0.1:8888:8888 sift:0.16.2 sift dashboard -listen 0.0.0.0:8888 --insecure
 ```
 
 > Container defaults, entrypoints, and exposed ports may differ by image. Review the corresponding `Dockerfile`/compose configuration before production use.
@@ -433,9 +442,9 @@ sift --help | rg "simulate|xray|bounty"
 # 2) Rebuild and install latest local build (from repo root)
 cd /path/to/sift
 git pull
-./scripts/build-all.sh 0.16.0
-SIFT_INSTALL_DIR="$HOME/.local/bin" ./scripts/install-local.sh 0.16.0
-./scripts/install-local.sh 0.16.0
+./scripts/build-all.sh 0.16.2
+SIFT_INSTALL_DIR="$HOME/.local/bin" ./scripts/install-local.sh 0.16.2
+./scripts/install-local.sh 0.16.2
 
 # 3) Verify again
 sift version
@@ -480,7 +489,7 @@ sift run --url http://localhost:8080/health --users 50 --duration 60 --mode dash
 # Open http://127.0.0.1:8888
 ```
 
-New workflows (0.16.0, also available in Insights dashboard section):
+New workflows (0.16.2, also available in Insights dashboard section):
 ```bash
 # Digital twin (from a completed report)
 sift simulate fit --report reports/run.json --out reports/twin
@@ -722,12 +731,27 @@ sift pentest --target https://example.com --dry-run
 ## Web Dashboard
 
 ### Sift 360° — 1-Click Security & Capacity Audit
-The dashboard features a prominent "🛡️ Sift 360° — 1-Click Full Audit" section with a target URL input field (quick-fill: `http://127.0.0.1:8090` VoltStore demo store), a mandatory "I confirm explicit authorization to test this target" checkbox, and a "Run Sift 360° Audit" button. Upon start, a sleek animated 4-stage progress tracker completes within ~25 seconds, showing: 1. Scanning Security → 2. Testing Load Limit → 3. Calculating Resilience → 4. Sealing VPMP Certificate. The Executive Audit Scorecard displays: a circular gauge for the Resilience Score (Green/Yellow/Red), the Breaking Point in bold plain language (e.g. *"Capacity Limit Reached: System fails at 1,450 concurrent users"*), detected vulnerabilities with plain-English business impact and clear fix instructions, a "Print / Export Verified Report" button, and a verifiable VPMP badge/QR code preview. Safety: cross-origin state-changing requests rejected; only authorized demo-store targets permitted. Live progress updates via SSE (`/api/audit-360/stream?job_id=`) with polling fallback (`/api/audit-360/status?job_id=`). No-fabrication: metrics shown only when measured; unavailable checks reported explicitly.
+The dashboard features **Sift 360° — 1-Click Full Audit** with a large target URL input (any `http(s)` target) and mode selection:
+- **Passive** — non-intrusive checks only (no active load/breaking-point test); safe for passive assessment, capacity reported as skipped/not measured.
+- **Standard** — requires explicit authorization confirmation and may run an active load/breaking-point test.
+
+On start, an animated 4-stage progress tracker runs: **1. Scanning Security → 2. Testing Load Limit → 3. Calculating Resilience → 4. Sealing VPMP Certificate** (load stage is skipped in Passive). The Executive Audit Scorecard shows a resilience gauge (Green/Yellow/Red), breaking point/capacity in plain language (when measured), vulnerabilities with business impact and fix instructions, **Print / Export Verified Report**, and a verifiable VPMP badge/QR preview.
+
+Live progress: SSE (`/api/audit-360/stream?job_id=`) with polling fallback (`/api/audit-360/status?job_id=`). Safety/no-fabrication: cross-origin state-changing requests rejected, Standard requires authorization, unavailable metrics explicitly labeled. If a target refuses load traffic, capacity is reported as not measurable (see below).
 
 Start the dashboard:
 ```bash
 sift dashboard
 # default: http://127.0.0.1:8888
+```
+
+#### Auditing a target that refuses the audit traffic
+If the target answers the load generator with `403`/`401`/`407`/`429` for the majority of requests, the ramp measured an access gate, not service capacity. Sift 360° says so explicitly: the scorecard reports *"Capacity not measurable: target refused load (HTTP 403)"*, no breaking point or throughput figure is claimed, and the report includes a medium finding naming the status code with remediation. The JSON report exposes `capacity_blocked`, `blocked_status` and `blocked_share_pct` for automation.
+
+The bundled demo store launched from the dashboard runs with VeriGate protection ON, so it is deliberately in this category. To measure real capacity against it, run the store without protection and audit it again:
+
+```bash
+sift demo-store -protect=false   # or: curl -X POST localhost:8090/admin/protect -d '{"enabled":false}'
 ```
 
 Run a test and control/view it in dashboard mode:
@@ -753,6 +777,9 @@ sift run --url https://api.example.com --users 50 --duration 60 --mode dashboard
 ### Certificate / Attestation
 ![Dashboard Certificate and Attestation](docs/images/05-certificate.png)
 
+### Admin
+![Dashboard Admin](docs/images/06-admin.png)
+
 ### Capabilities
 - Live telemetry: RPS, latency percentiles, status/error trends
 - Run control and history
@@ -761,7 +788,8 @@ sift run --url https://api.example.com --users 50 --duration 60 --mode dashboard
   - Digital Twin: load latest run data, fit model, run/simulate scenarios
   - X-Ray: capability detection and correlation helpers
   - Bounty: manifest validation, full verify-upload (artifact re-hash/replay), and triage status replay
-- Scanner/security panels (OWASP, pentest, crawl, fuzz, subdomains, ports, TLS, JWT, GraphQL, WebSocket, etc.)
+- Scanner/security panels (OWASP, pentest, crawl, fuzz, subdomains, ports, TLS, JWT, GraphQL, WebSocket, etc.) with **toggle-button options** (e.g. Passive/Intrusive/Dry run) instead of checklists
+- Refined UI interactions/animations (tooltips, running indicators) and improved **Certificate** tab/button styling
 - Operational endpoints: `/healthz`, `/readyz`, `/metrics`
 - Attestation/evidence views and bundle download/verification (where available)
 
@@ -1152,7 +1180,7 @@ See `docs/DEPLOYMENT-HARDENING.md` for detailed checklists and examples.
 ### Build
 ```bash
 make build
-./scripts/build-all.sh 0.16.0
+./scripts/build-all.sh 0.16.2
 ```
 
 ### Test and Validation
@@ -1193,7 +1221,7 @@ make verifier
 
 ### Latest version or new features not visible (macOS/CLI/dashboard)
 - Check installed binaries and version: `which -a sift && sift version`.
-- Rebuild/reinstall: `./scripts/build-all.sh 0.16.0 && ./scripts/install-local.sh 0.16.0`.
+- Rebuild/reinstall: `./scripts/build-all.sh 0.16.2 && ./scripts/install-local.sh 0.16.2`.
 - If another copy is earlier in `PATH` (e.g. `~/go/bin` vs `~/.local/bin`), update/remove the stale one or adjust `PATH`.
 - For dashboard UI, restart the dashboard process and hard refresh the browser (`Cmd+Shift+R`).
 - Confirm the running dashboard serves latest APIs: `curl -sS http://127.0.0.1:8888/api/version`.

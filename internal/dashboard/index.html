@@ -37,7 +37,7 @@
       <button class="sb-link" type="button" data-view="viewInsights">
         <span class="sb-ico" aria-hidden="true">✦</span><span>Insights</span><span class="sb-key">5</span>
       </button>
-      <button class="sb-link sb-link--admin" type="button" data-view="viewAdmin" id="navAdmin">
+      <button class="sb-link sb-link--admin tip tp-58" type="button" data-view="viewAdmin" id="navAdmin" data-tip="Open admin area">
         <span class="sb-ico" aria-hidden="true">⚙</span><span>Admin</span><span class="sb-key">A</span>
       </button>
     </nav>
@@ -55,9 +55,9 @@
       <span class="badge badge-idle" id="statusBadge" role="status" aria-live="polite">idle</span>
     </div>
     <div class="header-right">
-      <button class="btn btn-demo" id="btnDemoStore" type="button"
+      <button class="btn btn-demo tip tp-58" id="btnDemoStore" type="button"
         title="Launch the bundled VoltStore demo (VeriGate protection ON) and open it in a new tab"
-        aria-label="Launch or open the VoltStore demo site">
+        aria-label="Launch or open the VoltStore demo site" data-tip="Launch the bundled VoltStore demo (VeriGate protection ON) and open it in a new tab">
         <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.7 14.2 13H1.8z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 6.2v3.2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="8" cy="11.6" r=".95" fill="currentColor"/></svg>
         <span id="btnDemoLabel">Launch Demo Store</span>
       </button>
@@ -81,7 +81,7 @@
     <div class="a360-head">
       <div>
         <div class="a360-kicker">1-click full audit</div>
-        <h2 class="a360-title" id="a360Title">🛡️ Sift 360° — 1-Click Full Audit</h2>
+        <h2 class="a360-title" id="a360Title">Sift 360° — 1-Click Full Audit</h2>
         <p class="a360-sub">Security scan, breaking-point stress test, resilience score, and VPMP-attested certificate in ~25 seconds (authorized demo targets only).</p>
       </div>
       <div class="a360-badge">VPMP v1 attested</div>
@@ -91,19 +91,22 @@
         <div class="a360-field a360-field--grow">
           <label class="form-label" for="a360Target">Target URL</label>
           <div class="a360-input-wrap">
-            <input id="a360Target" class="form-input" type="text" inputmode="url" spellcheck="false" autocomplete="off" placeholder="http://127.0.0.1:8090" aria-describedby="a360TargetHelp a360Error">
-            <button type="button" class="btn btn-ghost btn-sm" id="a360FillDemo" title="Quick-fill local VoltStore demo server URL">Use VoltStore demo</button>
+            <input id="a360Target" class="form-input form-input-lg a360-target-input" type="text" inputmode="url" spellcheck="false" autocomplete="off" placeholder="https://example.com" aria-describedby="a360TargetHelp a360Error">
+            <button type="button" class="btn btn-ghost btn-sm tip tp-58" id="a360FillDemo" title="Quick-fill local VoltStore demo server URL" data-tip="Use local VoltStore demo target">Use VoltStore demo</button>
           </div>
-          <div class="form-help" id="a360TargetHelp">Allowed target: local VoltStore demo server (<code>http://127.0.0.1:8090</code>) when explicitly authorized.</div>
+          <div class="form-help" id="a360TargetHelp">Enter any <code>http(s)</code> URL you are authorized to test. <strong>Passive</strong>: non-intrusive checks only (no active load). <strong>Standard</strong>: requires authorization confirmation and may run an active load/breaking-point test.</div>
         </div>
       </div>
       <div class="a360-row a360-row--meta">
-        <label class="a360-check">
+        <div class="a360-modes" role="group" aria-label="Audit mode">
+          <button type="button" class="btn btn-ghost btn-sm a360-mode tip tp-58" data-mode="passive" id="a360ModePassive" aria-pressed="false" data-tip="Passive: non-intrusive checks only">Passive</button>
+          <button type="button" class="btn btn-ghost btn-sm a360-mode active tip tp-58" data-mode="standard" id="a360ModeStandard" aria-pressed="true" data-tip="Standard: requires authorization, may run load test">Standard</button>
+        </div>
+        <label class="a360-check" id="a360AuthWrap">
           <input id="a360Authorized" type="checkbox">
           <span>I confirm explicit authorization to test this target.</span>
         </label>
-        <button type="submit" class="btn btn-start a360-start" id="a360StartBtn">
-          <span class="a360-start-ico" aria-hidden="true">🛡️</span>
+        <button type="submit" class="btn btn-start a360-start tip tp-58" id="a360StartBtn" data-tip="Start the 1-click Sift 360° audit">
           <span>Run Sift 360° Audit</span>
         </button>
       </div>
@@ -124,6 +127,7 @@
       </ol>
       <div class="a360-running" id="a360RunningIndicator">
         <svg class="ld-ekg a360-ekg" viewBox="0 0 64 32" aria-hidden="true"><polyline points="0,16 14,16 20,6 28,26 34,16 64,16"></polyline></svg>
+        <div class="ld-bars a360-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
         <span>Live analysis running…</span>
       </div>
     </div>
@@ -136,7 +140,7 @@
           <p class="a360-result-sub" id="a360ResultMeta">—</p>
         </div>
         <div class="a360-result-actions">
-          <button type="button" class="btn btn-ghost" id="a360PrintBtn">Print / Export Verified Report</button>
+          <button type="button" class="btn btn-ghost tip tp-58" id="a360PrintBtn" data-tip="Print or export the verified report">Print / Export Verified Report</button>
         </div>
       </div>
 
@@ -185,7 +189,7 @@
 
   <!-- First-run onboarding / empty state -->
   <section class="onboarding hidden" id="onboarding" aria-labelledby="obTitle">
-    <button class="ob-close" id="onboardingClose" type="button" title="Do not show this guide again" aria-label="Dismiss the getting started guide permanently">
+    <button class="ob-close tip tp-58" id="onboardingClose" type="button" title="Do not show this guide again" aria-label="Dismiss the getting started guide permanently" data-tip="Do not show this guide again">
       <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
     </button>
     <div class="ob-body">
@@ -198,8 +202,8 @@
           <input id="obUrl" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="http://127.0.0.1:8080/health" title="Full URL of the endpoint you want to load test" aria-describedby="obError">
           <p class="field-error" id="obError" role="alert"></p>
         </div>
-        <button class="btn btn-ghost" id="btnLoadDemo" type="button" title="Fill in the bundled demo server URL: http://127.0.0.1:8080/health">Load demo</button>
-        <button class="btn btn-start" id="btnObStart" type="submit" title="Start the first run (keyboard shortcut: S)">
+        <button class="btn btn-ghost tip tp-58" id="btnLoadDemo" type="button" title="Fill in the bundled demo server URL: http://127.0.0.1:8080/health" data-tip="Fill in the bundled demo server URL: http://127.0.0.1:8080/health">Load demo</button>
+        <button class="btn btn-start tip tp-58" id="btnObStart" type="submit" title="Start the first run (keyboard shortcut: S)" data-tip="Start the first run (keyboard shortcut: S)">
           <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.8v10.4L13 8z" fill="currentColor"/></svg>
           <span>Start first run</span>
         </button>
@@ -223,14 +227,14 @@
         <h2 class="summary-title" id="summaryTitle">Test complete</h2>
         <p class="summary-note" id="summaryNote"></p>
       </div>
-      <button class="summary-close" id="summaryClose" type="button" title="Dismiss this summary" aria-label="Dismiss the run summary">
+      <button class="summary-close tip tp-58" id="summaryClose" type="button" title="Dismiss this summary" aria-label="Dismiss the run summary" data-tip="Dismiss this summary">
         <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       </button>
     </div>
     <div class="summary-stats" id="summaryStats"></div>
     <div class="summary-actions">
-      <button class="btn btn-ghost" id="btnViewReport" type="button" title="Jump to the latest run report">View report</button>
-      <button class="btn btn-start" id="btnRunAgain" type="button" title="Start the same run again (keyboard shortcut: S)">
+      <button class="btn btn-ghost tip tp-58" id="btnViewReport" type="button" title="Jump to the latest run report" data-tip="Jump to the latest run report">View report</button>
+      <button class="btn btn-start tip tp-58" id="btnRunAgain" type="button" title="Start the same run again (keyboard shortcut: S)" data-tip="Start the same run again (keyboard shortcut: S)">
         <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.8v10.4L13 8z" fill="currentColor"/></svg>
         <span>Run again</span>
       </button>
@@ -255,9 +259,9 @@
           <span class="attest-value" id="attestPercentiles">—</span>
         </div>
         <div class="attest-actions">
-          <button class="btn btn-ghost" id="btnAttestDownloadBundle" type="button" disabled>Download bundle</button>
-          <button class="btn btn-ghost" id="btnAttestDownloadSamples" type="button" disabled>Download samples</button>
-          <button class="btn btn-ghost" id="btnAttestVerify" type="button">Verify (server)</button>
+          <button class="btn btn-ghost tip tp-58" id="btnAttestDownloadBundle" type="button" disabled data-tip="Download">Download bundle</button>
+          <button class="btn btn-ghost tip tp-58" id="btnAttestDownloadSamples" type="button" disabled data-tip="Download">Download samples</button>
+          <button class="btn btn-ghost tip tp-58" id="btnAttestVerify" type="button" data-tip="Verify">Verify (server)</button>
         </div>
         <div class="attest-status" id="attestVerifyStatus">—</div>
       </div>
@@ -331,11 +335,11 @@
         </select>
       </div>
       <div class="controls-actions">
-        <button class="btn btn-start" id="btnStart" type="submit" title="Start the run (keyboard shortcut: S)">
+        <button class="btn btn-start tip tp-58" id="btnStart" type="submit" title="Start the run (keyboard shortcut: S)" data-tip="Start the run (keyboard shortcut: S)">
           <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.8v10.4L13 8z" fill="currentColor"/></svg>
           <span id="btnStartLabel">Start</span>
         </button>
-        <button class="btn btn-stop" id="btnStop" type="button" disabled title="Stop the running run — press twice to confirm (keyboard shortcut: E)" aria-label="Stop the current run. Press twice to confirm.">
+        <button class="btn btn-stop tip tp-58" id="btnStop" type="button" disabled title="Stop the running run — press twice to confirm (keyboard shortcut: E)" aria-label="Stop the current run. Press twice to confirm." data-tip="Stop current run">
           <svg class="ico" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="1.5" fill="currentColor"/></svg>
           <span id="btnStopLabel">Stop</span>
         </button>
@@ -491,9 +495,11 @@
         <label class="field-label" for="owaspPaths">Extra paths (optional, comma separated)</label>
         <input id="owaspPaths" type="text" placeholder="/, /login" spellcheck="false">
       </div>
-      <label class="owasp-check"><input type="checkbox" id="owaspPassive" checked> Passive checks</label>
-      <label class="owasp-check"><input type="checkbox" id="owaspIntrusive"> Intrusive probes</label>
-      <label class="owasp-check"><input type="checkbox" id="owaspDryRun"> Dry run</label>
+      <div class="owasp-checks scan-opts" role="group" aria-label="OWASP scan options">
+        <button type="button" class="btn btn-ghost btn-sm scan-toggle tip tp-58 active" id="owaspPassive" aria-pressed="true" data-tip="Passive checks (read-only)">Passive</button>
+        <button type="button" class="btn btn-ghost btn-sm scan-toggle tip tp-58" id="owaspIntrusive" aria-pressed="false" data-tip="Intrusive probes (state-changing)">Intrusive</button>
+        <button type="button" class="btn btn-ghost btn-sm scan-toggle tip tp-58" id="owaspDryRun" aria-pressed="false" data-tip="Dry run (no requests sent)">Dry run</button>
+      </div>
       <button class="btn btn-primary owasp-run" id="btnOwaspRun" type="submit">
         <span class="btn-label">Run scan</span>
       </button>
@@ -557,9 +563,11 @@
         <input id="pentestTicket" type="text" placeholder="e.g. SEC-1042" spellcheck="false" autocomplete="off">
         <p class="field-hint">Required. Approve the target first: <code>Sift authorize add --pattern &lt;host&gt; --approver &lt;name&gt; --ticket &lt;id&gt;</code></p>
       </div>
-      <label class="pentest-check"><input type="checkbox" id="pentestPassive"> Passive checks (read-only)</label>
-      <label class="pentest-check"><input type="checkbox" id="pentestIntrusive"> Intrusive probes</label>
-      <label class="pentest-check"><input type="checkbox" id="pentestDryRun"> Dry run</label>
+      <div class="pentest-checks scan-opts" role="group" aria-label="Pentest options">
+        <button type="button" class="btn btn-ghost btn-sm scan-toggle tip tp-58 active" id="pentestPassive" aria-pressed="true" data-tip="Passive checks (read-only)">Passive</button>
+        <button type="button" class="btn btn-ghost btn-sm scan-toggle tip tp-58" id="pentestIntrusive" aria-pressed="false" data-tip="Intrusive probes">Intrusive</button>
+        <button type="button" class="btn btn-ghost btn-sm scan-toggle tip tp-58" id="pentestDryRun" aria-pressed="false" data-tip="Dry run">Dry run</button>
+      </div>
       <button class="btn btn-primary pentest-run" id="btnPentestRun" type="submit">
         <span class="btn-label">Run pentest</span>
       </button>
@@ -616,8 +624,10 @@
         <label class="field-label" for="crawlConcur">Concurrency</label>
         <input id="crawlConcur" type="number" value="5" min="1" max="20" title="How many pages to fetch at the same time">
       </div>
-      <label class="crawl-check"><input type="checkbox" id="crawlOffsite"> Follow offsite links</label>
-      <label class="crawl-check"><input type="checkbox" id="crawlDryRun"> Dry run</label>
+      <div class="crawl-checks scan-opts" role="group" aria-label="Crawl options">
+        <button type="button" class="btn btn-ghost btn-sm scan-toggle tip tp-58" id="crawlOffsite" aria-pressed="false" data-tip="Follow offsite links">Offsite</button>
+        <button type="button" class="btn btn-ghost btn-sm scan-toggle tip tp-58" id="crawlDryRun" aria-pressed="false" data-tip="Dry run">Dry run</button>
+      </div>
       <button class="btn btn-primary crawl-run" id="btnCrawlRun" type="submit">
         <span class="btn-label">Start crawl</span>
       </button>
@@ -665,7 +675,9 @@
         <label class="field-label" for="fuzzMutations">Mutations per path</label>
         <input id="fuzzMutations" type="number" value="100" min="1" max="1000">
       </div>
-      <label class="fuzz-check"><input type="checkbox" id="fuzzIntrusive"> Intrusive mutations</label>
+      <div class="fuzz-checks scan-opts" role="group" aria-label="Fuzzer options">
+        <button type="button" class="btn btn-ghost btn-sm scan-toggle tip tp-58" id="fuzzIntrusive" aria-pressed="false" data-tip="Enable intrusive mutations">Intrusive</button>
+      </div>
       <button class="btn btn-primary fuzz-run" id="btnFuzzRun" type="submit">
         <span class="btn-label">Start fuzz</span>
       </button>
@@ -912,9 +924,9 @@
     </div>
 
     <div class="cert-tabs">
-      <button class="cert-tab active" id="tabCertIssue">Issue</button>
-      <button class="cert-tab" id="tabCertVerify">Verify</button>
-      <button class="cert-tab" id="tabCertHistory">History</button>
+      <button class="cert-tab active tip tp-58" id="tabCertIssue" data-tip="Issue">Issue</button>
+      <button class="cert-tab tip tp-58" id="tabCertVerify" data-tip="Verify">Verify</button>
+      <button class="cert-tab tip tp-58" id="tabCertHistory" data-tip="History">History</button>
     </div>
 
     <!-- Issue: pentest report → signed certificate -->
@@ -925,10 +937,10 @@
         <p class="cert-note" id="certLatestNote"></p>
         <div class="cert-facts mt-12" id="certLatestFacts"></div>
         <div class="cert-latest-actions mt-12">
-          <button class="btn btn-primary" id="btnCertLatestIssue" type="button">Issue certificate</button>
-          <button class="btn btn-ghost" id="btnCertLatestView" type="button">View certificate</button>
-          <button class="btn btn-ghost" id="btnCertLatestPdf" type="button">Download PDF</button>
-          <button class="btn btn-ghost" id="btnCertLatestHtml" type="button">Download HTML</button>
+          <button class="btn btn-primary tip tp-58" id="btnCertLatestIssue" type="button" data-tip="Issue certificate">Issue certificate</button>
+          <button class="btn btn-ghost tip tp-58" id="btnCertLatestView" type="button" data-tip="View certificate">View certificate</button>
+          <button class="btn btn-ghost tip tp-58" id="btnCertLatestPdf" type="button" data-tip="Download">Download PDF</button>
+          <button class="btn btn-ghost tip tp-58" id="btnCertLatestHtml" type="button" data-tip="Download">Download HTML</button>
         </div>
         <div class="cert-status" id="certLatestStatus" role="status" aria-live="polite"></div>
       </div>
@@ -939,7 +951,7 @@
             <div class="cert-drop-icon" aria-hidden="true">⛨</div>
             <p class="cert-drop-title">Drop a pentest report</p>
             <p class="cert-drop-sub">A JSON pentest report becomes a signed certificate.</p>
-            <button class="btn btn-primary" id="btnCertPick" type="button">Choose file</button>
+            <button class="btn btn-primary tip tp-58" id="btnCertPick" type="button" data-tip="Choose file">Choose file</button>
             <input id="certFile" type="file" accept=".json,application/json" hidden>
             <div class="cert-field">
               <label class="field-label" for="certIssuer">Issuer</label>
@@ -952,10 +964,10 @@
           </div>
           <div class="cert-status" id="certStatus" role="status" aria-live="polite"></div>
           <div class="cert-actions hidden" id="certActions">
-            <button class="btn btn-ghost" id="btnCertDownloadJson" type="button">Download JSON</button>
-            <button class="btn btn-ghost" id="btnCertDownloadHtml" type="button">Download HTML</button>
-            <button class="btn btn-ghost" id="btnCertDownloadPdf" type="button">Download PDF</button>
-            <button class="btn btn-ghost" id="btnCertReset" type="button">Start over</button>
+            <button class="btn btn-ghost tip tp-58" id="btnCertDownloadJson" type="button" data-tip="Download">Download JSON</button>
+            <button class="btn btn-ghost tip tp-58" id="btnCertDownloadHtml" type="button" data-tip="Download">Download HTML</button>
+            <button class="btn btn-ghost tip tp-58" id="btnCertDownloadPdf" type="button" data-tip="Download">Download PDF</button>
+            <button class="btn btn-ghost tip tp-58" id="btnCertReset" type="button" data-tip="Start">Start over</button>
           </div>
         </div>
 
@@ -984,7 +996,7 @@
           <div class="cert-drop-icon" aria-hidden="true">🔍</div>
           <p class="cert-drop-title">Drop certificate JSON here</p>
           <p class="cert-drop-sub">cert.json → VALID / INVALID result</p>
-          <button class="btn btn-primary" id="btnCertVerifyPick" type="button">Choose file</button>
+          <button class="btn btn-primary tip tp-58" id="btnCertVerifyPick" type="button" data-tip="Choose file">Choose file</button>
           <input id="certVerifyFile" type="file" accept=".json,application/json" hidden>
         </div>
         <div class="cert-status" id="certVerifyStatus" role="status" aria-live="polite"></div>
@@ -1023,7 +1035,7 @@
 
     <div class="card" style="margin-bottom:16px;">
       <div class="card-header"><div><div class="card-title">Host X-Ray capabilities</div><div class="card-subtitle">Read-only capability detection on the dashboard host. No eBPF programs are loaded and no privileges are requested.</div></div>
-        <button class="btn btn-ghost" id="btnXrayCaps" type="button">Refresh</button>
+        <button class="btn btn-ghost tip tp-58" id="btnXrayCaps" type="button" data-tip="Refresh">Refresh</button>
       </div>
       <div id="xrayCapsOut" class="ins-out">Loading…</div>
     </div>
@@ -1034,7 +1046,7 @@
         <label class="ins-label" for="twinReportJson">Report JSON</label>
         <textarea id="twinReportJson" class="ins-textarea" spellcheck="false" placeholder='Paste report JSON (e.g. reports/*.json)'></textarea>
         <div class="ins-row"><label class="ins-label" for="twinTargetP99">Target p99 hint (ms, optional)</label><input id="twinTargetP99" type="number" min="0" step="1" placeholder="0"></div>
-        <div class="ins-actions"><button class="btn btn-primary btn-sm" id="btnTwinFit" type="button">Fit model</button><button class="btn btn-ghost btn-sm" id="btnTwinLoadLatest" type="button" title="Load the latest completed run from dashboard history">Load latest run</button><button class="btn btn-ghost btn-sm" id="btnTwinUseModel" type="button">Use fitted model →</button></div>
+        <div class="ins-actions"><button class="btn btn-primary btn-sm tip tp-58" id="btnTwinFit" type="button" data-tip="Fit model">Fit model</button><button class="btn btn-ghost btn-sm tip tp-58" id="btnTwinLoadLatest" type="button" title="Load the latest completed run from dashboard history" data-tip="Load the latest completed run from dashboard history">Load latest run</button><button class="btn btn-ghost btn-sm tip tp-58" id="btnTwinUseModel" type="button" data-tip="Use fitted model →">Use fitted model →</button></div>
         <div id="twinFitOut" class="ins-out"></div>
       </div>
 
@@ -1054,7 +1066,7 @@
         </div>
         <div class="ins-row"><label class="ins-label" for="twinThrRps">Min throughput (RPS)</label><input id="twinThrRps" type="number" min="0" step="1" placeholder="not configured"></div>
         <p class="ins-note">Breach probabilities require configured thresholds (per-iteration, with confidence intervals). If no thresholds are configured, status is NOT_CONFIGURED and risk is never LOW.</p>
-        <div class="ins-actions"><button class="btn btn-primary btn-sm" id="btnTwinSim" type="button">Simulate</button></div>
+        <div class="ins-actions"><button class="btn btn-primary btn-sm tip tp-58" id="btnTwinSim" type="button" data-tip="Simulate">Simulate</button></div>
         <div id="twinSimOut" class="ins-out"></div>
       </div>
     </div>
@@ -1064,14 +1076,14 @@
         <div class="card-header"><div><div class="card-title">Prediction vs actual</div><div class="card-subtitle">Compare model/simulation predictions against measured report evidence (MAE/RMSE/MAPE/error%).</div></div></div>
         <label class="ins-label" for="twinActualJson">Actual report JSON (measured)</label>
         <textarea id="twinActualJson" class="ins-textarea" spellcheck="false" placeholder='Paste actual report JSON'></textarea>
-        <div class="ins-actions"><button class="btn btn-primary btn-sm" id="btnTwinCompare" type="button">Compare</button><button class="btn btn-ghost btn-sm" id="btnTwinLoadActualFromLatest" type="button">Load latest run</button></div>
+        <div class="ins-actions"><button class="btn btn-primary btn-sm tip tp-58" id="btnTwinCompare" type="button" data-tip="Compare">Compare</button><button class="btn btn-ghost btn-sm tip tp-58" id="btnTwinLoadActualFromLatest" type="button" data-tip="Load">Load latest run</button></div>
         <p class="ins-note">Uses the latest simulation result if available; otherwise simulates from model + selected scenario.</p>
         <div id="twinCompareOut" class="ins-out"></div>
       </div>
       <div class="card">
         <div class="card-header"><div><div class="card-title">Sensitivity analysis</div><div class="card-subtitle">Quantify impact of concurrency, request complexity, CPU/memory/network/connection proxies (model-based, seeded/deterministic).</div></div></div>
         <p class="ins-note">Runs against the model in "Model JSON" and the selected scenario/base settings.</p>
-        <div class="ins-actions"><button class="btn btn-primary btn-sm" id="btnTwinSensitivity" type="button">Analyze sensitivity</button></div>
+        <div class="ins-actions"><button class="btn btn-primary btn-sm tip tp-58" id="btnTwinSensitivity" type="button" data-tip="Analyze sensitivity">Analyze sensitivity</button></div>
         <div id="twinSensitivityOut" class="ins-out"></div>
       </div>
     </div>
@@ -1081,7 +1093,7 @@
         <div class="card-header"><div><div class="card-title">Model validation & backtesting</div><div class="card-subtitle">Compute MAE/RMSE/MAPE/error% and detect drift/OOD from paired predicted vs actual samples. Caller must enforce train/validation split and no leakage.</div></div></div>
         <label class="ins-label" for="twinBacktestJson">Backtest JSON</label>
         <textarea id="twinBacktestJson" class="ins-textarea" spellcheck="false" placeholder='{"predicted":[...],"actual":[...],"model_range_low":0,"model_range_high":0,"model_version":"..."}'></textarea>
-        <div class="ins-actions"><button class="btn btn-primary btn-sm" id="btnTwinBacktest" type="button">Run backtest metrics</button></div>
+        <div class="ins-actions"><button class="btn btn-primary btn-sm tip tp-58" id="btnTwinBacktest" type="button" data-tip="Run backtest metrics">Run backtest metrics</button></div>
         <div id="twinBacktestOut" class="ins-out"></div>
       </div>
       <div class="card">
@@ -1089,7 +1101,7 @@
         <label class="ins-label" for="resourceAssessJson">Resource evidence JSON (optional fields)</label>
         <textarea id="resourceAssessJson" class="ins-textarea" spellcheck="false" placeholder='{"cpu":72.5,"memory":64.0,"network":null,"connections":1200,"server_response_time":42.0,"memory_growth":3.2}'></textarea>
         <p class="ins-note">Provide only supported/measured values. Omitted/null metrics (including memory growth, active connections, server response time when unavailable) are reported as unavailable — never fabricated.</p>
-        <div class="ins-actions"><button class="btn btn-primary btn-sm" id="btnResourceAssess" type="button">Assess availability</button></div>
+        <div class="ins-actions"><button class="btn btn-primary btn-sm tip tp-58" id="btnResourceAssess" type="button" data-tip="Assess availability">Assess availability</button></div>
         <div id="resourceAssessOut" class="ins-out"></div>
       </div>
     </div>
@@ -1099,7 +1111,7 @@
         <div class="card-header"><div><div class="card-title">Bounty — verify evidence package</div><div class="card-subtitle">Validate manifest integrity or run full artifact re-hash and attestation replay by uploading package files.</div></div></div>
         <label class="ins-label" for="bountyManifestJson">Manifest JSON (for quick validate)</label>
         <textarea id="bountyManifestJson" class="ins-textarea" spellcheck="false" placeholder='Paste bounty-package.json'></textarea>
-        <div class="ins-actions"><button class="btn btn-ghost btn-sm" id="btnBountyValidate" type="button">Validate manifest</button></div>
+        <div class="ins-actions"><button class="btn btn-ghost btn-sm tip tp-58" id="btnBountyValidate" type="button" data-tip="Validate manifest">Validate manifest</button></div>
         <hr class="ins-hr">
         <div class="ins-label">Full verify (upload files)</div>
         <div class="ins-row"><label class="ins-label" for="bountyManifestFile">Manifest file</label><input id="bountyManifestFile" type="file" accept=".json,application/json"></div>
@@ -1109,7 +1121,7 @@
           <div><label class="ins-label" for="bountyKey">Pinned public key (optional)</label><input id="bountyKey" type="text" placeholder="hex ed25519 key"></div>
           <div class="ins-check"><label><input id="bountySkipCI" type="checkbox"> Skip CI check</label></div>
         </div>
-        <div class="ins-actions"><button class="btn btn-primary btn-sm" id="btnBountyVerifyUpload" type="button">Run full verification</button></div>
+        <div class="ins-actions"><button class="btn btn-primary btn-sm tip tp-58" id="btnBountyVerifyUpload" type="button" data-tip="Run full verification">Run full verification</button></div>
         <div id="bountyValidateOut" class="ins-out"></div>
       </div>
 
@@ -1117,7 +1129,7 @@
         <div class="card-header"><div><div class="card-title">Bounty — triage status</div><div class="card-subtitle">Replay a triage JSONL log (as a JSON array). States are audit outcomes; “rewarded” is not an automatic payment.</div></div></div>
         <label class="ins-label" for="bountyEventsJson">Events JSON array</label>
         <textarea id="bountyEventsJson" class="ins-textarea" spellcheck="false" placeholder='Paste events array'></textarea>
-        <div class="ins-actions"><button class="btn btn-primary btn-sm" id="btnBountyStatus" type="button">Replay status</button></div>
+        <div class="ins-actions"><button class="btn btn-primary btn-sm tip tp-58" id="btnBountyStatus" type="button" data-tip="Replay status">Replay status</button></div>
         <div id="bountyStatusOut" class="ins-out"></div>
       </div>
     </div>
@@ -1130,7 +1142,7 @@
         <label class="ins-label" for="xraySignalsJson">Signals JSON array</label>
         <textarea id="xraySignalsJson" class="ins-textarea" spellcheck="false" placeholder='[{"timestamp":"2026-...","kind":"latency","value_ms":250}]'></textarea>
         <div class="ins-row"><label class="ins-label" for="xrayWindow">Correlation window (optional, e.g. 30s)</label><input id="xrayWindow" type="text" placeholder="30s"></div>
-        <div class="ins-actions"><button class="btn btn-primary btn-sm" id="btnXrayCorrelate" type="button">Correlate</button></div>
+        <div class="ins-actions"><button class="btn btn-primary btn-sm tip tp-58" id="btnXrayCorrelate" type="button" data-tip="Correlate">Correlate</button></div>
         <div id="xrayCorrelateOut" class="ins-out"></div>
       </div>
       <div class="card">
@@ -1189,8 +1201,8 @@ sift bounty status --log triage.jsonl</code></pre>
             <label class="field-label" for="adminMinutes">Minutes</label>
             <input id="adminMinutes" type="number" value="15" min="1" max="1440">
           </div>
-          <button class="btn btn-primary" id="btnAdminUnlock" type="submit">Turn bypass ON</button>
-          <button class="btn btn-stop" id="btnAdminLock" type="button">Turn OFF</button>
+          <button class="btn btn-primary tip tp-58" id="btnAdminUnlock" type="submit" data-tip="Turn bypass ON">Turn bypass ON</button>
+          <button class="btn btn-stop tip tp-58" id="btnAdminLock" type="button" data-tip="Turn OFF">Turn OFF</button>
         </form>
 
         <div class="admin-status" id="adminStatus" role="status" aria-live="polite"></div>
@@ -1266,8 +1278,8 @@ sift bounty status --log triage.jsonl</code></pre>
     <h2 class="lock-title" id="lockTitle">Access locked</h2>
     <p class="lock-body" id="lockBody">The Control API is protected &mdash; the operator has set a password/token, so this dashboard is locked. Contact the operator, or restart the server on loopback with credentials.</p>
     <div class="lock-actions">
-      <button class="btn btn-ghost" id="btnLockRetry" type="button" title="Re-attempt the connection (use this once the server accepts your session)">Try again</button>
-      <button class="btn btn-ghost" id="btnLockRefresh" type="button" title="Reload the page">Reload</button>
+      <button class="btn btn-ghost tip tp-58" id="btnLockRetry" type="button" title="Re-attempt the connection (use this once the server accepts your session)" data-tip="Retry connection/session">Try again</button>
+      <button class="btn btn-ghost tip tp-58" id="btnLockRefresh" type="button" title="Reload the page" data-tip="Reload the page">Reload</button>
     </div>
     <p class="lock-note">No credentials are stored or requested here &mdash; authenticate at the server level (e.g. <code>Sift dashboard --auth-token &hellip;</code>) or in a reverse proxy.</p>
   </div>

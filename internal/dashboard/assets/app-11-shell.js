@@ -1,5 +1,5 @@
 /* ==========================================================================
-   app-11-shell.js — part 11 of 14 of the dashboard bundle.
+   app-11-shell.js — part 11 of 15 of the dashboard bundle.
 
    SHELL — view switching and the hidden admin reveal
 

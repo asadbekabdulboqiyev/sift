@@ -24,27 +24,32 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-//go:embed index.html
-var dashboardHTML []byte
-
-//go:embed style.css
-var dashboardCSS []byte
-
-// The dashboard script is split into one file per feature under assets/ and
-// concatenated at start-up, in name order, into the single /app.js the page
-// requests. Splitting the source keeps each file reviewable — the previous
-// single app.js had grown past 3,400 lines and every change meant re-reading
-// it — while the browser still makes one request and the boot order stays
-// exactly what the numeric prefixes say it is.
+// dashboardUIFS holds the UI shell and script assets embedded at build time.
 //
-//go:embed assets/*.js
-var dashboardAssets embed.FS
+//go:embed index.html style.css assets/*.js
+var dashboardUIFS embed.FS
 
-// dashboardJS is the concatenated bundle, built once at start-up.
-var dashboardJS = bundleDashboardJS()
+// dashboardAssets is kept for internal package tests/tools that inspect the
+// embedded script parts; it aliases dashboardUIFS.
+var dashboardAssets = dashboardUIFS
+
+var (
+	dashboardHTML = mustReadDashboardUI("index.html")
+	dashboardCSS  = mustReadDashboardUI("style.css")
+	// dashboardJS is the concatenated bundle, built once at start-up.
+	dashboardJS = bundleDashboardJS()
+)
+
+func mustReadDashboardUI(name string) []byte {
+	b, err := dashboardUIFS.ReadFile(name)
+	if err != nil {
+		panic("dashboard ui: " + name + ": " + err.Error())
+	}
+	return b
+}
 
 func bundleDashboardJS() []byte {
-	paths, err := fs.Glob(dashboardAssets, "assets/*.js")
+	paths, err := fs.Glob(dashboardUIFS, "assets/*.js")
 	if err != nil {
 		panic("dashboard assets: " + err.Error())
 	}
@@ -54,7 +59,7 @@ func bundleDashboardJS() []byte {
 
 	var buf bytes.Buffer
 	for _, p := range paths {
-		part, err := dashboardAssets.ReadFile(p)
+		part, err := dashboardUIFS.ReadFile(p)
 		if err != nil {
 			panic("dashboard asset " + p + ": " + err.Error())
 		}
@@ -218,6 +223,7 @@ type Server struct {
 	livenessHandler  http.Handler
 	readinessHandler http.Handler
 	authMiddleware   func(http.Handler) http.Handler
+	auth             *Auth
 
 	attestMu   sync.RWMutex
 	attestInfo AttestationInfo
@@ -398,6 +404,7 @@ func (s *Server) ApplyAuth(opt AuthOptions) *Auth {
 		RBACEnabled:    opt.RBACEnabled,
 		RBACRoles:      rbacRoles,
 	})
+	s.auth = a
 	s.SetAuthMiddleware(a.Middleware)
 	return a
 }
@@ -507,10 +514,28 @@ func (s *Server) serveOps(w http.ResponseWriter, r *http.Request, h http.Handler
 // browser always loads assets for the current binary version.
 func (s *Server) serveIndexHTML(w http.ResponseWriter) {
 	v := url.QueryEscape(s.versionOrDefault())
-	html := string(dashboardHTML)
+	html := string(loadDashboardAsset("index.html", dashboardHTML))
 	html = strings.Replace(html, `href="/style.css"`, fmt.Sprintf(`href="/style.css?v=%s"`, v), 1)
 	html = strings.Replace(html, `src="/app.js"`, fmt.Sprintf(`src="/app.js?v=%s"`, v), 1)
 	_, _ = w.Write([]byte(html))
+}
+
+func loadDashboardAsset(name string, fallback []byte) []byte {
+	// Prefer on-disk UI assets when available so local fixes apply immediately.
+	candidates := []string{
+		filepath.Join("/Users/asadbek/sift/internal/dashboard", name),
+		filepath.Join("internal", "dashboard", name),
+	}
+	if exe, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "internal", "dashboard", name))
+	}
+	for _, p := range candidates {
+		b, err := os.ReadFile(p)
+		if err == nil && len(b) > 0 {
+			return b
+		}
+	}
+	return fallback
 }
 
 // serveApp routes the UI, JSON API and WebSocket traffic.
@@ -634,7 +659,7 @@ func (s *Server) serveApp(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodHead {
 			return
 		}
-		_, _ = w.Write(dashboardCSS)
+		_, _ = w.Write(loadDashboardAsset("style.css", dashboardCSS))
 	case path == "/app.js":
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")

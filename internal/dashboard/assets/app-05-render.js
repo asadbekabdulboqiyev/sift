@@ -1,5 +1,5 @@
 /* ==========================================================================
-   app-05-render.js — part 05 of 14 of the dashboard bundle.
+   app-05-render.js — part 05 of 15 of the dashboard bundle.
 
    RENDER — live metrics, status codes, workers, history
 

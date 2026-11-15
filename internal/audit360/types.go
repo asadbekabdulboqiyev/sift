@@ -43,15 +43,39 @@ type Finding struct {
 	Severity      string `json:"severity"` // critical|high|medium|low|info
 	ImpactSummary string `json:"impact_summary"`
 	Remediation   string `json:"remediation"`
-	Source        string `json:"source,omitempty"` // security_scan|stress_test|system
+	Evidence      string `json:"evidence,omitempty"` // measured/observed evidence supporting the finding
+	Source        string `json:"source,omitempty"`   // security_scan|stress_test|system|evidence_quality
+}
+
+// ScoreBreakdown provides separate assessments (0-100) by category.
+// Overall is retained as the canonical aggregate for backward compatibility.
+type ScoreBreakdown struct {
+	Overall         int `json:"overall"`
+	Security        int `json:"security"`
+	Resilience      int `json:"resilience"`
+	Capacity        int `json:"capacity"`
+	EvidenceQuality int `json:"evidence_quality"`
+}
+
+// TestConfiguration records the executed test configuration for integrity/audit.
+type TestConfiguration struct {
+	Mode                  string `json:"mode"`
+	MaxDurationSec        int    `json:"max_duration_sec"`
+	RequestedTarget       string `json:"requested_target"`
+	StressMaxUsers        int    `json:"stress_max_users,omitempty"`
+	StressDurationSec     int    `json:"stress_duration_sec,omitempty"`
+	StressProfile         string `json:"stress_profile,omitempty"`
+	SecurityScanEnabled   bool   `json:"security_scan_enabled"`
+	ActiveLoadEnabled     bool   `json:"active_load_enabled"`
+	AuthorizationProvided bool   `json:"authorization_provided,omitempty"`
 }
 
 // Audit360Report is the final signed report.
 type Audit360Report struct {
-	ResilienceScore    int       `json:"resilience_score"`
+	ResilienceScore    int       `json:"resilience_score"` // overall score (backward compatibility)
 	RiskLevel          string    `json:"risk_level"`
 	BreakingPointUsers int       `json:"breaking_point_users,omitempty"`
-	MaxSafeRPS         float64   `json:"max_safe_rps,omitempty"`
+	MaxSafeRPS         float64   `json:"max_safe_rps,omitempty"` // sustainable/safe capacity estimate from measured samples (when available)
 	Findings           []Finding `json:"findings"`
 	VPMPSignature      string    `json:"vpmp_signature"`
 	CertificateID      string    `json:"certificate_id"`
@@ -62,9 +86,26 @@ type Audit360Report struct {
 
 	// Optional transparency fields (additive, not part of strict required schema).
 	BreakingPointReached bool    `json:"breaking_point_reached"`
-	MaxObservedRPS       float64 `json:"max_observed_rps,omitempty"`
+	MaxObservedRPS       float64 `json:"max_observed_rps,omitempty"` // observed peak throughput (measured), not sustained capacity
 	StressTestAvailable  bool    `json:"stress_test_available"`
 	SecurityScanPartial  bool    `json:"security_scan_partial,omitempty"`
+
+	// CapacityBlocked is true when the target refused the audit traffic itself
+	// (dominant 401/403/407/429), so no capacity number is claimed.
+	CapacityBlocked  bool    `json:"capacity_blocked,omitempty"`
+	BlockedStatus    int     `json:"blocked_status,omitempty"`
+	BlockedSharePct  float64 `json:"blocked_share_pct,omitempty"`
+	MaxObservedUsers int     `json:"max_observed_users,omitempty"` // observed concurrent users during test (measured)
+	// LoadTestSkipped is true when active load/breaking-point testing was not run
+	// intentionally (e.g. passive mode).
+	LoadTestSkipped bool `json:"load_test_skipped,omitempty"`
+
+	// Additive integrity/scoring/evidence fields (backward compatible).
+	Scores            *ScoreBreakdown    `json:"scores,omitempty"`
+	ScoringVersion    string             `json:"scoring_version,omitempty"`
+	TestConfiguration *TestConfiguration `json:"test_configuration,omitempty"`
+	RawEvidenceHash   string             `json:"raw_evidence_hash,omitempty"`
+	RawEvidenceFormat string             `json:"raw_evidence_format,omitempty"`
 }
 
 // JobStatus is returned by polling/SSE status endpoint.
@@ -82,11 +123,19 @@ type JobStatus struct {
 	Report       *Audit360Report `json:"report,omitempty"`
 }
 
+// Audit mode controls safety/authorization behavior.
+const (
+	ModePassive  = "passive"
+	ModeStandard = "standard"
+	ModeAdmin    = "admin"
+)
+
 // StartRequest is POST /api/audit-360 body.
 type StartRequest struct {
 	TargetURL      string `json:"target_url"`
 	Authorized     bool   `json:"authorized"`
-	MaxDurationSec int    `json:"max_duration_sec"`
+	MaxDurationSec int    `json:"max_duration_sec,omitempty"`
+	Mode           string `json:"mode,omitempty"`
 }
 
 // StartResponse is returned by POST /api/audit-360.

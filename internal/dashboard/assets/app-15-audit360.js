@@ -1,5 +1,10 @@
 /* ==========================================================================
-   app-15-audit360.js — Sift 360° (1-click full audit)
+   app-15-audit360.js — part 15 of 15 of the dashboard bundle.
+
+   SIFT 360° — 1-click security + capacity audit panel
+
+   Every file in this directory is concatenated, in name order, into the
+   single /app.js the page requests, so the numeric prefix is the boot order.
    ========================================================================== */
 (function () {
   var form = document.getElementById('audit360Form');
@@ -7,6 +12,7 @@
 
   var targetEl = document.getElementById('a360Target');
   var authEl = document.getElementById('a360Authorized');
+  var authWrap = document.getElementById('a360AuthWrap');
   var fillDemoBtn = document.getElementById('a360FillDemo');
   var startBtn = document.getElementById('a360StartBtn');
   var errEl = document.getElementById('a360Error');
@@ -17,10 +23,26 @@
   var trackFillEl = document.getElementById('a360TrackFill');
   var runningEl = document.getElementById('a360RunningIndicator');
   var printBtn = document.getElementById('a360PrintBtn');
+  var modeBtns = Array.prototype.slice.call(document.querySelectorAll('.a360-mode[data-mode]'));
 
   var pollTimer = null;
   var es = null;
   var currentJobId = null;
+  var currentMode = 'standard';
+
+  function getMode() { return currentMode || 'standard'; }
+  function needsAuth() { return getMode() === 'standard'; }
+  function setMode(mode) {
+    currentMode = mode || 'standard';
+    modeBtns.forEach(function (b) {
+      var on = b.getAttribute('data-mode') === currentMode;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    if (authWrap) authWrap.classList.toggle('hidden', !needsAuth());
+    if (!needsAuth() && authEl) authEl.checked = false;
+    setError('');
+  }
 
   function setError(msg) { if (errEl) errEl.textContent = msg || ''; }
   function show(el, on) { if (!el) return; el.classList.toggle('hidden', !on); }
@@ -153,6 +175,7 @@
     if (targetEl) targetEl.disabled = !!busy;
     if (authEl) authEl.disabled = !!busy;
     if (fillDemoBtn) fillDemoBtn.disabled = !!busy;
+    modeBtns.forEach(function (b) { b.disabled = !!busy; });
   }
 
   function sevClass(sev) {
@@ -162,8 +185,13 @@
   }
 
   function esc(s) {
+    // Written without regex literals: a bare `/"` in this file would derail the
+    // naive delimiter scan in assets_test.go (and has done so before).
     return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      .split('&').join('&amp;')
+      .split('<').join('&lt;')
+      .split('>').join('&gt;')
+      .split('"').join('&quot;');
   }
 
   function renderGauge(score, risk) {
@@ -190,44 +218,64 @@
     }
   }
 
-  function drawQrPreview(text) {
+  function drawQrPreview(reportOrText) {
     var canvas = document.getElementById('a360Qr');
+    var hint = document.getElementById('a360QrHint');
     if (!canvas) return;
     var ctx = canvas.getContext('2d');
     if (!ctx) return;
-    var size = 21; // visual grid
-    var cell = Math.floor(canvas.width / size);
-    var pad = Math.floor((canvas.width - cell * size) / 2);
-    // simple deterministic hash
-    var h = 2166136261 >>> 0;
-    var str = String(text || 'sift360');
-    for (var i = 0; i < str.length; i++) {
-      h ^= str.charCodeAt(i);
-      h = Math.imul(h, 16777619) >>> 0;
+
+    var payload = '';
+    if (reportOrText && typeof reportOrText === 'object') {
+      var r = reportOrText;
+      // Encode a compact, scannable verification reference (no fabricated fields).
+      // Signature is omitted to keep payload within QR capacity; hash/cert/target/ts/score retained.
+      var compact = {
+        v: 1,
+        type: 'sift.audit360',
+        cert: String(r.certificate_id || ''),
+        hash: String(r.raw_evidence_hash || ''),
+        score: (r.resilience_score != null ? Number(r.resilience_score) : null),
+        ts: String(r.timestamp || ''),
+        target: String(r.target_url || '')
+      };
+      payload = JSON.stringify(compact);
+      // If still too large for the embedded QR generator, drop less-critical fields.
+      if (payload.length > 240) {
+        delete compact.target;
+        payload = JSON.stringify(compact);
+      }
+      if (payload.length > 240) {
+        delete compact.ts;
+        payload = JSON.stringify(compact);
+      }
+      if (payload.length > 240) {
+        // Last resort: cert + hash only
+        payload = JSON.stringify({ v: 1, type: 'sift.audit360', cert: String(r.certificate_id || ''), hash: String(r.raw_evidence_hash || '') });
+      }
+    } else {
+      payload = String(reportOrText || 'sift360');
     }
-    function bit(x, y) {
-      var n = (x * 374761393 + y * 668265263 + h) >>> 0;
-      n ^= n >>> 13; n = Math.imul(n, 1274126177) >>> 0; n ^= n >>> 16;
-      return (n & 1) === 1;
+
+    try {
+      if (window.SiftQRCode && typeof window.SiftQRCode.drawToCanvas === 'function') {
+        var ok = window.SiftQRCode.drawToCanvas(canvas, payload, { ecLevel: 'M', margin: 4, dark: '#111827', light: '#ffffff' });
+        if (ok) {
+          if (hint) hint.textContent = 'Scannable QR: certificate ID and evidence hash (verification reference).';
+          return;
+        }
+      }
+    } catch (e) {
+      // fall through to fallback
     }
+
+    // Fallback: clear canvas if QR generation unavailable/overflow
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#111827';
-    // finder-like corners for QR preview appearance
-    function finder(ox, oy) {
-      for (var y = 0; y < 7; y++) for (var x = 0; x < 7; x++) {
-        var on = (x===0||x===6||y===0||y===6 || (x>=2&&x<=4&&y>=2&&y<=4));
-        if (on) ctx.fillRect(pad + (ox+x)*cell, pad + (oy+y)*cell, cell-1, cell-1);
-      }
-    }
-    finder(0,0); finder(size-7,0); finder(0,size-7);
-    for (var y = 0; y < size; y++) {
-      for (var x = 0; x < size; x++) {
-        var inFinder = (x<8 && y<8) || (x>=size-8 && y<8) || (x<8 && y>=size-8);
-        if (inFinder) continue;
-        if (bit(x,y)) ctx.fillRect(pad + x*cell, pad + y*cell, cell-1, cell-1);
-      }
-    }
+    ctx.font = '10px sans-serif';
+    ctx.fillText('QR unavailable', 18, 68);
+    if (hint) hint.textContent = 'QR preview unavailable for this payload.';
   }
 
   function renderResult(report, status) {
@@ -250,7 +298,15 @@
     var capMain = document.getElementById('a360CapacityMain');
     var capSub = document.getElementById('a360CapacitySub');
     if (capMain && capSub) {
-      if (report.stress_test_available && report.breaking_point_reached && Number(report.breaking_point_users) > 0) {
+      if (report.load_test_skipped) {
+        capMain.textContent = 'Load/breaking-point test skipped (Passive mode)';
+        capSub.textContent = 'Active load testing was not run in Passive mode; only non-intrusive checks were performed.';
+      } else if (report.capacity_blocked) {
+        var blockedShare = Number(report.blocked_share_pct || 0);
+        capMain.textContent = 'Capacity not measurable: target refused load (HTTP ' + Number(report.blocked_status || 0) + ')';
+        capSub.textContent = (blockedShare > 0 ? (blockedShare.toFixed(0) + '% of audit requests were rejected. ') : '') +
+          'The access gate answered instead of the service, so no breaking point is claimed. Allowlist the load generator or use a staging target and re-run.';
+      } else if (report.stress_test_available && report.breaking_point_reached && Number(report.breaking_point_users) > 0) {
         capMain.textContent = 'Capacity Limit Reached: System fails at ' + Number(report.breaking_point_users).toLocaleString() + ' concurrent users';
         capSub.textContent = 'Measured during linear-ramp stress test (failure threshold: error rate > 5% or p99 latency > 2000ms).';
       } else if (report.stress_test_available) {
@@ -280,7 +336,7 @@
       sigShortEl.textContent = 'Signature: ' + (sig ? (sig.slice(0, 24) + '…' + sig.slice(-12)) : 'unavailable');
       sigShortEl.title = sig || 'No cryptographic signature available';
     }
-    drawQrPreview((report.certificate_id || '') + '|' + (report.vpmp_signature || '') + '|' + (report.target_url || ''));
+    drawQrPreview(report);
 
     var findingsEl = document.getElementById('a360Findings');
     if (findingsEl) {
@@ -302,6 +358,13 @@
     try { resultEl.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_) {}
   }
 
+  if (modeBtns.length) {
+    modeBtns.forEach(function (b) {
+      b.addEventListener('click', function () { setMode(b.getAttribute('data-mode') || 'standard'); });
+    });
+    setMode('standard');
+  }
+
   if (fillDemoBtn) {
     fillDemoBtn.addEventListener('click', function () {
       if (targetEl) targetEl.value = 'http://127.0.0.1:8090';
@@ -321,14 +384,15 @@
     stopTracking();
     currentJobId = null;
 
+    var mode = getMode();
     var target = (targetEl && targetEl.value || '').trim();
     var authorized = !!(authEl && authEl.checked);
-    if (!authorized) {
-      setError('You must confirm explicit authorization before starting the audit.');
+    if (mode === 'standard' && !authorized) {
+      setError('In Standard mode, confirm explicit authorization before starting the audit.');
       return;
     }
     if (!target) {
-      setError('Target URL is required (use the local VoltStore demo server for this 1-click audit).');
+      setError('Target URL is required (for example: https://example.com or http://127.0.0.1:8090).');
       return;
     }
 
@@ -347,7 +411,7 @@
     fetch('/api/audit-360', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ target_url: target, authorized: true, max_duration_sec: 25 })
+      body: JSON.stringify({ target_url: target, authorized: (mode !== 'standard' ? true : authorized), max_duration_sec: 25, mode: mode })
     })
     .then(function (r) {
       return r.json().catch(function(){ return {}; }).then(function (j) {

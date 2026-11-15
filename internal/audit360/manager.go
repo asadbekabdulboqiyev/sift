@@ -21,16 +21,20 @@ type job struct {
 	subs      map[chan Event]struct{}
 	cancel    context.CancelFunc
 	demoStore string
+	mode      string
 }
 
 func NewManager() *Manager {
 	return &Manager{jobs: make(map[string]*job)}
 }
 
-func (m *Manager) Start(ctx context.Context, target string, maxDur time.Duration, demoStoreURL string) (string, error) {
+func (m *Manager) Start(ctx context.Context, target string, maxDur time.Duration, demoStoreURL, mode string) (string, error) {
 	id := newJobID()
 	stages := defaultStages()
 	now := time.Now()
+	if mode == "" {
+		mode = ModeStandard
+	}
 	st := JobStatus{
 		JobID:        id,
 		TargetURL:    target,
@@ -47,6 +51,7 @@ func (m *Manager) Start(ctx context.Context, target string, maxDur time.Duration
 		subs:      make(map[chan Event]struct{}),
 		cancel:    cancel,
 		demoStore: demoStoreURL,
+		mode:      mode,
 	}
 	m.mu.Lock()
 	// simple retention: keep last 20 jobs
@@ -71,7 +76,7 @@ func (m *Manager) run(ctx context.Context, j *job, target string, maxDur time.Du
 	})
 	j.publishStatus()
 
-	rep, err := Run(ctx, Options{TargetURL: target, MaxDuration: maxDur, DemoStoreURL: j.demoStore}, func(stageID, status, detail, errMsg string) {
+	rep, err := Run(ctx, Options{TargetURL: target, MaxDuration: maxDur, DemoStoreURL: j.demoStore, Mode: j.mode}, func(stageID, status, detail, errMsg string) {
 		j.update(func(s *JobStatus) {
 			applyStageUpdate(s, stageID, status, detail, errMsg)
 		})
