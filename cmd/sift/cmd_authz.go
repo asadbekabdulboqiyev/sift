@@ -548,10 +548,10 @@ func savePolicy(path string, pol authz.Policy) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(path, append(raw, '\n'), 0o600); err != nil {
+	if err := atomicWriteFile(path, append(raw, '\n'), 0o600); err != nil {
 		return err
 	}
-	return os.Chmod(path, 0o600)
+	return nil
 }
 
 func modeName(m authz.Mode) string {

@@ -735,7 +735,7 @@ func simulateValidate(args []string) {
 	if err != nil {
 		fatal(fmt.Errorf("simulate validate: encode validation artifact: %w", err))
 	}
-	if err := os.WriteFile(outPath, append(data, '\n'), 0o600); err != nil {
+	if err := atomicWriteFile(outPath, append(data, '\n'), 0o600); err != nil {
 		fatal(fmt.Errorf("simulate validate: write %s: %w", outPath, err))
 	}
 	fmt.Printf("validation artifact: %s\n", outPath)
@@ -938,7 +938,7 @@ func simulateBacktest(args []string) {
 	if err != nil {
 		fatal(fmt.Errorf("simulate backtest: encode artifact: %w", err))
 	}
-	if err := os.WriteFile(outPath, append(data, '\n'), 0o600); err != nil {
+	if err := atomicWriteFile(outPath, append(data, '\n'), 0o600); err != nil {
 		fatal(fmt.Errorf("simulate backtest: write %s: %w", outPath, err))
 	}
 	fmt.Printf("backtest artifact: %s\n", outPath)
