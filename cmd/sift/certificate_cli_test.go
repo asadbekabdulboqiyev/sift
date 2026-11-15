@@ -34,6 +34,8 @@ func TestCertificateCLIIssueThenVerifyRoundTrip(t *testing.T) {
 
 	report := []byte(`{
 		"target": "https://example.com",
+		"started_at": "2026-11-07T08:00:00Z",
+		"duration": 60000000000,
 		"risk_score": 12,
 		"grade": "B",
 		"verdict": "PASS",
