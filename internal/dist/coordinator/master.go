@@ -611,12 +611,11 @@ func (m *Master) storeReport(addr string, protoReport *distproto.Report) {
 
 // partialReportLocked synthesizes a best-effort partial final report from the
 // latest per-worker telemetry snapshot. It must be called with m.mu held and
-// never fabricates planned/profile duration or fake metrics.
+// never fabricates planned/profile duration or fake metrics. If no telemetry
+// snapshot exists, it may return a minimal failure-evidence report only when
+// a failure reason is known (RunFailed/disconnect/liveness/timeout paths)
+// so unmeasured workers are preserved without fabricating metrics.
 func (m *Master) partialReportLocked(addr string) *report.Report {
-	snap, ok := m.agg.SnapshotOf(addr)
-	if !ok || snap == nil {
-		return nil
-	}
 	reason := m.failureReasons[addr]
 	lastSeen := m.lastSeen[addr]
 	end := lastSeen
@@ -627,7 +626,57 @@ func (m *Master) partialReportLocked(addr string) *report.Report {
 		end = time.Now()
 	}
 	start := m.runStartedAt
-	return partialReportFromSnapshot(m.cfg.Scenario, snap, start, end, reason)
+
+	if snap, ok := m.agg.SnapshotOf(addr); ok && snap != nil {
+		return partialReportFromSnapshot(m.cfg.Scenario, snap, start, end, reason)
+	}
+	if reason == "" {
+		return nil
+	}
+	return noSnapshotFailureReport(m.cfg.Scenario, start, end, reason)
+}
+
+func noSnapshotFailureReport(sc *config.Scenario, runStart, end time.Time, reason string) *report.Report {
+	errs := map[string]uint64{
+		"distributed:partial_worker": 1,
+		"distributed:no_snapshot":    1,
+	}
+
+	rep := &report.Report{
+		Status:        make(map[int]uint64),
+		Errors:        errs,
+		StartedAt:     time.Time{},
+		EndedAt:       time.Time{},
+		Duration:      0,
+		TotalRequests: 0,
+		TotalErrors:   0,
+		RPS:           0,
+		Overall: report.StepReport{
+			Name:       "overall",
+			Requests:   0,
+			Errors:     0,
+			Status:     make(map[int]uint64),
+			ErrorTypes: copyErrorMap(errs),
+		},
+	}
+	if sc != nil {
+		rep.Name = sc.Name
+		if sc.BaseURL != "" {
+			rep.BaseURL = sc.BaseURL
+		} else if len(sc.Steps) > 0 {
+			rep.BaseURL = sc.Steps[0].URL
+		}
+		rep.LoadProfile = sc.Profile.Type
+		rep.TargetRPS = sc.Profile.TargetRPS
+	}
+	// Preserve observation bounds only when defensible and consistent; do not
+	// derive a measured duration from them.
+	if !runStart.IsZero() && !end.IsZero() && !end.Before(runStart) {
+		rep.StartedAt = runStart
+		rep.EndedAt = end
+	}
+	_ = reason
+	return rep
 }
 
 func partialReportFromSnapshot(sc *config.Scenario, snap *distproto.TelemetrySnapshot, runStart, end time.Time, reason string) *report.Report {
@@ -835,8 +884,9 @@ func (m *Master) forceDone() {
 	if m.runEndedAt.IsZero() {
 		m.runEndedAt = time.Now()
 	}
-	// Synthesize partial reports for workers that never sent a final report but
-	// produced telemetry snapshots (e.g. timeout/grace period expired).
+	// Synthesize partial reports for workers that never sent a final report.
+	// Preserve telemetry-backed partials when available; otherwise preserve a
+	// minimal no-snapshot failure-evidence report (no fabricated metrics).
 	addrs := make([]string, 0, len(m.clients))
 	for addr := range m.clients {
 		addrs = append(addrs, addr)
@@ -844,6 +894,9 @@ func (m *Master) forceDone() {
 	for _, addr := range addrs {
 		if m.finished[addr] || m.reports[addr] != nil {
 			continue
+		}
+		if m.failureReasons[addr] == "" {
+			m.failureReasons[addr] = "run ended before worker reported completion"
 		}
 		if rep := m.partialReportLocked(addr); rep != nil {
 			m.reports[addr] = rep
