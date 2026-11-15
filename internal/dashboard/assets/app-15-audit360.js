@@ -23,12 +23,15 @@
   var trackFillEl = document.getElementById('a360TrackFill');
   var runningEl = document.getElementById('a360RunningIndicator');
   var printBtn = document.getElementById('a360PrintBtn');
+  var downloadBtn = document.getElementById('a360DownloadBtn');
   var modeBtns = Array.prototype.slice.call(document.querySelectorAll('.a360-mode[data-mode]'));
 
   var pollTimer = null;
   var es = null;
   var currentJobId = null;
   var currentMode = 'standard';
+  var lastReport = null;
+  var lastStatus = null;
 
   function getMode() { return currentMode || 'standard'; }
   function needsAuth() { return getMode() === 'standard'; }
@@ -283,6 +286,9 @@
       setError('Audit completed but no report was returned.');
       return;
     }
+    lastReport = report;
+    lastStatus = status || null;
+    if (downloadBtn) downloadBtn.disabled = false;
     setError('');
     show(progressEl, true);
     show(resultEl, true);
@@ -375,6 +381,26 @@
     });
   }
 
+  if (downloadBtn) {
+    downloadBtn.disabled = true;
+    downloadBtn.addEventListener('click', function () {
+      if (!lastReport) return;
+      var payload = {
+        job: (lastStatus && (lastStatus.job_id || lastStatus.jobId)) || currentJobId || null,
+        report: lastReport
+      };
+      var blob = new Blob([JSON.stringify(payload, null, 2) + '\n'], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      var cert = String(lastReport.certificate_id || 'report').replace(/[^a-zA-Z0-9._-]/g, '_');
+      a.href = url;
+      a.download = 'sift-audit360-signed-' + cert + '.json';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function(){ URL.revokeObjectURL(url); if (a.parentNode) a.parentNode.removeChild(a); }, 0);
+    });
+  }
+
   if (printBtn) {
     printBtn.addEventListener('click', function () {
       window.print();
@@ -386,6 +412,9 @@
     setError('');
     stopTracking();
     currentJobId = null;
+    lastReport = null;
+    lastStatus = null;
+    if (downloadBtn) downloadBtn.disabled = true;
 
     var mode = getMode();
     var target = (targetEl && targetEl.value || '').trim();
