@@ -106,7 +106,7 @@ func WriteManifest(path string, m DatasetManifest) (string, error) {
 		return "", fmt.Errorf("twin: encode manifest: %w", err)
 	}
 	clean := filepath.Clean(path)
-	if err := os.WriteFile(clean, append(data, '\n'), 0o600); err != nil {
+	if err := atomicWriteFile(clean, append(data, '\n'), 0o600); err != nil {
 		return "", fmt.Errorf("twin: write manifest %s: %w", clean, err)
 	}
 	return clean, nil

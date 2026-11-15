@@ -428,9 +428,8 @@ func (m Manifest) Validate() error {
 }
 
 // WritePackage writes the manifest as bounty-package.json inside dir. The
-// directory is created with mode 0750 and the file with mode 0600; the file is
-// written atomically enough for this use (truncate + encode) but callers that
-// need crash consistency should write to a temporary directory and rename.
+// directory is created with mode 0750 and the file with mode 0600. The manifest
+// is written atomically (temp + sync + rename) to avoid partial/corrupt artifacts.
 func WritePackage(m Manifest, dir string) (string, error) {
 	if strings.TrimSpace(dir) == "" {
 		return "", errors.New("bounty: output directory is required")
@@ -444,23 +443,40 @@ func WritePackage(m Manifest, dir string) (string, error) {
 	}
 	path := filepath.Join(cleanDir, PackageFilename)
 
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) // #nosec G304 -- path is a fixed file name inside an operator-selected directory
+	f, err := os.CreateTemp(cleanDir, PackageFilename+".tmp-*")
 	if err != nil {
-		return "", fmt.Errorf("bounty: create %s: %w", path, err)
+		return "", fmt.Errorf("bounty: create temp manifest in %s: %w", cleanDir, err)
+	}
+	tmpName := f.Name()
+	cleanup := func() {
+		_ = f.Close()
+		_ = os.Remove(tmpName)
+	}
+	if err := f.Chmod(0o600); err != nil {
+		cleanup()
+		return "", fmt.Errorf("bounty: set mode on temp manifest: %w", err)
 	}
 	enc := json.NewEncoder(f)
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(m); err != nil {
-		_ = f.Close()
+		cleanup()
 		return "", fmt.Errorf("bounty: write %s: %w", path, err)
 	}
-	if err := f.Chmod(0o600); err != nil {
-		_ = f.Close()
-		return "", fmt.Errorf("bounty: set mode on %s: %w", path, err)
+	if err := f.Sync(); err != nil {
+		cleanup()
+		return "", fmt.Errorf("bounty: sync %s: %w", path, err)
 	}
 	if err := f.Close(); err != nil {
+		_ = os.Remove(tmpName)
 		return "", fmt.Errorf("bounty: close %s: %w", path, err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		_ = os.Remove(tmpName)
+		return "", fmt.Errorf("bounty: finalize %s: %w", path, err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return "", fmt.Errorf("bounty: set mode on %s: %w", path, err)
 	}
 	return path, nil
 }

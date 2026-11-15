@@ -42,6 +42,40 @@ type ArtifactPaths struct {
 	ReportPath      string             `json:"report_path"`
 }
 
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	cleanup := func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		cleanup()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	return os.Chmod(path, perm)
+}
+
 // WriteModel writes only twin-model.json in dir. It normalizes/validates the
 // model and writes the current schema version.
 func WriteModel(dir string, m Model) (string, error) {
@@ -73,7 +107,7 @@ func SaveModel(path string, m Model) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("twin: encode model: %w", err)
 	}
-	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+	if err := atomicWriteFile(path, append(data, '\n'), 0o600); err != nil {
 		return "", fmt.Errorf("twin: write %s: %w", path, err)
 	}
 	return path, nil
@@ -124,7 +158,7 @@ func WriteArtifacts(dir string, m Model, results map[string]Result) (ArtifactPat
 		if mErr != nil {
 			return ArtifactPaths{}, fmt.Errorf("twin: encode scenario %q: %w", name, mErr)
 		}
-		if wErr := os.WriteFile(path, append(data, '\n'), 0o600); wErr != nil {
+		if wErr := atomicWriteFile(path, append(data, '\n'), 0o600); wErr != nil {
 			return ArtifactPaths{}, fmt.Errorf("twin: write %s: %w", path, wErr)
 		}
 		paths.SimulationPaths = append(paths.SimulationPaths, ScenarioArtifact{Scenario: name, Path: path})
@@ -132,7 +166,7 @@ func WriteArtifacts(dir string, m Model, results map[string]Result) (ArtifactPat
 
 	reportPath := filepath.Join(dir, MarkdownArtifactName)
 	md := renderMarkdown(m, names, results)
-	if err := os.WriteFile(reportPath, []byte(md), 0o600); err != nil {
+	if err := atomicWriteFile(reportPath, []byte(md), 0o600); err != nil {
 		return ArtifactPaths{}, fmt.Errorf("twin: write %s: %w", reportPath, err)
 	}
 	paths.ReportPath = reportPath
