@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -114,12 +115,41 @@ func waitForWorkerProgress(t *testing.T, master *Master, minRequests int64) {
 	t.Fatalf("timed out waiting for worker progress (got %+v)", master.Aggregator().Snapshot())
 }
 
+func connectMasterWithRetry(t *testing.T, cfg MasterConfig) *Master {
+	t.Helper()
+	ctx := context.Background()
+	var err error
+	var master *Master
+	var healthy []string
+	for attempt := 0; attempt < 5; attempt++ {
+		if master != nil {
+			master.Close()
+		}
+		master = NewMaster(cfg)
+		healthy, err = master.Connect(ctx, cfg.Workers)
+		if err == nil && len(healthy) == len(cfg.Workers) {
+			return master
+		}
+		if err == nil {
+			err = fmt.Errorf("connected %d/%d workers", len(healthy), len(cfg.Workers))
+		}
+		if attempt < 4 {
+			time.Sleep(150 * time.Millisecond)
+		}
+	}
+	if master != nil {
+		master.Close()
+	}
+	t.Fatalf("connect: %v", err)
+	return nil
+}
+
 func TestDistributedRunPartialTimingOnWorkerDisconnect(t *testing.T) {
 	target := newCountingHTTPServer(t)
 	addr, srv := startWorker(t, WorkerConfig{ID: "w1", MaxUsers: 1000})
 	addr2, _ := startWorker(t, WorkerConfig{ID: "w2", MaxUsers: 1000})
 
-	master := NewMaster(MasterConfig{
+	master := connectMasterWithRetry(t, MasterConfig{
 		Scenario:   tinyScenario(t, target.URL, 8, 10),
 		Workers:    []string{addr, addr2},
 		ListenAddr: "127.0.0.1:0",
@@ -128,10 +158,6 @@ func TestDistributedRunPartialTimingOnWorkerDisconnect(t *testing.T) {
 	defer master.Close()
 
 	ctx := context.Background()
-	workers, err := master.Connect(ctx, master.cfg.Workers)
-	if err != nil || len(workers) != 2 {
-		t.Fatalf("connect: workers=%v err=%v", workers, err)
-	}
 	if err := master.StartRun(ctx, "run-partial-disconnect"); err != nil {
 		t.Fatalf("start run: %v", err)
 	}
@@ -171,7 +197,7 @@ func TestDistributedRunPartialTimingOnLivenessKill(t *testing.T) {
 	addr, _ := startWorker(t, WorkerConfig{ID: "w1", MaxUsers: 1000})
 	addr2, _ := startWorker(t, WorkerConfig{ID: "w2", MaxUsers: 1000})
 
-	master := NewMaster(MasterConfig{
+	master := connectMasterWithRetry(t, MasterConfig{
 		Scenario:   tinyScenario(t, target.URL, 8, 10),
 		Workers:    []string{addr, addr2},
 		ListenAddr: "127.0.0.1:0",
@@ -180,9 +206,6 @@ func TestDistributedRunPartialTimingOnLivenessKill(t *testing.T) {
 	defer master.Close()
 
 	ctx := context.Background()
-	if _, err := master.Connect(ctx, master.cfg.Workers); err != nil {
-		t.Fatalf("connect: %v", err)
-	}
 	if err := master.StartRun(ctx, "run-partial-liveness"); err != nil {
 		t.Fatalf("start run: %v", err)
 	}
@@ -221,31 +244,15 @@ func TestDistributedRunPartialTimingOnTimeoutGrace(t *testing.T) {
 	addr, _ := startWorker(t, WorkerConfig{ID: "w1", MaxUsers: 1000})
 	addr2, _ := startWorker(t, WorkerConfig{ID: "w2", MaxUsers: 1000})
 
-	masterCfg := MasterConfig{
+	master := connectMasterWithRetry(t, MasterConfig{
 		Scenario:   tinyScenario(t, target.URL, 6, 10),
 		Workers:    []string{addr, addr2},
 		ListenAddr: "127.0.0.1:0",
 		RunTimeout: 2 * time.Second,
-	}
-	var master *Master
-	ctx := context.Background()
-	var err error
-	for attempt := 0; attempt < 5; attempt++ {
-		if master != nil {
-			master.Close()
-		}
-		master = NewMaster(masterCfg)
-		if _, err = master.Connect(ctx, masterCfg.Workers); err == nil {
-			break
-		}
-		if attempt < 4 {
-			time.Sleep(150 * time.Millisecond)
-		}
-	}
-	if master == nil || err != nil {
-		t.Fatalf("connect: %v", err)
-	}
+	})
 	defer master.Close()
+
+	ctx := context.Background()
 	if err := master.StartRun(ctx, "run-partial-timeout"); err != nil {
 		t.Fatalf("start run: %v", err)
 	}
