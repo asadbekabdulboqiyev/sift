@@ -140,7 +140,32 @@ func (n *Notifier) ReplaySpool(ctx context.Context) (int, error) {
 		buf.Write(line)
 		buf.WriteByte('\n')
 	}
-	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return sent, fmt.Errorf("siem: rewrite spool: %w", err)
+	}
+	tmpName := tmp.Name()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return sent, fmt.Errorf("siem: rewrite spool: %w", err)
+	}
+	if _, err := tmp.Write(buf.Bytes()); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return sent, fmt.Errorf("siem: rewrite spool: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return sent, fmt.Errorf("siem: rewrite spool: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return sent, fmt.Errorf("siem: rewrite spool: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		_ = os.Remove(tmpName)
 		return sent, fmt.Errorf("siem: rewrite spool: %w", err)
 	}
 	_ = os.Chmod(path, 0o600)
