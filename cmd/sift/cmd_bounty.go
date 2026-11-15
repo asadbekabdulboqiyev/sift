@@ -74,6 +74,10 @@ func cmdBountyPackage() {
 	outDir := fs.String("out", "", "directory to write bounty-package.json into (required)")
 
 	if err := fs.Parse(os.Args[3:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			bountyUsage()
+			return
+		}
 		bountyUsage()
 		exitProcess(1)
 		return
@@ -133,6 +137,10 @@ func cmdBountyVerify() {
 	skipCI := fs.Bool("skip-ci", false, "skip confidence-interval recomputation during attestation replay")
 
 	if err := fs.Parse(os.Args[3:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			bountyUsage()
+			return
+		}
 		if bountyVerifyJSONRequested(os.Args[3:]) {
 			emitBountyVerifyCLIErrorJSON(err)
 		} else {
@@ -243,6 +251,10 @@ func cmdBountyTriage() {
 	reason := fs.String("reason", "", "reason for the transition (required)")
 
 	if err := fs.Parse(os.Args[3:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			bountyUsage()
+			return
+		}
 		bountyUsage()
 		exitProcess(1)
 		return
@@ -301,6 +313,10 @@ func cmdBountyStatus() {
 	logPath := fs.String("log", "", "path to the triage JSONL log (required)")
 
 	if err := fs.Parse(os.Args[3:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			bountyUsage()
+			return
+		}
 		bountyUsage()
 		exitProcess(1)
 		return

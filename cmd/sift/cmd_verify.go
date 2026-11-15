@@ -34,6 +34,10 @@ func cmdKeygen() {
 	force := fs.Bool("force", false, "overwrite an existing key file")
 
 	if err := fs.Parse(os.Args[2:]); err != nil {
+		if err == flag.ErrHelp {
+			keygenUsage()
+			return
+		}
 		keygenUsage()
 		exitProcess(1)
 	}
@@ -77,6 +81,10 @@ func cmdVerify() {
 	expectKey := fs.String("expect-key", "", "pin the coordinator public key (lowercase hex) out of band")
 
 	if err := fs.Parse(os.Args[2:]); err != nil {
+		if err == flag.ErrHelp {
+			verifyUsage()
+			return
+		}
 		if verifyJSONRequested(os.Args[2:]) {
 			emitVerifyCLIErrorJSON(err)
 		} else {

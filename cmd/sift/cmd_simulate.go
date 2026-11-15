@@ -66,6 +66,10 @@ func simulateFit(args []string) {
 	targetP99 := fs.Float64("target-p99-ms", 0, "latency objective used for capacity headroom (0 = documented default)")
 
 	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			simulateUsage()
+			return
+		}
 		simulateUsage()
 		exitProcess(1)
 	}
@@ -157,6 +161,10 @@ func simulateRun(args []string) {
 	failOn := fs.Float64("fail-on-breach-prob", 0, "exit 3 when the breach probability exceeds this fraction (0 = disabled)")
 
 	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			simulateUsage()
+			return
+		}
 		simulateUsage()
 		exitProcess(1)
 	}
@@ -246,6 +254,10 @@ func simulateCompare(args []string) {
 	failOn := fs.Float64("fail-on-breach-prob", 0, "exit 3 when any breach probability exceeds this fraction (0 = disabled)")
 
 	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			simulateUsage()
+			return
+		}
 		simulateUsage()
 		exitProcess(1)
 	}
@@ -518,6 +530,10 @@ func simulateValidate(args []string) {
 	strictValidation := fs.Bool("strict-validation", false, "fail if manifest/provenance is missing, verification unverified, overlap detected, or leakage not proven absent")
 	strictNoLeakage := fs.Bool("strict-no-leakage", false, "alias of --strict-validation for leakage enforcement")
 	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			simulateUsage()
+			return
+		}
 		simulateUsage()
 		exitProcess(1)
 	}
@@ -757,6 +773,10 @@ func simulateBacktest(args []string) {
 	strictValidation := fs.Bool("strict-validation", false, "fail if manifest/provenance is missing, verification unverified, overlap detected, or leakage not proven absent")
 	strictNoLeakage := fs.Bool("strict-no-leakage", false, "alias of --strict-validation for leakage enforcement")
 	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			simulateUsage()
+			return
+		}
 		simulateUsage()
 		exitProcess(1)
 	}

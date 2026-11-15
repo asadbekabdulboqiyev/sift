@@ -68,6 +68,10 @@ func cmdXrayCollect() {
 	redact := fs.Bool("redact", true, "replace interface names with stable aliases in samples")
 
 	if err := fs.Parse(os.Args[3:]); err != nil {
+		if err == flag.ErrHelp {
+			xrayUsage()
+			return
+		}
 		xrayUsage()
 		exitProcess(1)
 		return
@@ -141,6 +145,10 @@ func cmdXrayReport() {
 	evidenceOut := fs.String("evidence-out", "", "optional path to write derived resource evidence JSON (from samples/capabilities; unavailable metrics labeled explicitly)")
 
 	if err := fs.Parse(os.Args[3:]); err != nil {
+		if err == flag.ErrHelp {
+			xrayUsage()
+			return
+		}
 		xrayUsage()
 		exitProcess(1)
 		return
@@ -217,6 +225,10 @@ func cmdXrayCapabilities() {
 	fs.Usage = func() {}
 
 	if err := fs.Parse(os.Args[3:]); err != nil {
+		if err == flag.ErrHelp {
+			xrayUsage()
+			return
+		}
 		xrayUsage()
 		exitProcess(1)
 		return
