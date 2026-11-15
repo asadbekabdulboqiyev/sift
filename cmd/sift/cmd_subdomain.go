@@ -44,11 +44,11 @@ func cmdSubdomain() {
 	})
 
 	if strings.TrimSpace(target) == "" {
-		usageFatal(fmt.Errorf("--target is required\n\nExample: Sift subdomain --target https://example.com"))
+		scanUsageExit(sf, fmt.Errorf("--target is required\n\nExample: Sift subdomain --target https://example.com"))
 	}
 	parsed, err := validateScanTarget(target)
 	if err != nil {
-		usageFatal(err)
+		scanUsageExit(sf, err)
 	}
 
 	// Authorization gate: subdomain enumeration is an OpScan operation.
@@ -60,13 +60,13 @@ func cmdSubdomain() {
 	// Built only to validate --allow/--rate/--budget; the DNS/crt.sh dials
 	// bypass it.
 	if _, err := buildScanGuard(parsed, sf, false, scanner.DefaultTimeout); err != nil {
-		usageFatal(err)
+		scanUsageExit(sf, err)
 	}
 	hostname := parsed.Hostname()
 	scanDirectDialNote("subdomain", hostname)
 
 	if skip, err := scanDryRunSkip("subdomain", hostname, sf); err != nil {
-		fatal(err)
+		scanRuntimeExit(sf, err)
 	} else if skip {
 		return
 	}
@@ -74,7 +74,7 @@ func cmdSubdomain() {
 	result := scanner.EnumerateSubdomains(context.Background(), hostname, nil)
 
 	if err := emitScanDirectDialJSON("subdomain", hostname, result, sf); err != nil {
-		fatal(err)
+		scanRuntimeExit(sf, err)
 	}
 	if sf.jsonOut {
 		return

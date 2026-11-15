@@ -46,14 +46,14 @@ func cmdWebSocket() {
 
 	raw := strings.TrimSpace(wsURL)
 	if raw == "" {
-		usageFatal(fmt.Errorf("--url is required\n\nExample: Sift websocket --url wss://example.com/socket"))
+		scanUsageExit(sf, fmt.Errorf("--url is required\n\nExample: Sift websocket --url wss://example.com/socket"))
 	}
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Host == "" {
-		usageFatal(fmt.Errorf("invalid WebSocket URL %q (expected ws:// or wss://host/path)", raw))
+		scanUsageExit(sf, fmt.Errorf("invalid WebSocket URL %q (expected ws:// or wss://host/path)", raw))
 	}
 	if parsed.Scheme != "ws" && parsed.Scheme != "wss" {
-		usageFatal(fmt.Errorf("WebSocket URL must use ws:// or wss://, got %q", parsed.Scheme))
+		scanUsageExit(sf, fmt.Errorf("WebSocket URL must use ws:// or wss://, got %q", parsed.Scheme))
 	}
 
 	// Authorization gate: websocket is an OpScan operation, like the dashboard's
@@ -65,12 +65,12 @@ func cmdWebSocket() {
 
 	// Built only to validate --allow/--rate/--budget; the dial bypasses it.
 	if _, err := buildScanGuard(parsed, sf, false, scanner.DefaultTimeout); err != nil {
-		usageFatal(err)
+		scanUsageExit(sf, err)
 	}
 	scanDirectDialNote("websocket", raw)
 
 	if skip, err := scanDryRunSkip("websocket", raw, sf); err != nil {
-		fatal(err)
+		scanRuntimeExit(sf, err)
 	} else if skip {
 		return
 	}
@@ -78,7 +78,7 @@ func cmdWebSocket() {
 	result := scanner.TestWebSocket(context.Background(), raw, nil)
 
 	if err := emitScanDirectDialJSON("websocket", raw, result, sf); err != nil {
-		fatal(err)
+		scanRuntimeExit(sf, err)
 	}
 	if sf.jsonOut {
 		return

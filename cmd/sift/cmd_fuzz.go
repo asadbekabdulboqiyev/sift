@@ -56,28 +56,28 @@ func cmdFuzz() {
 	})
 
 	if strings.TrimSpace(target) == "" {
-		usageFatal(fmt.Errorf("--target is required\n\nExample: Sift fuzz --target https://example.com --path /item/{id}"))
+		scanUsageExit(sf, fmt.Errorf("--target is required\n\nExample: Sift fuzz --target https://example.com --path /item/{id}"))
 	}
 	parsed, err := validateScanTarget(target)
 	if err != nil {
-		usageFatal(err)
+		scanUsageExit(sf, err)
 	}
 	normPaths := fuzzNormalizePaths(paths)
 	if len(normPaths) == 0 {
-		usageFatal(fmt.Errorf("--path is required (at least one endpoint path)\n\nExample: Sift fuzz --target https://example.com --path /item/{id}"))
+		scanUsageExit(sf, fmt.Errorf("--path is required (at least one endpoint path)\n\nExample: Sift fuzz --target https://example.com --path /item/{id}"))
 	}
 	tryMethods := []string(methods)
 	if len(tryMethods) == 0 {
 		tryMethods = []string{"GET", "POST"}
 	}
 	if mutations <= 0 {
-		usageFatal(fmt.Errorf("--mutations must be positive, got %d", mutations))
+		scanUsageExit(sf, fmt.Errorf("--mutations must be positive, got %d", mutations))
 	}
 	if concurrency <= 0 {
-		usageFatal(fmt.Errorf("--concurrency must be positive, got %d", concurrency))
+		scanUsageExit(sf, fmt.Errorf("--concurrency must be positive, got %d", concurrency))
 	}
 	if timeout <= 0 {
-		usageFatal(fmt.Errorf("--timeout must be positive, got %d", timeout))
+		scanUsageExit(sf, fmt.Errorf("--timeout must be positive, got %d", timeout))
 	}
 
 	// Authorization gate: fuzz is an OpScan operation in the dashboard
@@ -90,7 +90,7 @@ func cmdFuzz() {
 	timeoutDur := time.Duration(timeout) * time.Second
 	gate, err := buildScanGuard(parsed, sf, intrusive, timeoutDur)
 	if err != nil {
-		usageFatal(err)
+		scanUsageExit(sf, err)
 	}
 
 	fuzzer, err := scanner.NewFuzzer(scanner.FuzzConfig{
@@ -104,7 +104,7 @@ func cmdFuzz() {
 		Intrusive:   intrusive,
 	}, gate)
 	if err != nil {
-		fatal(err)
+		scanRuntimeExit(sf, err)
 	}
 
 	result := fuzzer.Run(context.Background())
@@ -112,7 +112,7 @@ func cmdFuzz() {
 	printScanGateStats(st)
 
 	if err := emitScanJSON(result, sf); err != nil {
-		fatal(err)
+		scanRuntimeExit(sf, err)
 	}
 	if sf.jsonOut {
 		return

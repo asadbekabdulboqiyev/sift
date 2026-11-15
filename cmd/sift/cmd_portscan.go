@@ -45,15 +45,15 @@ func cmdPortScan() {
 	})
 
 	if strings.TrimSpace(target) == "" {
-		usageFatal(fmt.Errorf("--target is required\n\nExample: Sift portscan --target https://example.com"))
+		scanUsageExit(sf, fmt.Errorf("--target is required\n\nExample: Sift portscan --target https://example.com"))
 	}
 	parsed, err := validateScanTarget(target)
 	if err != nil {
-		usageFatal(err)
+		scanUsageExit(sf, err)
 	}
 	ports, err := parsePortList(portsCSV)
 	if err != nil {
-		usageFatal(err)
+		scanUsageExit(sf, err)
 	}
 
 	// Authorization gate: port scanning is an OpScan operation.
@@ -64,13 +64,13 @@ func cmdPortScan() {
 
 	gate, err := buildScanGuard(parsed, sf, false, scanner.DefaultTimeout)
 	if err != nil {
-		usageFatal(err)
+		scanUsageExit(sf, err)
 	}
 	hostname := parsed.Hostname()
 	scanDirectDialNote("portscan", hostname)
 
 	if skip, err := scanDryRunSkip("portscan", hostname, sf); err != nil {
-		fatal(err)
+		scanRuntimeExit(sf, err)
 	} else if skip {
 		return
 	}
@@ -78,7 +78,7 @@ func cmdPortScan() {
 	result := scanner.ScanPorts(context.Background(), hostname, ports, gate)
 
 	if err := emitScanDirectDialJSON("portscan", hostname, result, sf); err != nil {
-		fatal(err)
+		scanRuntimeExit(sf, err)
 	}
 	if sf.jsonOut {
 		return

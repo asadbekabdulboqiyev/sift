@@ -39,11 +39,11 @@ func cmdGraphQL() {
 	})
 
 	if strings.TrimSpace(target) == "" {
-		usageFatal(fmt.Errorf("--target is required\n\nExample: Sift graphql --target https://example.com/graphql"))
+		scanUsageExit(sf, fmt.Errorf("--target is required\n\nExample: Sift graphql --target https://example.com/graphql"))
 	}
 	parsed, err := validateScanTarget(target)
 	if err != nil {
-		usageFatal(err)
+		scanUsageExit(sf, err)
 	}
 
 	// Authorization gate: graphql is an OpScan operation, like the dashboard's
@@ -55,7 +55,7 @@ func cmdGraphQL() {
 
 	gate, err := buildScanGuard(parsed, sf, false, scanner.DefaultTimeout)
 	if err != nil {
-		usageFatal(err)
+		scanUsageExit(sf, err)
 	}
 
 	result := scanner.ScanGraphQL(context.Background(), parsed.String(), gate)
@@ -63,7 +63,7 @@ func cmdGraphQL() {
 	printScanGateStats(st)
 
 	if err := emitScanJSON(result, sf); err != nil {
-		fatal(err)
+		scanRuntimeExit(sf, err)
 	}
 	if sf.jsonOut {
 		return

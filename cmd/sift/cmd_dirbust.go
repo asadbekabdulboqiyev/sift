@@ -43,11 +43,11 @@ func cmdDirBust() {
 	})
 
 	if target == "" {
-		usageFatal(fmt.Errorf("--target is required\n\nExample: Sift dirbust --target https://example.com"))
+		scanUsageExit(sf, fmt.Errorf("--target is required\n\nExample: Sift dirbust --target https://example.com"))
 	}
 	parsed, err := validateScanTarget(target)
 	if err != nil {
-		usageFatal(err)
+		scanUsageExit(sf, err)
 	}
 
 	// Authorization gate: dirbust is an OpScan operation, like the dashboard's
@@ -59,7 +59,7 @@ func cmdDirBust() {
 
 	gate, err := buildScanGuard(parsed, sf, false, scanner.DefaultTimeout)
 	if err != nil {
-		usageFatal(err)
+		scanUsageExit(sf, err)
 	}
 
 	result := scanner.DirBust(context.Background(), parsed.String(), []string(paths), gate)
@@ -67,7 +67,7 @@ func cmdDirBust() {
 	printScanGateStats(st)
 
 	if err := emitScanJSON(result, sf); err != nil {
-		fatal(err)
+		scanRuntimeExit(sf, err)
 	}
 	if sf.jsonOut {
 		return

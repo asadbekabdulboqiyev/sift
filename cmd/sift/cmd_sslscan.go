@@ -41,11 +41,11 @@ func cmdSSLScan() {
 	})
 
 	if strings.TrimSpace(target) == "" {
-		usageFatal(fmt.Errorf("--target is required\n\nExample: Sift sslscan --target https://example.com"))
+		scanUsageExit(sf, fmt.Errorf("--target is required\n\nExample: Sift sslscan --target https://example.com"))
 	}
 	parsed, err := validateScanTarget(target)
 	if err != nil {
-		usageFatal(err)
+		scanUsageExit(sf, err)
 	}
 
 	// Authorization gate: a TLS inspection is an OpScan operation.
@@ -56,7 +56,7 @@ func cmdSSLScan() {
 
 	// Built only to validate --allow/--rate/--budget; the TLS dial bypasses it.
 	if _, err := buildScanGuard(parsed, sf, false, scanner.DefaultTimeout); err != nil {
-		usageFatal(err)
+		scanUsageExit(sf, err)
 	}
 
 	// ScanSSL needs host:port; parsed.String() carries the scheme, which breaks
@@ -73,7 +73,7 @@ func cmdSSLScan() {
 	scanDirectDialNote("sslscan", scanTarget)
 
 	if skip, err := scanDryRunSkip("sslscan", scanTarget, sf); err != nil {
-		fatal(err)
+		scanRuntimeExit(sf, err)
 	} else if skip {
 		return
 	}
@@ -81,7 +81,7 @@ func cmdSSLScan() {
 	result := scanner.ScanSSL(context.Background(), scanTarget)
 
 	if err := emitScanDirectDialJSON("sslscan", scanTarget, result, sf); err != nil {
-		fatal(err)
+		scanRuntimeExit(sf, err)
 	}
 	if sf.jsonOut {
 		return

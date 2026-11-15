@@ -250,6 +250,22 @@ func emitScanJSON(v any, sf *scanFlags) error {
 	return nil
 }
 
+func emitScanCLIErrorJSON(sf *scanFlags, err error) {
+	if sf == nil || !sf.jsonOut {
+		return
+	}
+	msg := "unknown error"
+	if err != nil {
+		msg = err.Error()
+	}
+	out := map[string]any{"error": msg}
+	data, mErr := json.MarshalIndent(out, "", "  ")
+	if mErr != nil {
+		return
+	}
+	fmt.Println(string(data))
+}
+
 // scanDirectDialEnvelope is the JSON document a direct-dial scanner writes
 // under --json / --output-json. The scanner's own result is nested under
 // "result" so the envelope can state the one fact the result object cannot:
@@ -297,6 +313,24 @@ const scanUsageExitCode = 2
 func usageFatal(err error) {
 	fmt.Fprintf(os.Stderr, "error: %v\n", err)
 	exitProcess(scanUsageExitCode)
+}
+
+func scanUsageExit(sf *scanFlags, err error) {
+	if sf != nil && sf.jsonOut {
+		emitScanCLIErrorJSON(sf, err)
+	} else {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+	}
+	exitProcess(scanUsageExitCode)
+}
+
+func scanRuntimeExit(sf *scanFlags, err error) {
+	if sf != nil && sf.jsonOut {
+		emitScanCLIErrorJSON(sf, err)
+		exitProcess(1)
+		return
+	}
+	fatal(err)
 }
 
 // scanDryRunSkip handles --dry-run for a scanner that performs its own dialing

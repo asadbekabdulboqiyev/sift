@@ -54,11 +54,11 @@ func cmdCrawl() {
 	})
 
 	if strings.TrimSpace(target) == "" {
-		usageFatal(fmt.Errorf("--target is required\n\nExample: Sift crawl --target https://example.com"))
+		scanUsageExit(sf, fmt.Errorf("--target is required\n\nExample: Sift crawl --target https://example.com"))
 	}
 	parsed, err := validateScanTarget(target)
 	if err != nil {
-		usageFatal(err)
+		scanUsageExit(sf, err)
 	}
 
 	// Zero or negative means "use the default", matching the dashboard's
@@ -87,7 +87,7 @@ func cmdCrawl() {
 	timeoutDur := time.Duration(timeout) * time.Second
 	gate, err := buildScanGuard(parsed, sf, false, timeoutDur)
 	if err != nil {
-		usageFatal(err)
+		scanUsageExit(sf, err)
 	}
 
 	crawler := scanner.NewCrawler(parsed.String(), scanner.CrawlOptions{
@@ -107,7 +107,7 @@ func cmdCrawl() {
 	printScanGateStats(st)
 
 	if err := emitScanJSON(result, sf); err != nil {
-		fatal(err)
+		scanRuntimeExit(sf, err)
 	}
 	if sf.jsonOut {
 		return

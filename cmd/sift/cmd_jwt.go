@@ -46,7 +46,7 @@ func cmdJWT() {
 
 	token, err := resolveJWTInput(tokenFlag, fileFlag)
 	if err != nil {
-		fatal(err)
+		scanRuntimeExit(sf, err)
 	}
 
 	result := scanner.AnalyzeJWT(token)
@@ -59,7 +59,7 @@ func cmdJWT() {
 	}
 
 	if err := emitScanJSON(report, sf); err != nil {
-		fatal(err)
+		scanRuntimeExit(sf, err)
 	}
 	if sf.jsonOut {
 		return
