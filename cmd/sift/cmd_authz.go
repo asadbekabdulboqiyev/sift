@@ -339,6 +339,10 @@ func authorizeAdd(args []string) {
 	policyPath := fs.String("policy", defaultPolicyPath(), "policy file")
 	fs.SetOutput(io.Discard)
 	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			authorizeUsage()
+			return
+		}
 		fatal(err)
 	}
 	if strings.TrimSpace(*pattern) == "" {
@@ -392,6 +396,10 @@ func authorizeList(args []string) {
 	policyPath := fs.String("policy", defaultPolicyPath(), "policy file")
 	fs.SetOutput(io.Discard)
 	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			authorizeUsage()
+			return
+		}
 		fatal(err)
 	}
 	pol, err := authz.LoadPolicyOrDefault(*policyPath)
@@ -422,6 +430,10 @@ func authorizeRemove(args []string) {
 	policyPath := fs.String("policy", defaultPolicyPath(), "policy file")
 	fs.SetOutput(io.Discard)
 	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			authorizeUsage()
+			return
+		}
 		fatal(err)
 	}
 	if *pattern == "" {
@@ -452,6 +464,10 @@ func authorizeVerify(args []string) {
 	policyPath := fs.String("policy", defaultPolicyPath(), "policy file")
 	fs.SetOutput(io.Discard)
 	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			authorizeUsage()
+			return
+		}
 		fatal(err)
 	}
 	pol, err := authz.LoadPolicy(*policyPath)
@@ -497,6 +513,10 @@ func auditShow(args []string) {
 	limit := fs.Int("limit", 20, "show the last N entries (0 = all)")
 	fs.SetOutput(io.Discard)
 	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			auditUsage()
+			return
+		}
 		fatal(err)
 	}
 	entries, err := authz.ReadAll(*logPath)
@@ -526,6 +546,10 @@ func auditVerify(args []string) {
 	logPath := fs.String("log", defaultAuditPath(), "audit log file")
 	fs.SetOutput(io.Discard)
 	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			auditUsage()
+			return
+		}
 		fatal(err)
 	}
 	n, err := authz.Verify(*logPath)

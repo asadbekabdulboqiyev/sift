@@ -132,6 +132,10 @@ func adminUnlock(args []string) {
 	minutes := fs.Int("minutes", 15, "how long the bypass stays open (1–1440)")
 	fs.SetOutput(io.Discard)
 	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			adminUsage()
+			return
+		}
 		fatal(err)
 	}
 
