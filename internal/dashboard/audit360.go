@@ -174,3 +174,93 @@ func writeAudit360JSON(w http.ResponseWriter, status int, v any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }
+
+func (s *Server) handleAudit360Download(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	jobID := strings.TrimSpace(r.URL.Query().Get("job_id"))
+	if jobID == "" {
+		writeAudit360JSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "job_id is required"})
+		return
+	}
+	format := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("format")))
+	if format == "" {
+		format = "json"
+	}
+	mgr := s.ensureAudit360Manager()
+	st, ok := mgr.Get(jobID)
+	if !ok {
+		writeAudit360JSON(w, http.StatusNotFound, map[string]any{"ok": false, "error": "job not found"})
+		return
+	}
+	if st.Report == nil {
+		writeAudit360JSON(w, http.StatusConflict, map[string]any{"ok": false, "error": "report is not available yet (job state: " + st.State + ")"})
+		return
+	}
+	report := st.Report
+	certID := strings.TrimSpace(report.CertificateID)
+	if certID == "" {
+		certID = "report"
+	}
+	safeID := sanitizeAudit360DownloadID(certID)
+	base := "sift-audit360-signed-" + safeID
+
+	switch format {
+	case "json", "signed-json":
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.json"`, base))
+		payload := map[string]any{"job_id": st.JobID, "state": st.State, "report": report}
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(payload)
+		return
+	case "html":
+		doc := audit360.RenderHTML(report)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.html"`, base))
+		_, _ = w.Write([]byte(doc))
+		return
+	case "pdf":
+		b, err := audit360.RenderPDF(report)
+		if err != nil {
+			writeAudit360JSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "error": "failed to render pdf: " + err.Error()})
+			return
+		}
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.pdf"`, base))
+		_, _ = w.Write(b)
+		return
+	default:
+		writeAudit360JSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "unsupported format (use json, html, or pdf)"})
+		return
+	}
+}
+
+func sanitizeAudit360DownloadID(s string) string {
+	if s == "" {
+		return "report"
+	}
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	out := b.String()
+	if out == "" {
+		return "report"
+	}
+	if len(out) > 80 {
+		out = out[:80]
+	}
+	return out
+}

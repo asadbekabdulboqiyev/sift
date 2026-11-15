@@ -23,7 +23,9 @@
   var trackFillEl = document.getElementById('a360TrackFill');
   var runningEl = document.getElementById('a360RunningIndicator');
   var printBtn = document.getElementById('a360PrintBtn');
-  var downloadBtn = document.getElementById('a360DownloadBtn');
+  var downloadJsonBtn = document.getElementById('a360DownloadJsonBtn');
+  var downloadHtmlBtn = document.getElementById('a360DownloadHtmlBtn');
+  var downloadPdfBtn = document.getElementById('a360DownloadPdfBtn');
   var modeBtns = Array.prototype.slice.call(document.querySelectorAll('.a360-mode[data-mode]'));
 
   var pollTimer = null;
@@ -288,7 +290,7 @@
     }
     lastReport = report;
     lastStatus = status || null;
-    if (downloadBtn) downloadBtn.disabled = false;
+    [downloadJsonBtn, downloadHtmlBtn, downloadPdfBtn].forEach(function(b){ if (b) b.disabled = false; });
     setError('');
     show(progressEl, true);
     show(resultEl, true);
@@ -381,25 +383,29 @@
     });
   }
 
-  if (downloadBtn) {
-    downloadBtn.disabled = true;
-    downloadBtn.addEventListener('click', function () {
-      if (!lastReport) return;
-      var payload = {
-        job: (lastStatus && (lastStatus.job_id || lastStatus.jobId)) || currentJobId || null,
-        report: lastReport
-      };
-      var blob = new Blob([JSON.stringify(payload, null, 2) + '\n'], { type: 'application/json' });
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement('a');
-      var cert = String(lastReport.certificate_id || 'report').replace(/[^a-zA-Z0-9._-]/g, '_');
-      a.href = url;
-      a.download = 'sift-audit360-signed-' + cert + '.json';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(function(){ URL.revokeObjectURL(url); if (a.parentNode) a.parentNode.removeChild(a); }, 0);
-    });
+  function a360Download(format) {
+    if (!lastReport) return;
+    var jobId = (lastStatus && (lastStatus.job_id || lastStatus.jobId)) || currentJobId || '';
+    if (!jobId) {
+      // fallback: client-side JSON
+      if (format === 'json') {
+        var payload = { job: null, report: lastReport };
+        var blob = new Blob([JSON.stringify(payload, null, 2) + '\n'], { type: 'application/json' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        var cert = String(lastReport.certificate_id || 'report').replace(/[^a-zA-Z0-9._-]/g, '_');
+        a.href = url; a.download = 'sift-audit360-signed-' + cert + '.json';
+        document.body.appendChild(a); a.click();
+        setTimeout(function(){ URL.revokeObjectURL(url); if (a.parentNode) a.parentNode.removeChild(a); }, 0);
+      }
+      return;
+    }
+    var u = '/api/audit-360/download?job_id=' + encodeURIComponent(jobId) + '&format=' + encodeURIComponent(format);
+    window.location.href = u;
   }
+  if (downloadJsonBtn) { downloadJsonBtn.disabled = true; downloadJsonBtn.addEventListener('click', function(){ a360Download('json'); }); }
+  if (downloadHtmlBtn) { downloadHtmlBtn.disabled = true; downloadHtmlBtn.addEventListener('click', function(){ a360Download('html'); }); }
+  if (downloadPdfBtn)  { downloadPdfBtn.disabled = true;  downloadPdfBtn.addEventListener('click', function(){ a360Download('pdf'); }); }
 
   if (printBtn) {
     printBtn.addEventListener('click', function () {
@@ -414,7 +420,7 @@
     currentJobId = null;
     lastReport = null;
     lastStatus = null;
-    if (downloadBtn) downloadBtn.disabled = true;
+    [downloadJsonBtn, downloadHtmlBtn, downloadPdfBtn].forEach(function(b){ if (b) b.disabled = true; });
 
     var mode = getMode();
     var target = (targetEl && targetEl.value || '').trim();

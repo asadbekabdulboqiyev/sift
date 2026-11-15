@@ -647,6 +647,8 @@ func (s *Server) serveApp(w http.ResponseWriter, r *http.Request) {
 		s.handleAudit360Status(w, r)
 	case path == "/api/audit-360/stream":
 		s.handleAudit360Stream(w, r)
+	case path == "/api/audit-360/download":
+		s.handleAudit360Download(w, r)
 	case path == "/style.css":
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
