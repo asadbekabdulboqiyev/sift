@@ -133,19 +133,32 @@ func cmdBountyVerify() {
 	skipCI := fs.Bool("skip-ci", false, "skip confidence-interval recomputation during attestation replay")
 
 	if err := fs.Parse(os.Args[3:]); err != nil {
-		bountyUsage()
+		if bountyVerifyJSONRequested(os.Args[3:]) {
+			emitBountyVerifyCLIErrorJSON(err)
+		} else {
+			bountyUsage()
+		}
 		exitProcess(1)
 		return
 	}
 	if fs.NArg() > 0 || strings.TrimSpace(*packagePath) == "" || strings.TrimSpace(*baseDir) == "" {
-		bountyUsage()
+		if *asJSON {
+			emitBountyVerifyCLIErrorJSON(fmt.Errorf("bounty verify: --package and --dir are required"))
+		} else {
+			bountyUsage()
+		}
 		exitProcess(1)
 		return
 	}
 
 	m, err := bounty.LoadPackage(strings.TrimSpace(*packagePath))
 	if err != nil {
-		fatal(err)
+		if *asJSON {
+			emitBountyVerifyCLIErrorJSON(err)
+		} else {
+			fatal(err)
+		}
+		exitProcess(1)
 		return
 	}
 
@@ -158,7 +171,12 @@ func cmdBountyVerify() {
 		SkipCICheck:     *skipCI,
 	})
 	if err != nil {
-		fatal(err)
+		if *asJSON {
+			emitBountyVerifyCLIErrorJSON(err)
+		} else {
+			fatal(err)
+		}
+		exitProcess(1)
 		return
 	}
 
@@ -167,7 +185,8 @@ func cmdBountyVerify() {
 		enc.SetEscapeHTML(false)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(report); err != nil {
-			fatal(err)
+			emitBountyVerifyCLIErrorJSON(err)
+			exitProcess(1)
 			return
 		}
 	} else {
@@ -182,6 +201,32 @@ func cmdBountyVerify() {
 	default:
 		exitProcess(2)
 	}
+}
+
+func bountyVerifyJSONRequested(args []string) bool {
+	for _, a := range args {
+		if a == "--json" || a == "-json" || strings.HasPrefix(a, "--json=") {
+			return true
+		}
+	}
+	return false
+}
+
+func emitBountyVerifyCLIErrorJSON(err error) {
+	msg := "unknown error"
+	if err != nil {
+		msg = err.Error()
+	}
+	out := bounty.VerificationReport{
+		SchemaVersion: bounty.SchemaVersion,
+		Verdict:       bounty.VerdictFailed,
+		Reasons:       []string{msg},
+		Checks:        []bounty.Check{},
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(out)
 }
 
 // cmdBountyTriage appends one state transition after validating it.

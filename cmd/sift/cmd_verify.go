@@ -77,22 +77,41 @@ func cmdVerify() {
 	expectKey := fs.String("expect-key", "", "pin the coordinator public key (lowercase hex) out of band")
 
 	if err := fs.Parse(os.Args[2:]); err != nil {
-		verifyUsage()
+		if verifyJSONRequested(os.Args[2:]) {
+			emitVerifyCLIErrorJSON(err)
+		} else {
+			verifyUsage()
+		}
 		exitProcess(1)
 	}
 	if strings.TrimSpace(*bundlePath) == "" || fs.NArg() > 0 {
-		verifyUsage()
+		if *asJSON {
+			emitVerifyCLIErrorJSON(fmt.Errorf("verify: --bundle is required"))
+		} else {
+			verifyUsage()
+		}
 		exitProcess(1)
 	}
 
 	bundle, err := attest.LoadBundle(*bundlePath)
 	if err != nil {
-		fatal(err)
+		if *asJSON {
+			emitVerifyCLIErrorJSON(err)
+		} else {
+			fatal(err)
+		}
+		exitProcess(1)
 	}
 
 	if key := strings.TrimSpace(*expectKey); key != "" {
 		if !strings.EqualFold(key, bundle.Signature.Key) {
-			fatal(fmt.Errorf("verify: bundle coordinator key %q does not match the pinned key %q", bundle.Signature.Key, key))
+			err := fmt.Errorf("verify: bundle coordinator key %q does not match the pinned key %q", bundle.Signature.Key, key)
+			if *asJSON {
+				emitVerifyCLIErrorJSON(err)
+			} else {
+				fatal(err)
+			}
+			exitProcess(1)
 		}
 	}
 
@@ -108,7 +127,12 @@ func cmdVerify() {
 		}
 		samples, loadStats, err = attest.LoadSamples(p, opts)
 		if err != nil {
-			fatal(err)
+			if *asJSON {
+				emitVerifyCLIErrorJSON(err)
+			} else {
+				fatal(err)
+			}
+			exitProcess(1)
 		}
 	}
 
@@ -121,7 +145,8 @@ func cmdVerify() {
 
 	if *asJSON {
 		if err := emitVerifyJSON(res, *bundlePath, *samplesPath, loadStats); err != nil {
-			fatal(err)
+			emitVerifyCLIErrorJSON(err)
+			exitProcess(1)
 		}
 	} else {
 		printVerifyHuman(res, *bundlePath, *samplesPath, loadStats)
@@ -130,6 +155,29 @@ func cmdVerify() {
 	if !res.Valid {
 		exitProcess(1)
 	}
+}
+
+func verifyJSONRequested(args []string) bool {
+	for _, a := range args {
+		if a == "--json" || a == "-json" || strings.HasPrefix(a, "--json=") {
+			return true
+		}
+	}
+	return false
+}
+
+func emitVerifyCLIErrorJSON(err error) {
+	msg := "unknown error"
+	if err != nil {
+		msg = err.Error()
+	}
+	out := map[string]any{
+		"valid": false,
+		"error": msg,
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(out)
 }
 
 // verifyJSONError mirrors attest.CheckError for the JSON output.
