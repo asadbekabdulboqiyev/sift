@@ -440,12 +440,42 @@ func (re *ReplayEngine) Run() (*ReplayResult, error) {
 
 // ExportJSON writes results to JSON file
 func (re *ReplayResult) ExportJSONToFile(path string) error {
-	f, err := os.Create(filepath.Clean(path)) // #nosec G304 -- path is an operator-selected output file
+	clean := filepath.Clean(path)
+	if dir := filepath.Dir(clean); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return err
+		}
+	}
+	f, err := os.CreateTemp(filepath.Dir(clean), filepath.Base(clean)+".tmp-*")
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	tmpName := f.Name()
+	cleanup := func() {
+		_ = f.Close()
+		_ = os.Remove(tmpName)
+	}
+	if err := f.Chmod(0o600); err != nil {
+		cleanup()
+		return err
+	}
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
-	return enc.Encode(re)
+	if err := enc.Encode(re); err != nil {
+		cleanup()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		cleanup()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, clean); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	return os.Chmod(clean, 0o600)
 }

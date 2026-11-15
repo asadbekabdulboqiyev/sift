@@ -523,8 +523,38 @@ func (s *Server) handleInsightsBountyVerifyUpload(w http.ResponseWriter, r *http
 		insightsJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "failed to encode manifest: " + err.Error()})
 		return
 	}
-	if err := os.WriteFile(manifestPath, mb, 0o600); err != nil {
+	tmpManifest, err := os.CreateTemp(tmpDir, "bounty-package.*.tmp")
+	if err != nil {
+		insightsJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "error": "failed to create manifest temp: " + err.Error()})
+		return
+	}
+	tmpManifestName := tmpManifest.Name()
+	if err := tmpManifest.Chmod(0o600); err != nil {
+		_ = tmpManifest.Close()
+		_ = os.Remove(tmpManifestName)
+		insightsJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "error": "failed to prepare manifest: " + err.Error()})
+		return
+	}
+	if _, err := tmpManifest.Write(mb); err != nil {
+		_ = tmpManifest.Close()
+		_ = os.Remove(tmpManifestName)
 		insightsJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "error": "failed to write manifest: " + err.Error()})
+		return
+	}
+	if err := tmpManifest.Sync(); err != nil {
+		_ = tmpManifest.Close()
+		_ = os.Remove(tmpManifestName)
+		insightsJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "error": "failed to sync manifest: " + err.Error()})
+		return
+	}
+	if err := tmpManifest.Close(); err != nil {
+		_ = os.Remove(tmpManifestName)
+		insightsJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "error": "failed to close manifest: " + err.Error()})
+		return
+	}
+	if err := os.Rename(tmpManifestName, manifestPath); err != nil {
+		_ = os.Remove(tmpManifestName)
+		insightsJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "error": "failed to finalize manifest: " + err.Error()})
 		return
 	}
 

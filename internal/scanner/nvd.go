@@ -310,8 +310,8 @@ func (n *NVDService) loadCache(key string, requireFresh bool) (*nvdCacheEntry, b
 	return &e, true
 }
 
-// saveCache persists results atomically enough for our purposes; write
-// failures are silently ignored (cache is best-effort).
+// saveCache persists results atomically; write failures are silently ignored
+// (cache is best-effort).
 func (n *NVDService) saveCache(key string, results []NVDCVE) {
 	if results == nil {
 		results = []NVDCVE{}
@@ -321,8 +321,39 @@ func (n *NVDService) saveCache(key string, results []NVDCVE) {
 	if err != nil {
 		return
 	}
-	_ = os.MkdirAll(n.cacheDir, 0o700)
-	_ = os.WriteFile(n.cachePath(key), b, 0o600)
+	if err := os.MkdirAll(n.cacheDir, 0o700); err != nil {
+		return
+	}
+	path := n.cachePath(key)
+	f, err := os.CreateTemp(n.cacheDir, filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return
+	}
+	tmpName := f.Name()
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmpName)
+		return
+	}
+	if _, err := f.Write(b); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmpName)
+		return
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmpName)
+		return
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		_ = os.Remove(tmpName)
+		return
+	}
+	_ = os.Chmod(path, 0o600)
 }
 
 // sanitizeNVDKey maps arbitrary search text onto a safe filename fragment:
