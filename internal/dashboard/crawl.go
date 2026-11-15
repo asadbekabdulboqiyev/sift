@@ -133,8 +133,8 @@ func crawlValidateFlags(req *CrawlScanRequest) (rps float64, budget int64, timeo
 // crawlGate runs the authorization decision: crawl is OpScan (information
 // gathering), not offensive, so a named ticket is not required but the gate
 // still enforces scope.
-func crawlGate(target string) (owaspGateOutcome, error) {
-	return owaspGate(authz.OpScan, target, "")
+func crawlGate(target, ticket string) (owaspGateOutcome, error) {
+	return owaspGate(authz.OpScan, target, ticket)
 }
 
 // crawlAudit appends the decision to the dashboard's audit log.
@@ -208,7 +208,7 @@ func (s *Server) handleCrawlScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	decision, err := crawlGate(target)
+	decision, err := crawlGate(target, req.Authorized)
 	if err != nil {
 		owaspWriteError(w, http.StatusInternalServerError, "authorization policy error: "+err.Error())
 		return
@@ -272,7 +272,7 @@ func (s *Server) handleCrawlScan(w http.ResponseWriter, r *http.Request) {
 		notes = append(notes, "Dry run: the probe policy was evaluated and nothing was fetched.")
 	}
 	if req.Offsite {
-		notes = append(notes, "Offsite links are allowed to be followed (may leave the target host).")
+		notes = append(notes, "Offsite links were requested, but every hop still passes through the scope gate and requests outside the allowed scope are refused.")
 	}
 
 	crawler := scanner.NewCrawler(target, scanner.CrawlOptions{
@@ -286,6 +286,15 @@ func (s *Server) handleCrawlScan(w http.ResponseWriter, r *http.Request) {
 	crawler.Client = &http.Client{
 		Timeout:   timeout,
 		Transport: &guardRoundTripper{g: gate}, // every hop passes through the safety gate
+		// Keep crawled redirect hops on the original host (same invariant as
+		// the scanner's own crawler client): a hostile page must not steer the
+		// authenticated crawl at a third-party host.
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) > 0 && req.URL.Host != via[0].URL.Host {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
 	}
 	result := crawler.Crawl()
 

@@ -154,6 +154,8 @@ func DeriveResourceEvidence(samples []Sample, caps Capabilities) DerivedResource
 			if !last.Timestamp.IsZero() {
 				mg.ObservedWindowEnd = last.Timestamp.UTC().Format(time.RFC3339Nano)
 				mg.ObservedAt = mg.ObservedWindowEnd
+			} else if mg.ObservedWindowStart != "" {
+				mg.ObservedAt = mg.ObservedWindowStart
 			}
 			set(mg)
 		} else {

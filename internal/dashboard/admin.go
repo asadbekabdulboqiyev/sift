@@ -104,7 +104,8 @@ func adminStateExists() bool {
 
 func (s *Server) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "GET required", http.StatusMethodNotAllowed)
+		w.Header().Set("Allow", http.MethodGet)
+		writeAdminError(w, http.StatusMethodNotAllowed, "GET required")
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -119,11 +120,12 @@ type adminUnlockRequest struct {
 
 func (s *Server) handleAdminUnlock(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		w.Header().Set("Allow", http.MethodPost)
+		writeAdminError(w, http.StatusMethodNotAllowed, "POST required")
 		return
 	}
 	if !sameOrigin(r) {
-		http.Error(w, "cross-origin requests are not allowed", http.StatusForbidden)
+		writeAdminError(w, http.StatusForbidden, "cross-origin requests are not allowed")
 		return
 	}
 
@@ -186,11 +188,12 @@ func (s *Server) handleAdminUnlock(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAdminLock(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		w.Header().Set("Allow", http.MethodPost)
+		writeAdminError(w, http.StatusMethodNotAllowed, "POST required")
 		return
 	}
 	if !sameOrigin(r) {
-		http.Error(w, "cross-origin requests are not allowed", http.StatusForbidden)
+		writeAdminError(w, http.StatusForbidden, "cross-origin requests are not allowed")
 		return
 	}
 	if !adminStateExists() {

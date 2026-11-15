@@ -77,6 +77,12 @@ func VerifySeal(report *Audit360Report, signatureHex, pubKeyHex string) (bool, s
 	if !ed25519.Verify(pub, digest[:], sig) {
 		return false, "signature verification failed"
 	}
+	if report.CertificateID != "" && report.CertificateID != "unavailable" {
+		expected := hex.EncodeToString(digest[:16])
+		if report.CertificateID != expected {
+			return false, "certificate id does not match sealed payload digest"
+		}
+	}
 	return true, "ok"
 }
 
@@ -88,9 +94,15 @@ type sealPayload struct {
 	RiskLevel            string    `json:"risk_level"`
 	BreakingPointUsers   int       `json:"breaking_point_users,omitempty"`
 	MaxSafeRPS           float64   `json:"max_safe_rps,omitempty"`
+	MaxObservedRPS       float64   `json:"max_observed_rps,omitempty"`
+	MaxObservedUsers     int       `json:"max_observed_users,omitempty"`
 	BreakingPointReached bool      `json:"breaking_point_reached"`
 	StressTestAvailable  bool      `json:"stress_test_available"`
 	SecurityScanPartial  bool      `json:"security_scan_partial,omitempty"`
+	CapacityBlocked      bool      `json:"capacity_blocked,omitempty"`
+	BlockedStatus        int       `json:"blocked_status,omitempty"`
+	BlockedSharePct      float64   `json:"blocked_share_pct,omitempty"`
+	LoadTestSkipped      bool      `json:"load_test_skipped,omitempty"`
 	Findings             []Finding `json:"findings"`
 	Notes                []string  `json:"notes,omitempty"`
 	DurationMS           int64     `json:"duration_ms"`
@@ -111,9 +123,15 @@ func canonicalSealPayload(report *Audit360Report) ([]byte, error) {
 		RiskLevel:            report.RiskLevel,
 		BreakingPointUsers:   report.BreakingPointUsers,
 		MaxSafeRPS:           report.MaxSafeRPS,
+		MaxObservedRPS:       report.MaxObservedRPS,
+		MaxObservedUsers:     report.MaxObservedUsers,
 		BreakingPointReached: report.BreakingPointReached,
 		StressTestAvailable:  report.StressTestAvailable,
 		SecurityScanPartial:  report.SecurityScanPartial,
+		CapacityBlocked:      report.CapacityBlocked,
+		BlockedStatus:        report.BlockedStatus,
+		BlockedSharePct:      report.BlockedSharePct,
+		LoadTestSkipped:      report.LoadTestSkipped,
 		Findings:             append([]Finding(nil), report.Findings...),
 		Notes:                append([]string(nil), report.Notes...),
 		DurationMS:           report.DurationMS,

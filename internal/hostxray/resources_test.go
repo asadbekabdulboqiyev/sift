@@ -1,6 +1,7 @@
 package hostxray
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -68,5 +69,40 @@ func TestDeriveResourceEvidence_MemoryGrowthInsufficientSingleSample(t *testing.
 	ev := DeriveResourceEvidence(samples, Capabilities{ProcMemInfo: true})
 	if ev.Metrics["memory_growth_pct"].Status != ResourceStatusInsufficientData {
 		t.Fatalf("memory growth with 1 sample should be insufficient_data, got %+v", ev.Metrics["memory_growth_pct"])
+	}
+}
+
+func TestDeriveResourceEvidence_MemoryGrowthZeroDuration(t *testing.T) {
+	ts := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	samples := []Sample{
+		{Timestamp: ts, Mem: MemoryStats{UsedPct: 50, Available: true}},
+		{Timestamp: ts, Mem: MemoryStats{UsedPct: 55, Available: true}},
+	}
+	ev := DeriveResourceEvidence(samples, Capabilities{ProcMemInfo: true})
+	mg := ev.Metrics["memory_growth_pct"]
+	if mg.Status != ResourceStatusInsufficientData {
+		t.Fatalf("zero-duration memory samples must be insufficient_data, got %+v", mg)
+	}
+	if mg.Reason == "" {
+		t.Fatalf("expected explicit reason for insufficient_data: %+v", mg)
+	}
+}
+
+func TestDeriveResourceEvidence_IgnoresNonFiniteValues(t *testing.T) {
+	base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	nan := math.NaN()
+	_ = nan
+	samples := []Sample{
+		{Timestamp: base, CPU: CPUStats{UtilizationPct: math.NaN(), Available: true}, Mem: MemoryStats{UsedPct: math.Inf(1), Available: true}},
+		{Timestamp: base.Add(time.Second), CPU: CPUStats{UtilizationPct: 40, Available: true}, Mem: MemoryStats{UsedPct: 60, Available: true}},
+	}
+	ev := DeriveResourceEvidence(samples, Capabilities{ProcStat: true, ProcMemInfo: true})
+	cpu := ev.Metrics["cpu_utilization_pct"]
+	if cpu.Status != ResourceStatusAvailable || cpu.Value == nil || *cpu.Value != 40 {
+		t.Fatalf("cpu should use only finite sample: %+v", cpu)
+	}
+	mem := ev.Metrics["memory_utilization_pct"]
+	if mem.Status != ResourceStatusAvailable || mem.Value == nil || *mem.Value != 60 {
+		t.Fatalf("memory should use only finite sample: %+v", mem)
 	}
 }

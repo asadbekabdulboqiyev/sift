@@ -3,7 +3,7 @@
 [![Go 1.26+](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev/dl/)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
-[![Version](https://img.shields.io/badge/Version-0.16.3-green.svg)](https://github.com/asadbekabdulboqiyev/sift/releases/tag/v0.16.3)
+[![Version](https://img.shields.io/badge/Version-0.16.4-green.svg)](https://github.com/asadbekabdulboqiyev/sift/releases/tag/v0.16.4)
 
 **Sift** is a professional, self-hostable toolkit written in Go for **multi-protocol load testing**, **traffic replay**, **security scanning/pentest workflows**, **verifiable (cryptographically attestable) evidence**, and **planning/triage insights**.
 
@@ -19,7 +19,7 @@ It is designed for engineers, QA teams, and security practitioners who need a un
 
 - [Overview](#overview)
 - [Key Capabilities](#key-capabilities)
-- [What's Included in 0.16.3](#whats-included-in-0161)
+- [What's Included in 0.16.4](#whats-included-in-0164)
 - [Comparison with Paid Alternatives](#comparison-with-paid-alternatives)
 - [System Requirements](#system-requirements)
 - [Installation](#installation)
@@ -136,25 +136,29 @@ Safety/behavior: same-origin checks for state-changing requests; Standard mode r
 
 ---
 
-## What's Included in 0.16.3
+## What's Included in 0.16.4
 
-**Sift 360° assessment honesty and scoring fixes**
+**Reliability & correctness hardening (verified in this release cycle)**
 
-- **Honest scoring when capacity is unmeasurable:** blocked/refused-load runs (WAF/auth/rate-limit gate) and intentionally skipped passive-mode load tests no longer penalize `capacity`/`resilience` as measured failures. Evidence quality reflects missing capacity evidence, while capacity remains unclaimed/unmeasured (no fabricated breach/throughput/capacity limit).
-- **Certificate QR reliability:** QR preview encodes a compact, scannable verification reference (certificate ID, raw evidence hash, score, timestamp/target when within capacity) to avoid QR overflow and ensure real scans work.
+- **Audit360 concurrency/cancel hardening:** fixed an SSE/subscriber publish-close race in Audit360 job event fanout and hardened stress-test cancellation/drain handling so cancellation waits for engine completion (with bounded grace fallback and explicit note). Verified with `go test -race -count=1 ./internal/audit360 ./internal/dashboard ./internal/engine`.
+- **Host X-Ray artifact persistence integrity:** host X-Ray artifact writes now use atomic temp-write/sync/rename with explicit mode enforcement to reduce corruption risk on interrupted writes. Verified with `go test ./internal/hostxray -count=1`.
+- **Accumulated bounty-hunt hardening (staged):** includes additional correctness, integrity, and edge-case hardening changes across Audit360/scoring/seal flows, dashboard/report/certificate/insights handling, scanners/OWASP, host X-Ray/twin/bounty/report paths, and targeted tests prepared on top of v0.16.4.
+
+**Included from 0.16.4**
+- **Honest scoring when capacity is unmeasurable:** blocked/refused-load runs and intentionally skipped passive-mode load tests do not penalize `capacity`/`resilience` as measured failures; capacity remains unclaimed/unmeasured (no fabricated breach/throughput/capacity limit) and evidence quality reflects missing capacity evidence.
+- **Certificate QR reliability:** QR preview encodes a compact, scannable verification reference (certificate ID, raw evidence hash, score, timestamp/target when within capacity).
 
 **Included from 0.16.2 baseline**
-- **Split scoring (0–100) with additive breakdown**: overall score plus separate `security`, `resilience`, `capacity`, and `evidence_quality` assessments (`scores`, `scoring_version: sift.audit360-scoring/v2`), while preserving backward-compatible `resilience_score`/risk fields.
-- **Certificate integrity binding**: sealing cryptographically binds target, timestamp, test configuration, raw evidence hash/format, scoring version, scores, findings, and notes (additive `sift.audit360/v2` seal payload fields).
-- **Capacity reporting clarity (measured only)**: distinguishes observed peak throughput/users from sustainable/safe capacity estimates.
-- **Findings with evidence and remediation**: normalized findings carry `evidence` and `remediation` (additive) with improved deduplication in Audit360 scoring/orchestration.
-- **Distributed reliability (data preservation)**: on worker attestation rejection, coordinator preserves previously accepted telemetry and synthesizes a partial report from last snapshot instead of discarding existing evidence.
-- **Dashboard/certificate UX**: real scannable QR preview, refreshed dashboard screenshots, and Sift 360°/certificate UI updates.
+- **Split scoring (0–100) with additive breakdown:** overall score plus separate `security`, `resilience`, `capacity`, and `evidence_quality` assessments (`scores`, `scoring_version: sift.audit360-scoring/v2`), preserving backward-compatible `resilience_score`/risk fields.
+- **Certificate integrity binding:** sealing binds target, timestamp, test configuration, raw evidence hash/format, scoring version, scores, findings, and notes (additive `sift.audit360/v2` seal payload fields).
+- **Capacity reporting clarity (measured only):** distinguishes observed peak throughput/users from sustainable/safe capacity estimates.
+- **Findings with evidence and remediation:** normalized findings carry `evidence` and `remediation` (additive) with improved deduplication in Audit360 scoring/orchestration.
+- **Distributed reliability (data preservation):** on worker attestation rejection, coordinator preserves previously accepted telemetry and synthesizes a partial report from last snapshot instead of discarding existing evidence.
 
 **Notes**
 - No fabricated metrics: capacity/scores/findings are reported only from measured/observed or explicitly provided inputs.
 - Backward compatibility preserved for existing APIs/formats via additive fields and legacy wrappers.
-- Model validation/leakage-drift hardening and broad scanner/pentest finding dedupe-evidence across all subsystems were not fully reworked in this release beyond targeted Audit360/distributed improvements.
+- Full Round 3 scope was not fully completed in this release (some agent-driven audits/fixes were not executed due to environment/quota limits). Remaining areas (e.g. broader SSRF/input/XSS hardening, distributed P1 edge-case closure, full crypto attestation audit, CLI parity, dashboard JS E2E recovery, complete persistence/locking coverage, and fully deterministic full-suite/dist gates in clean environments) require additional verified work.
 
 ---
 
@@ -205,7 +209,7 @@ Sift can be installed in multiple ways depending on your environment and operati
 ```bash
 git clone https://github.com/asadbekabdulboqiyev/sift.git
 cd sift
-./scripts/install-local.sh 0.16.3
+./scripts/install-local.sh 0.16.4
 # or: make install
 ```
 This builds all binaries, installs them to `$(go env GOBIN)` (or `$SIFT_INSTALL_DIR`), and performs macOS signing/launch checks.
@@ -219,9 +223,9 @@ sift version
 
 #### Option C: Release installer script (review before running)
 ```bash
-curl -fsSL -o install.sh https://raw.githubusercontent.com/asadbekabdulboqiyev/sift/v0.16.3/scripts/install.sh
+curl -fsSL -o install.sh https://raw.githubusercontent.com/asadbekabdulboqiyev/sift/v0.16.4/scripts/install.sh
 less install.sh
-./install.sh v0.16.3
+./install.sh v0.16.4
 ```
 Notes:
 - The script downloads release archives, verifies checksums (and can verify signatures if `cosign` is installed), installs binaries, and performs macOS signature/launch validation.
@@ -231,7 +235,7 @@ Notes:
 ```bash
 git clone https://github.com/asadbekabdulboqiyev/sift.git
 cd sift
-./scripts/build-all.sh 0.16.3
+./scripts/build-all.sh 0.16.4
 # binaries in ./bin
 ```
 
@@ -241,7 +245,7 @@ cd sift
 ```bash
 git clone https://github.com/asadbekabdulboqiyev/sift.git
 cd sift
-./scripts/install-local.sh 0.16.3
+./scripts/install-local.sh 0.16.4
 # or: make build && copy ./bin/* to a PATH directory
 ```
 
@@ -253,9 +257,9 @@ export PATH="$PATH:$(go env GOPATH)/bin"
 
 #### Option C: Release installer script
 ```bash
-curl -fsSL -o install.sh https://raw.githubusercontent.com/asadbekabdulboqiyev/sift/v0.16.3/scripts/install.sh
+curl -fsSL -o install.sh https://raw.githubusercontent.com/asadbekabdulboqiyev/sift/v0.16.4/scripts/install.sh
 less install.sh
-./install.sh v0.16.3
+./install.sh v0.16.4
 ```
 
 #### Option D: Release archives (manual)
@@ -293,12 +297,12 @@ git clone https://github.com/asadbekabdulboqiyev/sift.git
 cd sift
 
 # Build all binaries for current platform
-./scripts/build-all.sh 0.16.3
+./scripts/build-all.sh 0.16.4
 # or
 make build
 
 # Optional: install locally (with macOS signing/launch checks on Darwin)
-./scripts/install-local.sh 0.16.3
+./scripts/install-local.sh 0.16.4
 ```
 
 Produced binaries (local build): `Sift`, `Sift-dashboard`, `Sift-master`, `Sift-worker`, `Sift-replay`, `Sift-scan` (canonical names). Build/install scripts also create lowercase aliases: `sift`, `sift-dashboard`, `sift-master`, `sift-worker`, `sift-replay`, `sift-scan` for cross-platform CLI usage.
@@ -337,20 +341,20 @@ Always download from the official repository release page and verify integrity b
 #### Build images from source
 ```bash
 # Main/all-in-one image (per Dockerfile)
-docker build -t sift:0.16.3 .
+docker build -t sift:0.16.4 .
 
 # Distributed images
-docker build -f Dockerfile.master -t sift-master:0.16.3 .
-docker build -f Dockerfile.worker -t sift-worker:0.16.3 .
+docker build -f Dockerfile.master -t sift-master:0.16.4 .
+docker build -f Dockerfile.worker -t sift-worker:0.16.4 .
 ```
 
 #### Run examples
 ```bash
 # CLI help
-docker run --rm sift:0.16.3 sift --help
+docker run --rm sift:0.16.4 sift --help
 
 # Dashboard (bind to localhost on host)
-docker run --rm -p 127.0.0.1:8888:8888 sift:0.16.3 sift dashboard -listen 0.0.0.0:8888 --insecure
+docker run --rm -p 127.0.0.1:8888:8888 sift:0.16.4 sift dashboard -listen 0.0.0.0:8888 --insecure
 ```
 
 > Container defaults, entrypoints, and exposed ports may differ by image. Review the corresponding `Dockerfile`/compose configuration before production use.
@@ -446,9 +450,9 @@ sift --help | rg "simulate|xray|bounty"
 # 2) Rebuild and install latest local build (from repo root)
 cd /path/to/sift
 git pull
-./scripts/build-all.sh 0.16.3
-SIFT_INSTALL_DIR="$HOME/.local/bin" ./scripts/install-local.sh 0.16.3
-./scripts/install-local.sh 0.16.3
+./scripts/build-all.sh 0.16.4
+SIFT_INSTALL_DIR="$HOME/.local/bin" ./scripts/install-local.sh 0.16.4
+./scripts/install-local.sh 0.16.4
 
 # 3) Verify again
 sift version
@@ -493,7 +497,7 @@ sift run --url http://localhost:8080/health --users 50 --duration 60 --mode dash
 # Open http://127.0.0.1:8888
 ```
 
-New workflows (0.16.3, also available in Insights dashboard section):
+New workflows (also available in Insights dashboard section):
 ```bash
 # Digital twin (from a completed report)
 sift simulate fit --report reports/run.json --out reports/twin
@@ -1184,7 +1188,7 @@ See `docs/DEPLOYMENT-HARDENING.md` for detailed checklists and examples.
 ### Build
 ```bash
 make build
-./scripts/build-all.sh 0.16.3
+./scripts/build-all.sh 0.16.4
 ```
 
 ### Test and Validation
@@ -1225,7 +1229,7 @@ make verifier
 
 ### Latest version or new features not visible (macOS/CLI/dashboard)
 - Check installed binaries and version: `which -a sift && sift version`.
-- Rebuild/reinstall: `./scripts/build-all.sh 0.16.3 && ./scripts/install-local.sh 0.16.3`.
+- Rebuild/reinstall: `./scripts/build-all.sh 0.16.4 && ./scripts/install-local.sh 0.16.4`.
 - If another copy is earlier in `PATH` (e.g. `~/go/bin` vs `~/.local/bin`), update/remove the stale one or adjust `PATH`.
 - For dashboard UI, restart the dashboard process and hard refresh the browser (`Cmd+Shift+R`).
 - Confirm the running dashboard serves latest APIs: `curl -sS http://127.0.0.1:8888/api/version`.

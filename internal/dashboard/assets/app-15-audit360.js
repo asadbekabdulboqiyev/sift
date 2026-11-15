@@ -306,8 +306,11 @@
         capMain.textContent = 'Capacity not measurable: target refused load (HTTP ' + Number(report.blocked_status || 0) + ')';
         capSub.textContent = (blockedShare > 0 ? (blockedShare.toFixed(0) + '% of audit requests were rejected. ') : '') +
           'The access gate answered instead of the service, so no breaking point is claimed. Allowlist the load generator or use a staging target and re-run.';
-      } else if (report.stress_test_available && report.breaking_point_reached && Number(report.breaking_point_users) > 0) {
-        capMain.textContent = 'Capacity Limit Reached: System fails at ' + Number(report.breaking_point_users).toLocaleString() + ' concurrent users';
+      } else if (report.stress_test_available && report.breaking_point_reached) {
+        var bpUsers = Number(report.breaking_point_users || 0);
+        capMain.textContent = bpUsers > 0
+          ? 'Capacity Limit Reached: System fails at ' + bpUsers.toLocaleString() + ' concurrent users'
+          : 'Capacity limit reached during stress test';
         capSub.textContent = 'Measured during linear-ramp stress test (failure threshold: error rate > 5% or p99 latency > 2000ms).';
       } else if (report.stress_test_available) {
         var observed = Number(report.max_observed_rps || 0);

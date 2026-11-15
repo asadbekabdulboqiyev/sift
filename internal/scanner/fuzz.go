@@ -205,8 +205,14 @@ func (f *Fuzzer) Run(ctx context.Context) *FuzzResult {
 			for bp := range baseCh {
 				snap := f.sendProbe(ctx, bp.method, bp.path, bp.body, false)
 				if snap == nil {
+					f.statsMu.Lock()
+					f.stats.refused++
+					f.statsMu.Unlock()
 					continue
 				}
+				f.statsMu.Lock()
+				f.stats.sent++
+				f.statsMu.Unlock()
 				baseMu.Lock()
 				baseline[key(bp.method, bp.path)] = *snap
 				baseMu.Unlock()

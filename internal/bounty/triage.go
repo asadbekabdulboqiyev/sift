@@ -413,11 +413,16 @@ func LoadEvents(path string) ([]Event, error) {
 }
 
 // validateChain checks that replay describes one continuous history starting
-// with a submission.
+// with a submission and that every event is structurally valid. Shape
+// validation is enforced here (not only at load/append boundaries) so callers
+// such as API status replay cannot report state from malformed evidence.
 func validateChain(events []Event) error {
 	var prev Event
 	for i := range events {
 		e := events[i]
+		if err := e.validateShape(); err != nil {
+			return fmt.Errorf("bounty: triage event %d: %w", i+1, err)
+		}
 		if i == 0 {
 			if e.From != StateNone || e.To != StateSubmitted {
 				return fmt.Errorf(

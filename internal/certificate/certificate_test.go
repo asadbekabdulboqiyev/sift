@@ -14,8 +14,8 @@ func TestCertificateSignVerifyRoundtrip(t *testing.T) {
 		t.Fatalf("GenerateKeypair: %v", err)
 	}
 	a := NewFromPentest("https://example.com", "full", "QA Lead", "0.14.5", 42, "C", "REVIEW",
-		Counts{Critical: 0, High: 1, Medium: 3, Low: 2, Info: 1}, 6,
-		"2026-11-07T08:00:00Z", "2026-11-07T08:05:00Z", "5m")
+		Counts{Critical: 1, High: 1, Medium: 0, Low: 0, Info: 0}, 6,
+		"2026-11-07T08:00:00Z", "2026-11-07T08:05:00Z", "5m0s")
 	a.Findings = []Finding{
 		{ID: "HDR-001", Severity: "high", Title: "Missing Strict-Transport-Security", Evidence: "no HSTS header"},
 		{ID: "SENS-001", Severity: "critical", Title: "Exposed .env", Evidence: "HTTP 200 on /.env"},
@@ -25,12 +25,9 @@ func TestCertificateSignVerifyRoundtrip(t *testing.T) {
 	}
 	a.Covered = []string{"dirbust", "owasp", "tls"}
 
-	// Render a bound document (seal content placeholder), sign, then apply the
-	// real seal for display.
-	bound := RenderHTML(a, "SIGNATURE_PLACEHOLDER", "KEY_PLACEHOLDER", a.SignedAt, Version)
-	c, err := Sign(kp, a, bound)
+	c, err := Issue(kp, a, "", "exp-1")
 	if err != nil {
-		t.Fatalf("Sign: %v", err)
+		t.Fatalf("Issue: %v", err)
 	}
 	if c.Version != Version {
 		t.Fatalf("version = %q", c.Version)
@@ -41,10 +38,9 @@ func TestCertificateSignVerifyRoundtrip(t *testing.T) {
 	if c.Assessment.DocumentSHA == "" {
 		t.Fatal("document sha not bound")
 	}
-
-	// Apply the real seal for display.
-	c.HTML = RenderHTML(a, c.Signature, c.PublicKey, c.SignedAt, c.Version)
-
+	if c.CertificateID == "" {
+		t.Fatal("certificate_id not set")
+	}
 	docSHA := c.Assessment.DocumentSHA
 	if err := Verify(c); err != nil {
 		t.Fatalf("Verify: %v", err)
@@ -73,14 +69,12 @@ func TestCertificateRejectsTamper(t *testing.T) {
 		t.Fatalf("GenerateKeypair: %v", err)
 	}
 	a := NewFromPentest("https://example.com", "full", "QA Lead", "0.14.5", 1, "A", "PASS",
-		Counts{}, 10, "2026-11-07T08:00:00Z", "2026-11-07T08:01:00Z", "1m")
+		Counts{High: 1}, 10, "2026-11-07T08:00:00Z", "2026-11-07T08:01:00Z", "1m0s")
 	a.Findings = []Finding{{ID: "HDR-001", Severity: "high", Title: "Missing Strict-Transport-Security", Evidence: "no HSTS header"}}
-	bound := RenderHTML(a, "SIG_PLACEHOLDER", "KEY_PLACEHOLDER", a.SignedAt, Version)
-	c, err := Sign(kp, a, bound)
+	c, err := Issue(kp, a, "", "")
 	if err != nil {
-		t.Fatalf("Sign: %v", err)
+		t.Fatalf("Issue: %v", err)
 	}
-	c.HTML = RenderHTML(a, c.Signature, c.PublicKey, c.SignedAt, c.Version)
 
 	// Flip a risk score -> signature must fail.
 	tampered := *c
@@ -91,7 +85,9 @@ func TestCertificateRejectsTamper(t *testing.T) {
 
 	// Flip a finding title -> signature must fail.
 	tampered2 := *c
+	tampered2.Assessment = c.Assessment
 	tampered2.Assessment.Findings = []Finding{{ID: "X", Severity: "low", Title: "changed", Evidence: ""}}
+	tampered2.Assessment.Counts = Counts{Low: 1}
 	if err := Verify(&tampered2); err == nil {
 		t.Fatal("tampered findings verified")
 	}
@@ -123,13 +119,11 @@ func TestCertificateHTMLAndPDF(t *testing.T) {
 		t.Fatalf("GenerateKeypair: %v", err)
 	}
 	a := NewFromPentest("https://example.com", "full", "QA Lead", "0.14.5", 0, "A", "PASS",
-		Counts{}, 10, "2026-11-07T08:00:00Z", "2026-11-07T08:01:00Z", "1m")
-	bound := RenderHTML(a, "SIG_PLACEHOLDER", "KEY_PLACEHOLDER", a.SignedAt, Version)
-	c, err := Sign(kp, a, bound)
+		Counts{}, 10, "2026-11-07T08:00:00Z", "2026-11-07T08:01:00Z", "1m0s")
+	c, err := Issue(kp, a, "", "")
 	if err != nil {
-		t.Fatalf("Sign: %v", err)
+		t.Fatalf("Issue: %v", err)
 	}
-	c.HTML = RenderHTML(a, c.Signature, c.PublicKey, c.SignedAt, c.Version)
 
 	html := HTML(c)
 	if !strings.Contains(html, "Security Assessment Certificate") {

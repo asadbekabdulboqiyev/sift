@@ -107,7 +107,7 @@ func TestDirbustGate(t *testing.T) {
 	setTestHome(t)
 
 	// Public target allowed by default (permissive mode, no policy file).
-	out, err := dirbustGate("https://127.0.0.1/")
+	out, err := dirbustGate("https://127.0.0.1/", "")
 	if err != nil {
 		t.Fatalf("dirbustGate(public): %v", err)
 	}
@@ -118,7 +118,7 @@ func TestDirbustGate(t *testing.T) {
 
 func TestGraphqlGate(t *testing.T) {
 	setTestHome(t)
-	out, err := graphqlGate("https://127.0.0.1/graphql")
+	out, err := graphqlGate("https://127.0.0.1/graphql", "")
 	if err != nil {
 		t.Fatalf("graphqlGate: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestGraphqlGate(t *testing.T) {
 
 func TestPortscanGate(t *testing.T) {
 	setTestHome(t)
-	out, err := portscanGate("https://127.0.0.1/")
+	out, err := portscanGate("https://127.0.0.1/", "")
 	if err != nil {
 		t.Fatalf("portscanGate: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestPortscanGate(t *testing.T) {
 
 func TestSslscanGate(t *testing.T) {
 	setTestHome(t)
-	out, err := sslscanGate("https://127.0.0.1/")
+	out, err := sslscanGate("https://127.0.0.1/", "")
 	if err != nil {
 		t.Fatalf("sslscanGate: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestSslscanGate(t *testing.T) {
 
 func TestSubdomainGate(t *testing.T) {
 	setTestHome(t)
-	out, err := subdomainGate("127.0.0.1")
+	out, err := subdomainGate("127.0.0.1", "")
 	if err != nil {
 		t.Fatalf("subdomainGate: %v", err)
 	}

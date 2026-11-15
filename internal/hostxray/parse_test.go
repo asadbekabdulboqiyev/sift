@@ -131,6 +131,21 @@ func TestParseMemInfoMalformed(t *testing.T) {
 	}
 }
 
+func TestParseMemInfoClampsAvailableAboveTotal(t *testing.T) {
+	// MemAvailable > MemTotal must not produce impossible utilization via
+	// uint64 underflow; availability is clamped and used% bounded.
+	mem, err := ParseMemInfo(strings.NewReader("MemTotal: 1000 kB\nMemAvailable: 2000 kB\n"))
+	if err != nil {
+		t.Fatalf("ParseMemInfo: %v", err)
+	}
+	if mem.TotalBytes != 1000*1024 || mem.AvailableBytes != 1000*1024 {
+		t.Fatalf("total/available = %d/%d, want clamped to total", mem.TotalBytes, mem.AvailableBytes)
+	}
+	if mem.UsedPct != 0 {
+		t.Fatalf("UsedPct = %v, want 0", mem.UsedPct)
+	}
+}
+
 func TestParseNetDev(t *testing.T) {
 	ifaces, err := ParseNetDev(strings.NewReader(netDevFixture))
 	if err != nil {

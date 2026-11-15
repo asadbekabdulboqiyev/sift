@@ -124,12 +124,19 @@ func ParseMemInfo(r io.Reader) (MemoryStats, error) {
 	available, hasAvailable := values["MemAvailable"]
 	if !hasAvailable {
 		available = out.FreeBytes + out.BuffersBytes + out.CachedBytes
-		if available > total {
-			available = total
-		}
+	}
+	// Clamp in all cases: malformed/corrupt inputs must not produce
+	// impossible utilization (e.g. MemAvailable > MemTotal would wrap).
+	if available > total {
+		available = total
 	}
 	out.AvailableBytes = available
 	out.UsedPct = float64(total-available) / float64(total) * 100
+	if out.UsedPct < 0 {
+		out.UsedPct = 0
+	} else if out.UsedPct > 100 {
+		out.UsedPct = 100
+	}
 	out.Available = true
 	return out, nil
 }

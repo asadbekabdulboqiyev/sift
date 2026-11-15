@@ -312,7 +312,7 @@ func TestBridgeSnapshotFromTelemetry(t *testing.T) {
 func TestBridgeAttestationSkipsAndFailures(t *testing.T) {
 	// No collector: emitAttestation is a silent no-op.
 	b := NewEngineBridge(NewServer())
-	if err := b.emitAttestation(); err != nil {
+	if err := b.emitAttestation(0); err != nil {
 		t.Errorf("emitAttestation without a collector: %v", err)
 	}
 
@@ -337,6 +337,77 @@ func TestBridgeAttestationSkipsAndFailures(t *testing.T) {
 	}
 	if len(serverHistory(srv)) != 1 {
 		t.Log("history may still be recorded; attestation failure must not break the run")
+	}
+}
+
+func TestBridgeRunCompletionTimingConsistency(t *testing.T) {
+	b, srv, cfg := newTestBridge(t)
+	b.StartRun(cfg)
+
+	// Deterministic snapshot so history/result is populated without relying on
+	// engine timing.
+	b.PushSnapshot(&LiveSnapshot{
+		TotalReq:    3,
+		TotalErrors: 1,
+		ErrorRate:   33.3,
+		RPS:         10,
+		P50Latency:  1,
+		P95Latency:  2,
+		P99Latency:  3,
+		AvgLatency:  1.5,
+		MaxLatency:  3,
+		StatusCodes: map[int]uint64{200: 2, 500: 1},
+	})
+
+	b.RunComplete()
+
+	state := serverState(srv)
+	history := serverHistory(srv)
+	if len(history) != 1 {
+		t.Fatalf("history entries = %d, want 1", len(history))
+	}
+	entry := history[0]
+
+	if state.Status != "completed" {
+		t.Fatalf("final state status = %q, want completed", state.Status)
+	}
+	if state.StartTime.IsZero() || state.EndTime.IsZero() {
+		t.Fatalf("run state times must be set: start=%v end=%v", state.StartTime, state.EndTime)
+	}
+	if state.EndTime.Before(state.StartTime) {
+		t.Fatalf("end_time before start_time: start=%v end=%v", state.StartTime, state.EndTime)
+	}
+	if state.Elapsed < 0 {
+		t.Fatalf("elapsed must be non-negative: %v", state.Elapsed)
+	}
+	if got := state.EndTime.Sub(state.StartTime); got != state.Elapsed {
+		t.Fatalf("end-start=%v, want elapsed=%v", got, state.Elapsed)
+	}
+	if entry.Duration != state.Elapsed.Round(time.Millisecond).String() {
+		t.Fatalf("history duration=%q, want %q", entry.Duration, state.Elapsed.Round(time.Millisecond).String())
+	}
+
+	srv.attestMu.RLock()
+	info := srv.attestInfo
+	srv.attestMu.RUnlock()
+	if !info.Exists {
+		t.Fatal("attestation info not set for completed run")
+	}
+	raw, err := os.ReadFile(info.BundlePath)
+	if err != nil {
+		t.Fatalf("read bundle: %v", err)
+	}
+	var bundle map[string]any
+	if err := json.Unmarshal(raw, &bundle); err != nil {
+		t.Fatalf("bundle is not JSON: %v", err)
+	}
+	run, _ := bundle["run"].(map[string]any)
+	durNS, _ := run["duration_ns"].(float64)
+	if int64(durNS) != state.Elapsed.Nanoseconds() {
+		t.Fatalf("attestation duration_ns=%v, want %v (history/state elapsed)", int64(durNS), state.Elapsed.Nanoseconds())
+	}
+	if run["target"] != cfg.TargetURL {
+		t.Fatalf("attestation target=%v, want %q", run["target"], cfg.TargetURL)
 	}
 }
 

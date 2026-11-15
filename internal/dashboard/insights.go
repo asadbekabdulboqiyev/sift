@@ -47,6 +47,11 @@ type twinSimulateRequest struct {
 	RampSeconds      *float64   `json:"ramp_seconds,omitempty"`
 	FailOnBreachProb float64    `json:"fail_on_breach_prob,omitempty"`
 	ScenarioType     string     `json:"scenario_type,omitempty"`
+	// UI/legacy aliases for threshold fields.
+	P95MSAlias      float64 `json:"p95_ms,omitempty"`
+	P99MSAlias      float64 `json:"p99_ms,omitempty"`
+	ErrorRateAlias  float64 `json:"error_rate_pct,omitempty"`
+	ThroughputAlias float64 `json:"throughput_rps_min,omitempty"`
 }
 
 type xrayCorrelateRequest struct {
@@ -103,12 +108,20 @@ func (s *Server) handleInsightsTwinFit(w http.ResponseWriter, r *http.Request) {
 		insightsJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "invalid JSON: " + err.Error()})
 		return
 	}
-	if req.Report.Duration <= 0 && req.Report.TotalRequests == 0 {
-		insightsJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "report is missing required fields (duration/total_requests)"})
+	if req.Report.TotalRequests == 0 {
+		insightsJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "report has no completed requests; cannot fit a model from zero samples"})
 		return
 	}
-	if req.TargetP99MS < 0 {
-		insightsJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "target_p99_ms must not be negative"})
+	if req.Report.Duration <= 0 {
+		insightsJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "report duration must be positive"})
+		return
+	}
+	if err := req.Report.ValidateTimestamps(); err != nil {
+		insightsJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "report timing is inconsistent: " + err.Error()})
+		return
+	}
+	if req.TargetP99MS < 0 || math.IsNaN(req.TargetP99MS) || math.IsInf(req.TargetP99MS, 0) {
+		insightsJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "target_p99_ms must be a finite non-negative number"})
 		return
 	}
 
@@ -147,6 +160,10 @@ func (s *Server) handleInsightsTwinSimulate(w http.ResponseWriter, r *http.Reque
 		insightsJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "model is required"})
 		return
 	}
+	if math.IsNaN(req.FailOnBreachProb) || math.IsInf(req.FailOnBreachProb, 0) || req.FailOnBreachProb < 0 || req.FailOnBreachProb > 1 {
+		insightsJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "fail_on_breach_prob must be between 0 and 1"})
+		return
+	}
 
 	sc, err := buildTwinScenario(req)
 	if err != nil {
@@ -183,17 +200,12 @@ func buildTwinScenario(req twinSimulateRequest) (twin.Scenario, error) {
 		name = "likely"
 	}
 	var sc twin.Scenario
-	switch name {
-	case "best", "likely", "worst":
-		preset, err := twin.Preset(name, req.Model)
-		if err != nil {
-			return twin.Scenario{}, err
-		}
+	if preset, err := twin.Preset(name, req.Model); err == nil {
 		sc = preset
-	default:
+	} else {
 		// Custom: start from likely preset defaults if available, else minimal.
-		if preset, err := twin.Preset("likely", req.Model); err == nil {
-			sc = preset
+		if likely, lerr := twin.Preset("likely", req.Model); lerr == nil {
+			sc = likely
 			sc.Name = name
 		} else {
 			sc = twin.Scenario{Name: name, Mode: twin.LoopOpen, DurationSeconds: 60, Iterations: 200}
@@ -221,6 +233,18 @@ func buildTwinScenario(req twinSimulateRequest) (twin.Scenario, error) {
 
 	if req.DurationSeconds > 0 {
 		sc.DurationSeconds = req.DurationSeconds
+	}
+	if req.SLAP95MS <= 0 {
+		req.SLAP95MS = req.P95MSAlias
+	}
+	if req.SLAP99MS <= 0 {
+		req.SLAP99MS = req.P99MSAlias
+	}
+	if req.MaxErrorRatePct <= 0 {
+		req.MaxErrorRatePct = req.ErrorRateAlias
+	}
+	if req.MinThroughputRPS <= 0 {
+		req.MinThroughputRPS = req.ThroughputAlias
 	}
 	if req.SLAP95MS > 0 {
 		sc.SLAP95MS = req.SLAP95MS
@@ -434,9 +458,10 @@ func (s *Server) handleInsightsBountyVerifyUpload(w http.ResponseWriter, r *http
 		http.Error(w, "cross-origin requests are not allowed", http.StatusForbidden)
 		return
 	}
-	// Allow manifest + artifact files + optional bundle/samples.
-	r.Body = http.MaxBytesReader(w, r.Body, 32<<20)
-	if err := r.ParseMultipartForm(32 << 20); err != nil { // #nosec G120 -- request body is bounded by MaxBytesReader above; form memory cap is intentional.
+	// Allow manifest + artifact files + optional bundle/samples. Limits align with bounty package constraints.
+	const uploadMaxBody = bounty.MaxArtifactBytes*int64(bounty.MaxArtifacts) + 8<<20
+	r.Body = http.MaxBytesReader(w, r.Body, uploadMaxBody)
+	if err := r.ParseMultipartForm(32 << 20); err != nil { // #nosec G120 -- request body is bounded by MaxBytesReader above; in-memory form cap is intentional.
 		insightsJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "invalid multipart form: " + err.Error()})
 		return
 	}
@@ -505,6 +530,9 @@ func (s *Server) handleInsightsBountyVerifyUpload(w http.ResponseWriter, r *http
 
 	// Ensure uploaded files are available at manifest-declared artifact paths.
 	// Browsers often provide basenames only; copy matched uploads to expected paths.
+	// Matching is deterministic: prefer exact relative-path key, then lexicographically
+	// smallest uploaded path whose basename matches (fail-closed on ambiguity is not
+	// required because verification re-hashes against the manifest).
 	for _, art := range m.Artifacts {
 		want := filepath.ToSlash(art.Path)
 		wantAbs := filepath.Join(tmpDir, filepath.FromSlash(want))
@@ -516,11 +544,16 @@ func (s *Server) handleInsightsBountyVerifyUpload(w http.ResponseWriter, r *http
 		if pth, ok := saved[want]; ok {
 			src = pth
 		} else {
-			for rel, pth := range saved {
-				if filepath.Base(rel) == filepath.Base(want) || rel == filepath.Base(want) {
-					src = pth
-					break
+			candidates := make([]string, 0, 1)
+			wantBase := filepath.Base(want)
+			for rel := range saved {
+				if rel == wantBase || filepath.Base(rel) == wantBase {
+					candidates = append(candidates, rel)
 				}
+			}
+			sort.Strings(candidates)
+			if len(candidates) > 0 {
+				src = saved[candidates[0]]
 			}
 		}
 		if src == "" {
@@ -531,9 +564,13 @@ func (s *Server) handleInsightsBountyVerifyUpload(w http.ResponseWriter, r *http
 		}
 	}
 
+	pubKey := strings.TrimSpace(r.FormValue("key"))
+	if pubKey == "" {
+		pubKey = strings.TrimSpace(r.FormValue("public_key"))
+	}
 	opts := bounty.VerifyOptions{
 		Target:       strings.TrimSpace(r.FormValue("target")),
-		PublicKeyHex: strings.TrimSpace(r.FormValue("key")),
+		PublicKeyHex: pubKey,
 		SkipCICheck:  strings.EqualFold(strings.TrimSpace(r.FormValue("skip_ci_check")), "true") || r.FormValue("skip_ci_check") == "1",
 	}
 	if v := strings.TrimSpace(r.FormValue("max_samples_total")); v != "" {
@@ -615,8 +652,14 @@ func copyFileTo(src, baseDir, dst string) error {
 		return err
 	}
 	defer out.Close()
-	_, err = io.Copy(out, io.LimitReader(in, 16<<20))
-	return err
+	n, err := io.Copy(out, io.LimitReader(in, bounty.MaxArtifactBytes+1))
+	if err != nil {
+		return err
+	}
+	if n > bounty.MaxArtifactBytes {
+		return fmt.Errorf("file exceeds %d byte limit", bounty.MaxArtifactBytes)
+	}
+	return nil
 }
 
 func readUploadedText(r *http.Request, field string) string {
@@ -629,7 +672,7 @@ func readUploadedText(r *http.Request, field string) string {
 		return ""
 	}
 	defer f.Close()
-	b, err := io.ReadAll(io.LimitReader(f, 2<<20))
+	b, err := io.ReadAll(io.LimitReader(f, 4<<20))
 	if err != nil {
 		return ""
 	}
@@ -646,7 +689,7 @@ func readUploadedFileByName(r *http.Request, name string) string {
 			if err != nil {
 				return ""
 			}
-			b, err := io.ReadAll(io.LimitReader(f, 2<<20))
+			b, err := io.ReadAll(io.LimitReader(f, 4<<20))
 			_ = f.Close()
 			if err != nil {
 				return ""
@@ -692,8 +735,14 @@ func saveMultipartFile(fh *multipart.FileHeader, baseDir, dst string) error {
 		return err
 	}
 	defer out.Close()
-	_, err = io.Copy(out, io.LimitReader(src, 16<<20))
-	return err
+	n, err := io.Copy(out, io.LimitReader(src, bounty.MaxArtifactBytes+1))
+	if err != nil {
+		return err
+	}
+	if n > bounty.MaxArtifactBytes {
+		return fmt.Errorf("file exceeds %d byte limit", bounty.MaxArtifactBytes)
+	}
+	return nil
 }
 
 type twinCompareRequest struct {
@@ -833,21 +882,28 @@ func (s *Server) handleInsightsTwinCompare(w http.ResponseWriter, r *http.Reques
 	} else if leakage == nil {
 		leakage = &twin.LeakageGuard{Enforced: false, Proven: false, Status: twin.LeakageStatusUnverified, Reason: "no leakage proof provided; caller-provided metadata only (not persisted)"}
 	} else {
-		// Metadata-only claims are not provenance-verified.
-		if strings.TrimSpace(leakage.Status) == "" {
-			leakage.Status = twin.LeakageStatusUnverified
-		}
-		if leakage.Status == twin.LeakageStatusVerifiedNoLeakage && !leakage.Verified {
+		// Metadata-only claims are not provenance-verified without manifest
+		// verification. Never accept a false verified_no_leakage on
+		// contradictory/missing provenance.
+		if leakage.Status == twin.LeakageStatusVerifiedNoLeakage || leakage.Verified || leakage.Proven || leakage.Enforced {
 			leakage.Status = twin.LeakageStatusUnverified
 			leakage.Proven = false
 			leakage.Verified = false
+			leakage.Enforced = false
 			if strings.TrimSpace(leakage.Reason) == "" {
 				leakage.Reason = "metadata-only leakage claim cannot be verified without manifest/provenance evidence"
 			}
+			leakage.VerificationSource = "metadata_unverified"
+		}
+		if strings.TrimSpace(leakage.Status) == "" {
+			leakage.Status = twin.LeakageStatusUnverified
 		}
 		if !leakage.Enforced || !leakage.Proven || leakage.Status != twin.LeakageStatusVerifiedNoLeakage {
 			if strings.TrimSpace(leakage.Reason) == "" {
 				leakage.Reason = "leakage not explicitly enforced+proven by provided metadata"
+			}
+			if strings.TrimSpace(leakage.VerificationSource) == "" {
+				leakage.VerificationSource = "metadata_unverified"
 			}
 		}
 	}
@@ -1057,20 +1113,28 @@ func (s *Server) handleInsightsTwinBacktest(w http.ResponseWriter, r *http.Reque
 	} else if leakage == nil {
 		leakage = &twin.LeakageGuard{Enforced: false, Proven: false, Status: twin.LeakageStatusUnverified, Reason: "no leakage proof provided; caller/workflow must enforce train/validation split and prevent leakage"}
 	} else {
-		if strings.TrimSpace(leakage.Status) == "" {
-			leakage.Status = twin.LeakageStatusUnverified
-		}
-		if leakage.Status == twin.LeakageStatusVerifiedNoLeakage && !leakage.Verified {
+		// Metadata-only claims are not provenance-verified without manifest
+		// verification. Never accept a false verified_no_leakage on
+		// contradictory/missing provenance.
+		if leakage.Status == twin.LeakageStatusVerifiedNoLeakage || leakage.Verified || leakage.Proven || leakage.Enforced {
 			leakage.Status = twin.LeakageStatusUnverified
 			leakage.Proven = false
 			leakage.Verified = false
+			leakage.Enforced = false
 			if strings.TrimSpace(leakage.Reason) == "" {
 				leakage.Reason = "metadata-only leakage claim cannot be verified without manifest/provenance evidence"
 			}
+			leakage.VerificationSource = "metadata_unverified"
+		}
+		if strings.TrimSpace(leakage.Status) == "" {
+			leakage.Status = twin.LeakageStatusUnverified
 		}
 		if !leakage.Enforced || !leakage.Proven || leakage.Status != twin.LeakageStatusVerifiedNoLeakage {
 			if strings.TrimSpace(leakage.Reason) == "" {
 				leakage.Reason = "leakage not proven/enforced by provided metadata"
+			}
+			if strings.TrimSpace(leakage.VerificationSource) == "" {
+				leakage.VerificationSource = "metadata_unverified"
 			}
 		}
 	}
@@ -1149,7 +1213,6 @@ func resourceEvidenceToTwin(derived hostxray.DerivedResourceEvidence, source str
 		ObservedWindowStart: derived.ObservedWindowStart,
 		ObservedWindowEnd:   derived.ObservedWindowEnd,
 	}
-	// stable order for legacy slices
 	names := make([]string, 0, len(derived.Metrics))
 	for n := range derived.Metrics {
 		names = append(names, n)
@@ -1170,6 +1233,10 @@ func resourceEvidenceToTwin(derived hostxray.DerivedResourceEvidence, source str
 			ObservedWindowEnd:      m.ObservedWindowEnd,
 			ObservationSampleCount: m.ObservationSampleCount,
 		}
+		// Preserve metric identity/name as provided by hostxray evidence.
+		if strings.TrimSpace(detail.Name) == "" {
+			detail.Name = n
+		}
 		ra.MetricsDetail[n] = detail
 		if m.Status == hostxray.ResourceStatusAvailable && m.Value != nil && !math.IsNaN(*m.Value) && !math.IsInf(*m.Value, 0) {
 			ra.Available = true
@@ -1177,6 +1244,15 @@ func resourceEvidenceToTwin(derived hostxray.DerivedResourceEvidence, source str
 			ra.Values[n] = *m.Value
 		} else {
 			ra.Missing = append(ra.Missing, n)
+			// Never report contradictory evidence: non-finite/missing values are not available.
+			if detail.Status == "available" {
+				detail.Status = "insufficient_data"
+				if strings.TrimSpace(detail.Reason) == "" {
+					detail.Reason = "derived value missing or non-finite"
+				}
+				detail.Value = nil
+			}
+			ra.MetricsDetail[n] = detail
 		}
 	}
 	sort.Strings(ra.Metrics)

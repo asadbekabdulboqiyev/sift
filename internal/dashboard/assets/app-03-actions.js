@@ -54,8 +54,13 @@ function startRun() {
     body: JSON.stringify(cfg)
   }).then(function(r) {
     if (guardStatus(r)) throw new Error('authentication required');
-    if (!r.ok) throw new Error('server returned ' + r.status);
-    return r.json();
+    return r.json().catch(function() { return {}; }).then(function(body) {
+      if (!r.ok) {
+        var msg = (body && (body.error || body.reason || body.message)) || ('server returned ' + r.status);
+        throw new Error(msg);
+      }
+      return body;
+    });
   }).then(function() {
     toast('Run started!', 'info');
     saveLastConfig(cfg);

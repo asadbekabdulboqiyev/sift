@@ -3,7 +3,9 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner"
@@ -12,6 +14,7 @@ import (
 // --- Dir bust dashboard ------------------------------------------------------
 const (
 	dirbustMaxRequestBody = 32 << 10
+	dirbustMaxPaths       = 200
 )
 
 // DirBustScanRequest is the POST body for /api/dirbust.
@@ -31,8 +34,8 @@ type DirBustScanResult struct {
 	Notes    []string           `json:"notes,omitempty"`
 }
 
-func dirbustGate(target string) (owaspGateOutcome, error) {
-	return owaspGate(authz.OpScan, target, "")
+func dirbustGate(target, ticket string) (owaspGateOutcome, error) {
+	return owaspGate(authz.OpScan, target, ticket)
 }
 
 func dirbustAudit(e authz.Entry) error { return owaspAudit(e) }
@@ -69,7 +72,28 @@ func (s *Server) handleDirBust(w http.ResponseWriter, r *http.Request) {
 	}
 	target := parsed.String()
 
-	decision, err := dirbustGate(target)
+	if len(req.Paths) > dirbustMaxPaths {
+		owaspWriteError(w, http.StatusBadRequest, fmt.Sprintf("at most %d paths, got %d", dirbustMaxPaths, len(req.Paths)))
+		return
+	}
+	paths := make([]string, 0, len(req.Paths))
+	seenPath := make(map[string]bool, len(req.Paths))
+	for _, p := range req.Paths {
+		p = strings.TrimSpace(p)
+		if p == "" || strings.Contains(p, "://") || strings.ContainsAny(p, " \t\r\n") {
+			continue
+		}
+		if !strings.HasPrefix(p, "/") {
+			p = "/" + p
+		}
+		if seenPath[p] {
+			continue
+		}
+		seenPath[p] = true
+		paths = append(paths, p)
+	}
+
+	decision, err := dirbustGate(target, req.Authorized)
 	if err != nil {
 		owaspWriteError(w, http.StatusInternalServerError, "authorization policy error: "+err.Error())
 		return
@@ -105,7 +129,15 @@ func (s *Server) handleDirBust(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := scanner.DirBust(context.Background(), target, req.Paths, gate)
+	result := scanner.DirBust(context.Background(), target, paths, gate)
+	st := gate.Stats()
+	var notes []string
+	if st.RequestsRefused > 0 {
+		notes = append(notes, fmt.Sprintf("Gate refused %d probe(s): out-of-scope=%d intrusive-off=%d budget=%d rate=%d dry-run=%d.", st.RequestsRefused, st.RefusedOutOfScope, st.RefusedIntrusive, st.RefusedBudget, st.RefusedRate, st.RefusedDryRun))
+	}
+	if result.Found == 0 && st.RequestsSent == 0 && st.RequestsRefused > 0 {
+		notes = append(notes, "No probes were sent; the reported result reflects refusals, not a clean target.")
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(DirBustScanResult{OK: true, Target: target, Found: result.Found, Entries: result.Entries, Duration: result.Duration.Seconds()})
+	_ = json.NewEncoder(w).Encode(DirBustScanResult{OK: true, Target: target, Found: result.Found, Entries: result.Entries, Duration: result.Duration.Seconds(), Notes: notes})
 }

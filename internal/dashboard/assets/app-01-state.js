@@ -30,7 +30,9 @@ var S = {
   stopArmTimer: null,
   summaryVisible: false,
   locked: false,        // control API rejected auth (401/403) — lock overlay shown
-  everOpened: false     // WS handshake succeeded at least once in this attempt
+  everOpened: false,    // WS handshake succeeded at least once in this attempt
+  reportIndex: -1,      // selected history entry index for Report view (-1 = latest)
+  attestation: null     // latest attestation info from /api/attestation
 };
 var MAX_HIST = 120;
 var ws = null;
@@ -86,7 +88,7 @@ function connect() {
       pushHist('rpsHist', d.rps || 0);
       pushHist('latAvgHist', d.avg_latency_ms || 0);
       pushHist('latP50Hist', d.p50_latency_ms || 0);
-      pushHist('latP95Hist', d.p99_latency_ms || 0);
+      pushHist('latP95Hist', d.p95_latency_ms || 0);
       pushHist('latP99Hist', d.p99_latency_ms || 0);
       pushHist('errHist', d.error_rate || 0);
       pushHist('userHist', d.active_users || 0);
@@ -101,6 +103,7 @@ function connect() {
           hideSummary();
           disarmStop();
           dismissOnboarding(); // first run started -> guide goes away for good
+          if (typeof renderAttestation === 'function') { renderAttestation({ exists: false }); }
         }
       }
       if (prev !== 'completed' && st === 'completed') {

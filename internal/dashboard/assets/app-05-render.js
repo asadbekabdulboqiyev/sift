@@ -249,51 +249,193 @@ function renderHistory() {
 
   var hist = S.history || [];
   if (!hist.length) {
+    S.reportIndex = -1;
     section.classList.remove('hidden');
     body.innerHTML = '<div class="empty-note">No run report yet — start a run from Overview.</div>';
     return;
   }
 
   section.classList.remove('hidden');
-  // Show the latest run report (most recent entry).
-  var h = hist[hist.length - 1];
-  var cfg = h.config || {};
-  var res = h.result || {};
-  var codes = res.status_codes || {};
+
+  var idx = (typeof S.reportIndex === 'number') ? S.reportIndex : -1;
+  if (idx < 0 || idx >= hist.length) idx = hist.length - 1;
+  S.reportIndex = idx;
+  var h = hist[idx] || {};
+
+  var hasConfig = h && h.config && typeof h.config === 'object';
+  var hasResult = h && h.result && typeof h.result === 'object';
+  var cfg = hasConfig ? h.config : {};
+  var res = hasResult ? h.result : {};
+  var codes = (hasResult && res.status_codes && typeof res.status_codes === 'object') ? res.status_codes : {};
   var codeKeys = Object.keys(codes).sort(function(a,b){ return Number(a)-Number(b); });
-  var codesText = codeKeys.length ? codeKeys.map(function(k){ return k + ': ' + codes[k]; }).join(', ') : '—';
+  var codesText = codeKeys.length ? codeKeys.map(function(k){ return k + ': ' + codes[k]; }).join(', ') : (hasResult ? '—' : 'unavailable');
 
   function esc(v){ return String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\x22/g,'&quot;'); }
-  function fmtNum(v, digits){ if (v == null || !isFinite(v)) return '—'; return Number(v).toFixed(digits == null ? 2 : digits); }
-  function row(k,v){ return '<div class="ins-kv-row"><span class="k">'+esc(k)+'</span><span class="v">'+esc(v == null || v === '' ? '—' : v)+'</span></div>'; }
+  function isNum(v){ return typeof v === 'number' && isFinite(v); }
+  function fmtNum(v, digits){ return isNum(v) ? Number(v).toFixed(digits == null ? 2 : digits) : 'unavailable'; }
+  function fmtCountVal(v){ return isNum(v) ? fmt(v) : 'unavailable'; }
+  function row(k,v, unavailable){ var val = unavailable ? 'unavailable' : ((v == null || v === '') ? '—' : v); return '<div class="ins-kv-row"><span class="k">'+esc(k)+'</span><span class="v">'+esc(val)+'</span></div>'; }
 
   var when = h.timestamp || '';
-  try { when = new Date(h.timestamp).toLocaleString(); } catch(e) {}
+  try { when = h.timestamp ? new Date(h.timestamp).toLocaleString() : '—'; } catch(e) { when = String(h.timestamp || '—'); }
 
-  var html = '' +
-    '<div class="ins-kv">' +
-      row('Run ID', h.id) +
-      row('Time', when) +
-      row('Duration', h.duration || ((cfg.duration_seconds || 0) + 's')) +
-      row('Target', cfg.target_url) +
-      row('Method', cfg.method || 'GET') +
-      row('Users', cfg.users) +
-      row('Profile', cfg.profile) +
-      row('TLS fingerprint', cfg.tls_fingerprint) +
-      row('Rate limit', cfg.rate_limit ? (cfg.rate_limit + ' req/s') : '—') +
-    '</div>' +
-    '<div class="ins-kv" style="margin-top:10px">' +
-      row('Total requests', fmt(res.total_requests || 0)) +
-      row('Total errors', fmt(res.total_errors || 0)) +
-      row('RPS', fmtNum(res.rps, 2)) +
-      row('Avg latency', fmtNum(res.avg_latency, 2) + ' ms') +
-      row('P50 latency', fmtNum(res.p50_latency, 2) + ' ms') +
-      row('P95 latency', fmtNum(res.p95_latency, 2) + ' ms') +
-      row('P99 latency', fmtNum(res.p99_latency, 2) + ' ms') +
-      row('Max latency', fmtNum(res.max_latency, 2) + ' ms') +
-      row('Status codes', codesText) +
-    '</div>' +
-    '<details class="ins-details" open><summary>Full report JSON</summary><pre>' + esc(JSON.stringify(h, null, 2)) + '</pre></details>';
+  var durationText = h.duration || (isNum(cfg.duration_seconds) ? (cfg.duration_seconds + 's') : '');
+  var rateText = isNum(cfg.rate_limit) && cfg.rate_limit > 0 ? (cfg.rate_limit + ' req/s') : (hasConfig ? '—' : 'unavailable');
+
+  var html = '';
+  html += '<div class="ins-actions" style="margin:0 0 10px;flex-wrap:wrap;align-items:center;gap:8px">';
+  if (hist.length > 1) {
+    html += '<label class="ins-label" for="reportSelect" style="margin:0">Run history</label>';
+    html += '<select id="reportSelect" class="ins-select" style="min-width:260px;max-width:100%">';
+    for (var i = hist.length - 1; i >= 0; i--) {
+      var it = hist[i] || {};
+      var itWhen = '';
+      try { itWhen = it.timestamp ? new Date(it.timestamp).toLocaleString() : ''; } catch (e2) { itWhen = String(it.timestamp || ''); }
+      var label = (it.id || ('run-' + (i + 1))) + (itWhen ? (' — ' + itWhen) : '');
+      html += '<option value="' + i + '"' + (i === idx ? ' selected' : '') + '>' + esc(label) + '</option>';
+    }
+    html += '</select>';
+  } else {
+    html += '<span class="ins-note" style="margin:0">Showing latest completed run report.</span>';
+  }
+  html += '<button type="button" class="btn btn-ghost btn-sm" id="btnReportCopyJson">Copy JSON</button>';
+  html += '<button type="button" class="btn btn-ghost btn-sm" id="btnReportDownloadJson">Download JSON</button>';
+  html += '<button type="button" class="btn btn-ghost btn-sm" id="btnReportPrint">Print</button>';
+  html += '</div>';
+
+  html += '<div class="ins-kv">';
+  html += row('Run ID', h.id);
+  html += row('Time', when);
+  html += row('Duration', durationText, !h.duration && !isNum(cfg.duration_seconds));
+  html += row('Target', cfg.target_url, !hasConfig);
+  html += row('Method', cfg.method || (hasConfig ? 'GET' : ''), !hasConfig);
+  html += row('Users', cfg.users, !hasConfig);
+  html += row('Profile', cfg.profile, !hasConfig);
+  html += row('TLS fingerprint', cfg.tls_fingerprint, !hasConfig);
+  html += row('Rate limit', rateText, !hasConfig);
+  html += '</div>';
+
+  if (!hasResult) {
+    html += '<div class="empty-note" style="margin-top:10px">Run result data is unavailable for this report entry.</div>';
+  } else {
+    html += '<div class="ins-kv" style="margin-top:10px">';
+    html += row('Total requests', fmtCountVal(res.total_requests));
+    html += row('Total errors', fmtCountVal(res.total_errors));
+    html += row('RPS', fmtNum(res.rps, 2));
+    html += row('Avg latency', fmtNum(res.avg_latency, 2) !== 'unavailable' ? (fmtNum(res.avg_latency, 2) + ' ms') : 'unavailable');
+    html += row('P50 latency', fmtNum(res.p50_latency, 2) !== 'unavailable' ? (fmtNum(res.p50_latency, 2) + ' ms') : 'unavailable');
+    html += row('P95 latency', fmtNum(res.p95_latency, 2) !== 'unavailable' ? (fmtNum(res.p95_latency, 2) + ' ms') : 'unavailable');
+    html += row('P99 latency', fmtNum(res.p99_latency, 2) !== 'unavailable' ? (fmtNum(res.p99_latency, 2) + ' ms') : 'unavailable');
+    html += row('Max latency', fmtNum(res.max_latency, 2) !== 'unavailable' ? (fmtNum(res.max_latency, 2) + ' ms') : 'unavailable');
+    html += row('Status codes', codesText);
+    html += '</div>';
+  }
+
+  // Attestation consistency (latest known attestation state vs selected run)
+  var att = S.attestation || null;
+  html += '<div class="ins-kv" style="margin-top:10px">';
+  if (!att || !att.exists) {
+    html += row('Attestation', 'unavailable (no attestation evidence for the latest run state)');
+  } else {
+    var attRun = att.runID || '';
+    if (attRun && h.id && attRun === h.id) {
+      html += row('Attestation', 'available and matches this run (' + esc(attRun) + ')');
+      html += row('Attestation fingerprint', att.fingerprint || att.pubKeyHex || '—');
+      html += row('Attestation percentiles', att.coCorrected ? 'coordinated-omission corrected' : 'raw (uncorrected)');
+    } else if (attRun) {
+      html += row('Attestation', 'latest attestation is for a different run (' + esc(attRun) + '), not this report');
+    } else {
+      html += row('Attestation', 'available, but run association is unavailable');
+    }
+  }
+  html += '</div>';
+
+  if (!hasResult) {
+    html += '<div class="ins-note" style="margin-top:8px">Evidence note: result metrics are unavailable for this entry; values are not fabricated.</div>';
+  }
+  html += '<details class="ins-details" open><summary>Full report JSON</summary><pre>' + esc(JSON.stringify(h, null, 2)) + '</pre></details>';
 
   body.innerHTML = html;
+
+  var sel = document.getElementById('reportSelect');
+  if (sel) {
+    sel.addEventListener('change', function() {
+      var v = parseInt(sel.value, 10);
+      S.reportIndex = isNaN(v) ? (hist.length - 1) : v;
+      renderHistory();
+    });
+  }
+
+  var copyBtn = document.getElementById('btnReportCopyJson');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', function() {
+      var text = JSON.stringify(h, null, 2);
+      function done(msg, type){ if (typeof toast === 'function') toast(msg, type); }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function(){ done('Report JSON copied', 'success'); }, function(){
+          var ok = fallbackCopyText(text);
+          done(ok ? 'Report JSON copied' : 'Copy failed', ok ? 'success' : 'error');
+        });
+      } else {
+        var ok = fallbackCopyText(text);
+        done(ok ? 'Report JSON copied' : 'Copy failed', ok ? 'success' : 'error');
+      }
+    });
+  }
+
+  var dlBtn = document.getElementById('btnReportDownloadJson');
+  if (dlBtn) {
+    dlBtn.addEventListener('click', function() {
+      try {
+        var blob = new Blob([JSON.stringify(h, null, 2)], { type: 'application/json' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        var safeId = String(h.id || ('run-' + (idx + 1))).replace(/[^a-zA-Z0-9._-]+/g, '-');
+        a.href = url;
+        a.download = 'sift-report-' + safeId + '.json';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function(){ URL.revokeObjectURL(url); if (a.parentNode) a.parentNode.removeChild(a); }, 0);
+        if (typeof toast === 'function') toast('Report JSON downloaded', 'success');
+      } catch (e) {
+        if (typeof toast === 'function') toast('Download failed', 'error');
+      }
+    });
+  }
+
+  var printBtn = document.getElementById('btnReportPrint');
+  if (printBtn) {
+    printBtn.addEventListener('click', function() {
+      try {
+        var w = window.open('', '_blank');
+        if (!w) { if (typeof toast === 'function') toast('Popup blocked — allow popups to print', 'error'); return; }
+        var docTitle = 'Sift Report - ' + (h.id || 'run');
+        var pre = esc(JSON.stringify(h, null, 2));
+        w.document.open();
+        w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>' + esc(docTitle) + '</title>' +
+          '<style>body{font:14px/1.5 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;margin:24px;color:#111}h1{font-size:20px;margin:0 0 12px}pre{white-space:pre-wrap;word-break:break-word;background:#f6f8fa;border:1px solid #d0d7de;border-radius:8px;padding:12px}</style></head><body>' +
+          '<h1>' + esc(docTitle) + '</h1><pre>' + pre + '</pre></body></html>');
+        w.document.close();
+        w.focus();
+        setTimeout(function(){ try { w.print(); } catch (e2) {} }, 150);
+      } catch (e) {
+        if (typeof toast === 'function') toast('Print failed', 'error');
+      }
+    });
+  }
+}
+
+function fallbackCopyText(text) {
+  try {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = document.execCommand('copy');
+    if (ta.parentNode) ta.parentNode.removeChild(ta);
+    return !!ok;
+  } catch (e) { return false; }
 }

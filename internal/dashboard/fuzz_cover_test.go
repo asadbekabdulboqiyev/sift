@@ -323,13 +323,16 @@ func TestFuzzScanAgainstLoopback(t *testing.T) {
 	if res.Gate.RequestsSent == 0 {
 		t.Errorf("gate sent no requests: %+v", res.Gate)
 	}
-	// Sent counts mutated probes; the gate also counts the baseline requests,
-	// so it must be at least as large, never smaller.
+	// Sent/Refused include baseline and mutation probes, so totals must be
+	// consistent with the gate's own accounting.
 	if res.Sent == 0 {
-		t.Error("fuzzer reported no mutated probes")
+		t.Error("fuzzer reported no probes sent")
 	}
 	if res.Sent > int(res.Gate.RequestsSent) {
 		t.Errorf("sent = %d exceeds gate sent = %d", res.Sent, res.Gate.RequestsSent)
+	}
+	if res.Gate.RequestsRefused == 0 && res.Sent != int(res.Gate.RequestsSent) {
+		t.Errorf("with no refusals, sent = %d but gate sent = %d", res.Sent, res.Gate.RequestsSent)
 	}
 }
 

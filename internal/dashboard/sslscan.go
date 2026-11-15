@@ -39,8 +39,8 @@ type SSLScanResult struct {
 	Notes     []string `json:"notes,omitempty"`
 }
 
-func sslscanGate(target string) (owaspGateOutcome, error) {
-	return owaspGate(authz.OpScan, target, "")
+func sslscanGate(target, ticket string) (owaspGateOutcome, error) {
+	return owaspGate(authz.OpScan, target, ticket)
 }
 
 func sslscanAudit(e authz.Entry) error { return owaspAudit(e) }
@@ -77,7 +77,7 @@ func (s *Server) handleSSLScan(w http.ResponseWriter, r *http.Request) {
 	}
 	target := parsed.String()
 
-	decision, err := sslscanGate(target)
+	decision, err := sslscanGate(target, req.Authorized)
 	if err != nil {
 		owaspWriteError(w, http.StatusInternalServerError, "authorization policy error: "+err.Error())
 		return

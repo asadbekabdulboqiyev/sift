@@ -320,3 +320,30 @@ func TestManifestValidateRejectsBadDigestAndSchema(t *testing.T) {
 		t.Fatal("Validate accepted an unknown severity")
 	}
 }
+
+func TestBuildManifestAcceptsZeroSizeArtifact(t *testing.T) {
+	dir := t.TempDir()
+	opts := basePackageOptions(t, dir)
+	opts.ReportPath = writeTestFile(t, dir, "empty.md", "")
+	m, err := BuildManifest(opts)
+	if err != nil {
+		t.Fatalf("BuildManifest with empty artifact: %v", err)
+	}
+	art, ok := m.artifactByRole(ArtifactReport)
+	if !ok {
+		t.Fatal("missing report artifact")
+	}
+	if art.Size != 0 {
+		t.Fatalf("report size = %d, want 0", art.Size)
+	}
+	report, err := VerifyPackage(m, dir, VerifyOptions{Target: "https://example.com"})
+	if err != nil {
+		t.Fatalf("VerifyPackage: %v", err)
+	}
+	if c, ok := findCheck(report, "artifact:report"); !ok || c.Status != StatusPass {
+		t.Fatalf("artifact:report check = %+v, want pass", c)
+	}
+	if report.Verdict != VerdictUnverified {
+		t.Fatalf("verdict = %s, want unverified (attest skipped)", report.Verdict)
+	}
+}

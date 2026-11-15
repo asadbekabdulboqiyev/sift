@@ -306,3 +306,50 @@ func TestStateTerminal(t *testing.T) {
 		}
 	}
 }
+
+func TestCurrentStateRejectsMalformedEventShape(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	events := []Event{
+		{At: "not-a-time", Actor: "alice", Role: RoleReporter, From: StateNone, To: StateSubmitted, Reason: "received", PackageDigest: digest},
+	}
+	if _, err := CurrentState(events); err == nil {
+		t.Fatal("CurrentState accepted an event with malformed timestamp")
+	}
+
+	events = []Event{
+		{At: testAt, Actor: "", Role: RoleReporter, From: StateNone, To: StateSubmitted, Reason: "received", PackageDigest: digest},
+	}
+	if _, err := CurrentState(events); err == nil {
+		t.Fatal("CurrentState accepted an event with empty actor")
+	}
+
+	events = []Event{
+		{At: testAt, Actor: "alice", Role: Role("admin"), From: StateNone, To: StateSubmitted, Reason: "received", PackageDigest: digest},
+	}
+	if _, err := CurrentState(events); err == nil {
+		t.Fatal("CurrentState accepted an event with unknown role")
+	}
+
+	events = []Event{
+		{At: testAt, Actor: "alice", Role: RoleReporter, From: StateNone, To: StateSubmitted, Reason: "", PackageDigest: digest},
+	}
+	if _, err := CurrentState(events); err == nil {
+		t.Fatal("CurrentState accepted an event with empty reason")
+	}
+}
+
+func TestCurrentStateRejectsBrokenChainWithoutShape(t *testing.T) {
+	// ensure continuity checks still work when shape is valid
+	events := []Event{
+		testEvent(StateNone, StateSubmitted, RoleReporter),
+		testEvent(StateSubmitted, StateAccepted, RoleTriager), // invalid policy edge/continuity for normal flow? continuity ok if from matches, but policy not checked by replay; however accepted from submitted is unusual but chain-wise from==prev.To so allowed by chain validator; keep simple continuity break case
+	}
+	_ = events
+	events = []Event{
+		testEvent(StateNone, StateSubmitted, RoleReporter),
+		{At: testAt, Actor: "bob", Role: RoleTriager, From: StateTriaged, To: StateAccepted, Reason: "skip"},
+	}
+	if _, err := CurrentState(events); err == nil {
+		t.Fatal("CurrentState accepted a broken chain")
+	}
+}

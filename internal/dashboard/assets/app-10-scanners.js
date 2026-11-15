@@ -830,12 +830,14 @@ function fetchAttestation() {
 }
 
 function renderAttestation(d) {
+  S.attestation = d || null;
   var card = document.getElementById('attestationCard');
   var fp = document.getElementById('attestFingerprint');
   var bs = document.getElementById('attestBundleStatus');
   var st = document.getElementById('attestVerifyStatus');
   if (!d.exists) {
     if (card) card.classList.add('hidden');
+    if (typeof renderHistory === 'function') { try { renderHistory(); } catch (e) {} }
     return;
   }
   if (card) card.classList.remove('hidden');
@@ -848,6 +850,7 @@ function renderAttestation(d) {
   var sbtn = document.getElementById('btnAttestDownloadSamples');
   if (b) { b.disabled = false; b.onclick = function() { window.location = API + '/api/attestation/download?type=bundle'; }; }
   if (sbtn) { sbtn.disabled = false; sbtn.onclick = function() { window.location = API + '/api/attestation/download?type=samples'; }; }
+  if (typeof renderHistory === 'function') { try { renderHistory(); } catch (e) {} }
 }
 
 function refreshAttestation() {

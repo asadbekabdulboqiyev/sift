@@ -2,10 +2,7 @@ package certificate
 
 import (
 	"crypto/ed25519"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/attest"
 )
@@ -25,23 +22,18 @@ func Issue(kp *attest.Keypair, a Assessment, prevHash string, experimentReferenc
 	if kp == nil || len(kp.Private) != ed25519.PrivateKeySize {
 		return nil, fmt.Errorf("certificate: signing requires a valid Ed25519 private key")
 	}
+	if err := ValidateAssessmentInput(a); err != nil {
+		return nil, err
+	}
 	bound := RenderHTML(a, "SIGNATURE_PLACEHOLDER", "KEY_PLACEHOLDER", a.SignedAt, Version)
 	cert, err := Sign(kp, a, bound)
 	if err != nil {
 		return nil, err
 	}
 	cert.HTML = RenderHTML(a, cert.Signature, cert.PublicKey, cert.SignedAt, cert.Version)
-	cert.CertificateID = certID(cert)
 	cert.PreviousCertificateHash = prevHash
 	cert.ExperimentReference = experimentReference
 	cert.ValidityPeriod = "90 days"
+	cert.CertificateID = CertificateID(cert)
 	return cert, nil
-}
-
-// certID returns a deterministic, certificate-unique id derived from the
-// canonical signed payload plus a timestamp nonce so two certificates issued
-// from the same report at the same second still get different IDs.
-func certID(c *Certificate) string {
-	h := sha256.Sum256([]byte(c.Assessment.Target + "|" + c.Assessment.SignedAt + "|" + c.Signature + "|" + fmt.Sprint(time.Now().UnixNano())))
-	return "ss-cert-" + hex.EncodeToString(h[:])[:16]
 }

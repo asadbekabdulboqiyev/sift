@@ -24,7 +24,8 @@ type PredictionVsActual struct {
 	P99ErrorPct  float64 `json:"p99_error_pct,omitempty"`
 	P99MAE       float64 `json:"p99_mae_ms,omitempty"`
 
-	Notes []string `json:"notes,omitempty"`
+	Insufficient bool     `json:"insufficient,omitempty"`
+	Notes        []string `json:"notes,omitempty"`
 }
 
 // ComparePredictionToActual computes prediction-vs-actual metrics for one run.
@@ -38,11 +39,46 @@ func ComparePredictionToActual(pred Result, actual report.Report) PredictionVsAc
 		ActualP99:    durationMS(actual.Overall.P99),
 		Notes:        []string{"Comparison uses median simulated estimates (model-based) against measured report evidence."},
 	}
-	out.RPSErrorPct = pctError(out.PredictedRPS, out.ActualRPS)
-	out.P95ErrorPct = pctError(out.PredictedP95, out.ActualP95)
-	out.P99ErrorPct = pctError(out.PredictedP99, out.ActualP99)
-	out.P95MAE = math.Abs(out.PredictedP95 - out.ActualP95)
-	out.P99MAE = math.Abs(out.PredictedP99 - out.ActualP99)
+	// Prefer derived actual RPS when report RPS is missing/invalid but request counts are valid.
+	if !isFinitePositive(out.ActualRPS) && actual.TotalRequests > 0 {
+		if sec := actual.Duration.Seconds(); isFinitePositive(sec) {
+			out.ActualRPS = float64(actual.TotalRequests) / sec
+			out.Notes = append(out.Notes, "Actual RPS derived from total_requests/duration because report rps was missing or invalid.")
+		}
+	}
+
+	valid := true
+	for name, v := range map[string]float64{
+		"predicted_rps": out.PredictedRPS, "actual_rps": out.ActualRPS,
+		"predicted_p95_ms": out.PredictedP95, "actual_p95_ms": out.ActualP95,
+		"predicted_p99_ms": out.PredictedP99, "actual_p99_ms": out.ActualP99,
+	} {
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			out.Notes = append(out.Notes, fmt.Sprintf("Non-finite comparison input (%s); error metrics unavailable for affected fields.", name))
+			valid = false
+		}
+	}
+	if valid {
+		out.RPSErrorPct = pctError(out.PredictedRPS, out.ActualRPS)
+		out.P95ErrorPct = pctError(out.PredictedP95, out.ActualP95)
+		out.P99ErrorPct = pctError(out.PredictedP99, out.ActualP99)
+		out.P95MAE = math.Abs(out.PredictedP95 - out.ActualP95)
+		out.P99MAE = math.Abs(out.PredictedP99 - out.ActualP99)
+	} else {
+		out.Insufficient = true
+		out.PredictedRPS = sanitizeFinite(out.PredictedRPS)
+		out.ActualRPS = sanitizeFinite(out.ActualRPS)
+		out.PredictedP95 = sanitizeFinite(out.PredictedP95)
+		out.ActualP95 = sanitizeFinite(out.ActualP95)
+		out.PredictedP99 = sanitizeFinite(out.PredictedP99)
+		out.ActualP99 = sanitizeFinite(out.ActualP99)
+		out.RPSErrorPct = 0
+		out.P95ErrorPct = 0
+		out.P99ErrorPct = 0
+		out.P95MAE = 0
+		out.P99MAE = 0
+		out.Notes = append(out.Notes, "INSUFFICIENT_DATA: prediction-vs-actual error metrics withheld because one or more inputs were non-finite.")
+	}
 	return out
 }
 
@@ -66,36 +102,56 @@ func BacktestErrors(predicted, actual []float64, modelRangeLow, modelRangeHigh f
 	}
 	var sumAbs, sumSq, sumAPE float64
 	ood := false
+	mapeCount := 0
+	validPairs := 0
 	for i := 0; i < n; i++ {
-		e := predicted[i] - actual[i]
+		p, a := predicted[i], actual[i]
+		if math.IsNaN(p) || math.IsInf(p, 0) || math.IsNaN(a) || math.IsInf(a, 0) {
+			continue
+		}
+		validPairs++
+		e := p - a
 		sumAbs += math.Abs(e)
 		sumSq += e * e
-		if actual[i] != 0 {
-			sumAPE += math.Abs(e/actual[i]) * 100
+		if a != 0 {
+			sumAPE += math.Abs(e/a) * 100
+			mapeCount++
 		}
-		if (modelRangeLow > 0 && actual[i] < modelRangeLow*0.8) || (modelRangeHigh > 0 && actual[i] > modelRangeHigh*1.2) {
+		if (modelRangeLow > 0 && a < modelRangeLow*0.8) || (modelRangeHigh > 0 && a > modelRangeHigh*1.2) {
 			ood = true
 		}
 	}
-	mae := sumAbs / float64(n)
-	rmse := math.Sqrt(sumSq / float64(n))
-	mape := sumAPE / float64(n)
+	if validPairs == 0 {
+		return BacktestMetrics{Samples: 0, Drift: "UNKNOWN", Notes: []string{"No finite paired prediction/actual samples for backtesting; metrics withheld (INSUFFICIENT_DATA)."}}
+	}
+	mae := sumAbs / float64(validPairs)
+	rmse := math.Sqrt(sumSq / float64(validPairs))
+	mape := 0.0
+	if mapeCount > 0 {
+		mape = sumAPE / float64(mapeCount)
+	}
 	drift := "NONE"
 	if mape > 30 || rmse > mae*2.5 {
 		drift = "DETECTED"
 	}
 	cal := "uncalibrated-insufficient-samples"
-	if n >= 5 {
-		cal = fmt.Sprintf("heuristic (n=%d): MAPE %.2f%%, RMSE %.4f", n, mape, rmse)
+	if validPairs >= 5 {
+		cal = fmt.Sprintf("heuristic (n=%d): MAPE %.2f%%, RMSE %.4f", validPairs, mape, rmse)
 	}
 	notes := []string{
 		"Backtesting computed on provided paired samples; no leakage assumed by caller (use train/validation split).",
 		"Drift/OOD detection is heuristic and should be reviewed with domain context.",
 	}
+	if validPairs < n {
+		notes = append(notes, fmt.Sprintf("%d non-finite pair(s) excluded from metrics.", n-validPairs))
+	}
+	if mapeCount == 0 {
+		notes = append(notes, "MAPE unavailable because all finite actual values were zero; MAE/RMSE reported.")
+	}
 	if ood {
 		notes = append(notes, "Out-of-domain observations detected relative to model range.")
 	}
-	return BacktestMetrics{Samples: n, MAE: mae, RMSE: rmse, MAPE: mape, Calibration: cal, Drift: drift, OutOfDomain: ood, Notes: notes}
+	return BacktestMetrics{Samples: validPairs, MAE: mae, RMSE: rmse, MAPE: mape, Calibration: cal, Drift: drift, OutOfDomain: ood, Notes: notes}
 }
 
 // ValidationStatus derives canonical model validation/backtest status from
@@ -124,6 +180,9 @@ func (bt BacktestMetrics) ValidationStatus() (backtestStatus, driftStatus string
 // prediction-vs-actual comparison. This is heuristic and must not be treated as
 // a guarantee; it provides canonical status updates for model metadata.
 func ComparisonValidationStatus(cmp PredictionVsActual) (backtestStatus, driftStatus, note string) {
+	if cmp.Insufficient {
+		return "INSUFFICIENT_DATA", "UNKNOWN", "Comparison had no valid comparable metrics."
+	}
 	errs := []float64{cmp.RPSErrorPct, cmp.P95ErrorPct, cmp.P99ErrorPct}
 	valid := 0
 	bad := 0
@@ -307,6 +366,9 @@ func AssessResourceMonitoringExtended(cpu, mem, net, conns, respTime, memGrowth 
 }
 
 func pctError(pred, actual float64) float64 {
+	if math.IsNaN(pred) || math.IsInf(pred, 0) || math.IsNaN(actual) || math.IsInf(actual, 0) {
+		return math.NaN()
+	}
 	if actual == 0 {
 		if pred == 0 {
 			return 0
@@ -314,4 +376,15 @@ func pctError(pred, actual float64) float64 {
 		return 100
 	}
 	return math.Abs(pred-actual) / math.Abs(actual) * 100
+}
+
+func isFinitePositive(v float64) bool {
+	return !math.IsNaN(v) && !math.IsInf(v, 0) && v > 0
+}
+
+func sanitizeFinite(v float64) float64 {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0
+	}
+	return v
 }

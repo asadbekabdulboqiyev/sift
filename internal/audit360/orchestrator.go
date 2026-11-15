@@ -2,6 +2,9 @@ package audit360
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"net"
@@ -9,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/asadbekabdulboqiyev/sift/internal/attest"
 	"github.com/asadbekabdulboqiyev/sift/internal/config"
 	"github.com/asadbekabdulboqiyev/sift/internal/engine"
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner"
@@ -75,6 +79,7 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 
 	// Stage 2: Breaking point stress test (skipped in passive mode)
 	var stress StressOutcome
+	var plannedStressDurSec, plannedStressMaxUsers int
 	if opt.Mode == ModePassive {
 		emit(StageStress, StatusRunning, "Passive mode: skipping active load test...", "")
 		stress = StressOutcome{Skipped: true, Notes: []string{"Passive mode: active load/capacity testing skipped (non-intrusive checks only)."}}
@@ -86,6 +91,7 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 		if rem := time.Until(deadline) - 2*time.Second; rem > 4*time.Second && rem < stressBudget {
 			stressBudget = rem
 		}
+		plannedStressDurSec, plannedStressMaxUsers = stressRunConfig(stressBudget)
 		stressCtx, stressCancel := stageContext(budgetCtx, deadline, stressBudget, 2*time.Second)
 		stress = runStressTest(stressCtx, opt.TargetURL, stressBudget)
 		stressCancel()
@@ -112,25 +118,12 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 	// Stage 4: VPMP sealing
 	emit(StageSeal, StatusRunning, "Sealing report with VPMP v1-compatible attestation...", "")
 	now := opt.Now().UTC()
-	stressDurSec := 0
-	stressMaxUsers := 0
-	if !stress.Skipped {
-		// Mirror stress budget planning used above (measured/configured intent for this run).
-		stressDurSec = int(math.Max(6, math.Min((time.Until(deadline)-2*time.Second).Seconds(), 20)))
-		if stressDurSec <= 0 {
-			stressDurSec = 12
-		}
-		stressMaxUsers = 600
-		if stressDurSec >= 15 {
-			stressMaxUsers = 1000
-		}
-	}
 	testCfg := &TestConfiguration{
 		Mode:                  opt.Mode,
 		MaxDurationSec:        int(opt.MaxDuration / time.Second),
 		RequestedTarget:       opt.TargetURL,
-		StressMaxUsers:        stressMaxUsers,
-		StressDurationSec:     stressDurSec,
+		StressMaxUsers:        plannedStressMaxUsers,
+		StressDurationSec:     plannedStressDurSec,
 		StressProfile:         "linear-ramp",
 		SecurityScanEnabled:   true,
 		ActiveLoadEnabled:     opt.Mode != ModePassive,
@@ -155,14 +148,14 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 		TargetURL:            opt.TargetURL,
 		DurationMS:           opt.Now().Sub(start).Milliseconds(),
 		Notes:                notes,
-		BreakingPointReached: stress.Breached,
-		MaxObservedRPS:       stress.MaxObservedRPS,
+		BreakingPointReached: false,
+		MaxObservedRPS:       0,
 		StressTestAvailable:  stress.Available,
 		SecurityScanPartial:  secPartial,
 		CapacityBlocked:      stress.RejectedByTarget,
-		BlockedStatus:        stress.RejectStatusCode,
-		BlockedSharePct:      math.Round(stress.RejectSharePct*10) / 10,
-		MaxObservedUsers:     stress.MaxObservedUsers,
+		BlockedStatus:        0,
+		BlockedSharePct:      0,
+		MaxObservedUsers:     0,
 		LoadTestSkipped:      stress.Skipped,
 		Scores:               &breakdown,
 		ScoringVersion:       ScoringVersion,
@@ -170,30 +163,84 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 		RawEvidenceHash:      rawHash,
 		RawEvidenceFormat:    rawFmt,
 	}
-	if stress.Available {
+	if stress.RejectedByTarget {
+		rep.CapacityBlocked = true
+		rep.BlockedStatus = stress.RejectStatusCode
+		share := nonNegFinite(stress.RejectSharePct)
+		rep.BlockedSharePct = math.Round(share*10) / 10
+		rep.BreakingPointReached = false
+		rep.BreakingPointUsers = 0
+		rep.MaxSafeRPS = 0
+		rep.MaxObservedRPS = 0
+		rep.MaxObservedUsers = max(0, stress.MaxObservedUsers)
+	} else if stress.Available {
+		rep.BreakingPointReached = stress.Breached
+		rep.MaxObservedRPS = nonNegFinite(stress.MaxObservedRPS)
+		rep.MaxObservedUsers = max(0, stress.MaxObservedUsers)
 		if stress.Breached && stress.BreakingPointUsers > 0 {
 			rep.BreakingPointUsers = stress.BreakingPointUsers
 		}
 		if stress.MaxSafeRPS > 0 {
-			rep.MaxSafeRPS = stress.MaxSafeRPS
+			rep.MaxSafeRPS = nonNegFinite(stress.MaxSafeRPS)
 		}
+	} else {
+		// Unavailable/skipped: no fabricated capacity/breach metrics.
+		rep.BreakingPointReached = false
+		rep.BreakingPointUsers = 0
+		rep.MaxSafeRPS = 0
+		rep.MaxObservedRPS = 0
+		rep.MaxObservedUsers = 0
 	}
 
-	certID, sig, pubHex, sealErr := Seal(rep)
-	if sealErr != nil {
-		rep.Notes = append(rep.Notes, "Attestation sealing warning: "+sealErr.Error())
-	}
-	if certID == "" {
-		certID = "unavailable"
-	}
-	rep.CertificateID = certID
-	rep.VPMPSignature = sig
-	if pubHex != "" {
-		rep.Notes = append(rep.Notes, "VPMP signer public key (hex): "+pubHex)
-	}
+	// Normalize timing/duration before sealing so attested payload is consistent.
 	rep.DurationMS = opt.Now().Sub(start).Milliseconds()
+	if rep.DurationMS < 0 {
+		rep.DurationMS = 0
+		rep.Notes = append(rep.Notes, "Duration normalized to 0ms due to inconsistent clock readings.")
+	}
 
-	if sealErr != nil && sig == "" {
+	// Seal the finalized report state. The signature/certificate are derived
+	// from the payload, so the final returned report must be the exact attested
+	// state (no post-seal mutations). To include signer identity context in Notes
+	// without drift, generate/sign in-place so the noted public key matches the
+	// signing key.
+	var sealErr error
+	if kp, kerr := attest.GenerateKeypair(); kerr == nil && kp != nil && len(kp.Private) == ed25519.PrivateKeySize {
+		pubHex := attest.PublicKeyHex(kp.Public)
+		rep.Notes = append(rep.Notes, "VPMP signer public key (hex): "+pubHex)
+		payload, perr := canonicalSealPayload(rep)
+		if perr != nil {
+			rep.CertificateID = "unavailable"
+			rep.VPMPSignature = ""
+			rep.Notes = append(rep.Notes, "Attestation sealing warning: "+perr.Error())
+			sealErr = perr
+		} else {
+			digest := sha256.Sum256(payload)
+			rep.CertificateID = hex.EncodeToString(digest[:16])
+			if sigb, serr := attest.Sign(kp, digest[:]); serr != nil {
+				rep.VPMPSignature = ""
+				rep.Notes = append(rep.Notes, "Attestation sealing warning: "+serr.Error())
+				sealErr = serr
+			} else {
+				rep.VPMPSignature = hex.EncodeToString(sigb)
+			}
+		}
+	} else {
+		// Fallback: preserve best-effort certificate id without claiming a signature.
+		certID, sig, pubHex, serr := Seal(rep)
+		sealErr = serr
+		if serr != nil {
+			rep.Notes = append(rep.Notes, "Attestation sealing warning: "+serr.Error())
+		}
+		if certID == "" {
+			certID = "unavailable"
+		}
+		rep.CertificateID = certID
+		rep.VPMPSignature = sig
+		_ = pubHex
+	}
+
+	if sealErr != nil && rep.VPMPSignature == "" {
 		// Still return completed report; signature unavailable is explicit (no fabrication).
 		emit(StageSeal, StatusCompleted, "Report sealed with certificate ID; cryptographic signature unavailable.", sealErr.Error())
 	} else {
@@ -434,11 +481,7 @@ func runStressTest(ctx context.Context, targetURL string, budget time.Duration) 
 		return out
 	}
 
-	durSec := int(math.Max(6, math.Min(budget.Seconds(), 20)))
-	maxUsers := 600
-	if durSec >= 15 {
-		maxUsers = 1000
-	}
+	durSec, maxUsers := stressRunConfig(budget)
 	sc := &config.Scenario{
 		Name:    "Sift 360° Breaking Point",
 		BaseURL: targetURL,
@@ -563,51 +606,65 @@ func runStressTest(ctx context.Context, targetURL string, budget time.Duration) 
 		}
 	}
 
+	finalize := func(r runRes) StressOutcome {
+		capture(true)
+		if !haveTelemetry && r.err != nil {
+			out.Notes = append(out.Notes, "Stress test unavailable: "+r.err.Error())
+			return out
+		}
+		out.Available = haveTelemetry || (r.err == nil)
+		out.Breached = breached
+		out.BreakingPointUsers = breachUsers
+		out.MaxSafeRPS = lastSafeRPS
+		out.MaxObservedRPS = peakRPS
+		out.MaxObservedUsers = peakUsers
+		out.PeakErrorRatePct = peakErr
+		out.PeakP99MS = peakP99
+		out.BreachReason = breachReason
+		if rejected {
+			// The ramp measured the access gate, not service capacity. Do not
+			// report breach or throughput numbers derived from rejected requests.
+			out.Breached = false
+			out.RejectedByTarget = true
+			out.RejectStatusCode = rejectCode
+			out.RejectSharePct = rejectShare
+			out.BreakingPointUsers = 0
+			out.MaxSafeRPS = 0
+			out.MaxObservedRPS = 0
+			out.BreachReason = ""
+			out.Notes = append(out.Notes, fmt.Sprintf(
+				"Capacity not measurable: the target answered %s to %.0f%% of requests during the ramp, so the probe measured the access gate instead of service capacity.",
+				rejectionLabel(rejectCode), rejectShare))
+			return out
+		}
+		if !out.Available {
+			out.Notes = append(out.Notes, "Stress test did not produce measurable telemetry.")
+		} else if !out.Breached {
+			out.Notes = append(out.Notes, "Linear-ramp stress test completed without breaching failure thresholds (error rate <= 5% and p99 <= 2000ms) within the time window.")
+		} else {
+			out.Notes = append(out.Notes, "Linear-ramp load runner reused; breach detection based on live telemetry thresholds.")
+		}
+		return out
+	}
+
 	for {
 		select {
 		case r := <-done:
-			capture(true)
-			if !haveTelemetry && r.err != nil {
-				out.Notes = append(out.Notes, "Stress test unavailable: "+r.err.Error())
-				return out
-			}
-			out.Available = haveTelemetry || (r.err == nil)
-			out.Breached = breached
-			out.BreakingPointUsers = breachUsers
-			out.MaxSafeRPS = lastSafeRPS
-			out.MaxObservedRPS = peakRPS
-			out.MaxObservedUsers = peakUsers
-			out.PeakErrorRatePct = peakErr
-			out.PeakP99MS = peakP99
-			out.BreachReason = breachReason
-			if rejected {
-				// The ramp measured the access gate, not service capacity. Do not
-				// report breach or throughput numbers derived from rejected requests.
-				out.Breached = false
-				out.RejectedByTarget = true
-				out.RejectStatusCode = rejectCode
-				out.RejectSharePct = rejectShare
-				out.BreakingPointUsers = 0
-				out.MaxSafeRPS = 0
-				out.MaxObservedRPS = 0
-				out.BreachReason = ""
-				out.Notes = append(out.Notes, fmt.Sprintf(
-					"Capacity not measurable: the target answered %s to %.0f%% of requests during the ramp, so the probe measured the access gate instead of service capacity.",
-					rejectionLabel(rejectCode), rejectShare))
-				return out
-			}
-			if !out.Available {
-				out.Notes = append(out.Notes, "Stress test did not produce measurable telemetry.")
-			} else if !out.Breached {
-				out.Notes = append(out.Notes, "Linear-ramp stress test completed without breaching failure thresholds (error rate <= 5% and p99 <= 2000ms) within the time window.")
-			} else {
-				out.Notes = append(out.Notes, "Linear-ramp load runner reused; breach detection based on live telemetry thresholds.")
-			}
-			return out
+			return finalize(r)
 		case <-ticker.C:
 			capture(false)
 		case <-ctx.Done():
 			cancel()
+			// Ensure the engine goroutine has completed before returning so
+			// cancellation does not leak a stuck sampler/worker path.
+			select {
+			case r := <-done:
+				return finalize(r)
+			case <-time.After(3 * time.Second):
+				capture(true)
+				out.Notes = append(out.Notes, "Stress test cancelled: engine did not drain within grace period.")
+				return out
+			}
 		}
 	}
 }
@@ -719,6 +776,18 @@ func ValidateStartRequest(req StartRequest, demoStoreURL string, adminBypass boo
 	}
 	maxDur = time.Duration(sec) * time.Second
 	return target, maxDur, mode, nil
+}
+
+// stressRunConfig returns the deterministic duration/users configuration used by
+// the linear-ramp stress runner for a given budget. This keeps executed test
+// configuration and report metadata consistent with the actual runner behavior.
+func stressRunConfig(budget time.Duration) (durSec, maxUsers int) {
+	durSec = int(math.Max(6, math.Min(budget.Seconds(), 20)))
+	maxUsers = 600
+	if durSec >= 15 {
+		maxUsers = 1000
+	}
+	return durSec, maxUsers
 }
 
 var _ = url.URL{}

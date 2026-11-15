@@ -33,8 +33,8 @@ type GraphQLScanResult struct {
 	Duration      float64  `json:"duration_seconds"`
 }
 
-func graphqlGate(target string) (owaspGateOutcome, error) {
-	return owaspGate(authz.OpScan, target, "")
+func graphqlGate(target, ticket string) (owaspGateOutcome, error) {
+	return owaspGate(authz.OpScan, target, ticket)
 }
 
 func graphqlAudit(e authz.Entry) error { return owaspAudit(e) }
@@ -72,7 +72,7 @@ func (s *Server) handleGraphQLScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	decision, err := graphqlGate(parsed.String())
+	decision, err := graphqlGate(parsed.String(), req.Authorized)
 	if err != nil {
 		owaspWriteError(w, http.StatusInternalServerError, "authorization policy error: "+err.Error())
 		return

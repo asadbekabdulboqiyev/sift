@@ -31,8 +31,8 @@ type SubdomainScanResult struct {
 	Notes      []string            `json:"notes,omitempty"`
 }
 
-func subdomainGate(target string) (owaspGateOutcome, error) {
-	return owaspGate(authz.OpScan, target, "")
+func subdomainGate(target, ticket string) (owaspGateOutcome, error) {
+	return owaspGate(authz.OpScan, target, ticket)
 }
 
 func subdomainAudit(e authz.Entry) error { return owaspAudit(e) }
@@ -69,7 +69,7 @@ func (s *Server) handleSubdomainScan(w http.ResponseWriter, r *http.Request) {
 	}
 	hostname := parsed.Hostname()
 
-	decision, err := subdomainGate(hostname)
+	decision, err := subdomainGate(hostname, req.Authorized)
 	if err != nil {
 		owaspWriteError(w, http.StatusInternalServerError, "authorization policy error: "+err.Error())
 		return

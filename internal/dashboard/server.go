@@ -830,6 +830,19 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "target_url must be an http(s) URL", http.StatusBadRequest)
 		return
 	}
+	if config.Users < 0 || config.DurationSeconds < 0 || config.RateLimit < 0 {
+		http.Error(w, "users, duration_seconds, and rate_limit must be non-negative", http.StatusBadRequest)
+		return
+	}
+	s.mu.RLock()
+	running := s.runState != nil && s.runState.Status == "running"
+	s.mu.RUnlock()
+	if running {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "a run is already in progress"})
+		return
+	}
 	if s.onCommand != nil {
 		// The bridge decodes the config as a JSON object (map), not as a typed
 		// struct. Round-trip through JSON so browser overrides (target url,

@@ -74,77 +74,104 @@
     return '<ul class="ins-notes' + (cls ? ' ' + cls : '') + '">' + items.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>';
   }
 
-  function getConf(m) { return (m && (m.confidence_v2 || m.ConfidenceV2)) || null; }
-  function getCap(m) { return (m && (m.capacity || m.Capacity)) || null; }
-  function getModelInfo(m) { return (m && (m.model_info || m.ModelInfo)) || null; }
+  function getConf(m) { return (m && (m.confidence_assessment || m.confidence_v2 || m.ConfidenceV2 || m.confidenceAssessment)) || null; }
+  function getCap(m) { return (m && (m.capacity_assessment || m.capacity || m.Capacity || m.capacityAssessment)) || null; }
+  function getModelInfo(m) { return (m && (m.model_info || m.ModelInfo || m.modelInfo)) || null; }
 
   function renderConfidence(m) {
     var c = getConf(m);
     if (!c) {
-      return '<div class="ins-kv">' + kv('Confidence', (m && m.confidence) || '—') + '</div>' + '<p class="ins-note warn">Structured confidence explanation unavailable (legacy/insufficient schema).</p>';
+      return '<div class="ins-kv">' + kv('Confidence (legacy)', (m && m.confidence) || '—') + '</div>' +
+        '<p class="ins-note warn">Structured evidence-based confidence assessment unavailable. Confidence must not be treated as high without sufficient evidence.</p>';
     }
     var level = c.level || c.Level || '—';
-    var tone = level === 'HIGH' ? 'good' : (level === 'MEDIUM' ? 'warn' : 'bad');
+    var score = (c.score != null ? c.score : c.Score);
+    var sufficient = !!(c.sufficient_evidence != null ? c.sufficient_evidence : c.Sufficient);
+    var tone = level === 'HIGH' ? (sufficient ? 'good' : 'bad') : (level === 'MEDIUM' ? 'warn' : 'bad');
+    var explanation = c.summary || c.Summary || c.explanation || c.Explanation || '';
     var html = '<div class="ins-kv">' +
-      kv('Confidence score', (c.score != null ? num(c.score) : '—') + '/100') +
+      kv('Confidence score', (score != null ? num(score) : '—') + '/100') +
       kv('Level', badge(level, tone)) +
-      kv('Sufficient evidence', c.sufficient_evidence ? 'yes' : 'no') +
-      kv('Data quality', c.data_quality || '—') +
+      kv('Sufficient evidence', sufficient ? badge('yes', 'good') : badge('no', 'bad')) +
+      kv('Data quality', c.data_quality || c.DataQuality || '—') +
       '</div>';
-    if (c.explanation) html += '<p class="ins-note">' + esc(c.explanation) + '</p>';
-    if (c.no_high_confidence_without_sufficient_evidence && level === 'HIGH' && !c.sufficient_evidence) {
-      html += '<p class="ins-note err">Integrity warning: HIGH confidence reported without sufficient evidence (should not occur).</p>';
+    if (explanation) html += '<p class="ins-note">' + esc(explanation) + '</p>';
+    if (level === 'HIGH' && !sufficient) {
+      html += '<p class="ins-note err">Integrity: HIGH confidence must not be assigned without sufficient evidence. Treat as unreliable if shown.</p>';
     }
-    var factors = c.factors || [];
+    var factors = c.factors || c.Factors || [];
     if (factors.length) {
-      html += '<table class="ins-table"><thead><tr><th>Factor</th><th>Score</th><th>Weight</th><th>Impact</th><th>Evidence</th></tr></thead><tbody>' +
+      html += '<table class="ins-table"><thead><tr><th>Factor</th><th>Score</th><th>Weight</th><th>Status</th><th>Evidence</th><th>Impact/Uncertainty</th></tr></thead><tbody>' +
         factors.map(function (f) {
-          return '<tr><td>' + esc(f.name) + '</td><td>' + esc(num(f.score)) + '</td><td>' + esc(num(f.weight)) + '</td><td>' + esc(f.impact || '') + '</td><td>' + esc(f.evidence || '') + '</td></tr>';
+          var impact = (f.impact || f.Impact || '');
+          var unc = (f.uncertainty || f.Uncertainty || '');
+          var detail = impact + (unc ? (impact ? ' | ' : '') + 'Uncertainty: ' + unc : '');
+          return '<tr><td>' + esc(f.name || f.Name || '') + '</td><td>' + esc(num(f.score != null ? f.score : f.Score)) + '</td><td>' + esc(num(f.weight != null ? f.weight : f.Weight)) + '</td><td>' + esc(f.status || f.Status || '') + '</td><td>' + esc(f.evidence || f.Evidence || '') + '</td><td>' + esc(detail) + '</td></tr>';
         }).join('') + '</tbody></table>';
     }
-    if (c.missing_data && c.missing_data.length) html += '<p class="ins-note warn"><strong>Missing data:</strong> ' + esc(c.missing_data.join('; ')) + '</p>';
-    if (c.uncertainties && c.uncertainties.length) html += '<p class="ins-note"><strong>Uncertainties:</strong> ' + esc(c.uncertainties.join('; ')) + '</p>';
+    var missing = c.missing_data || c.MissingData || [];
+    var uncertainties = c.uncertainties || c.Uncertainties || [];
+    if (missing.length) html += '<p class="ins-note warn"><strong>Missing data (explicit):</strong> ' + esc(missing.join('; ')) + '</p>';
+    if (uncertainties.length) html += '<p class="ins-note"><strong>Uncertainties (not missing):</strong> ' + esc(uncertainties.join('; ')) + '</p>';
     return html;
   }
 
   function renderCapacity(m) {
     var cap = getCap(m);
-    var curve = (m && m.curve) || {};
+    var curve = (m && (m.curve || m.service_curve || m.ServiceCurve)) || {};
+    var workload = (m && (m.workload || m.Workload)) || {};
+    var observed = (cap && (cap.observed_rps != null ? cap.observed_rps : cap.ObservedRPS));
+    if (observed == null) observed = workload.rps != null ? workload.rps : workload.RPS;
     if (!cap) {
-      var legacyCi = curve.capacity_ci || {};
+      var low = curve.capacity_low_rps != null ? curve.capacity_low_rps : curve.CapacityLowRPS;
+      var high = curve.capacity_high_rps != null ? curve.capacity_high_rps : curve.CapacityHighRPS;
+      var est = curve.capacity_rps != null ? curve.capacity_rps : curve.CapacityRPS;
       return '<div class="ins-kv">' +
-        kv('Observed RPS (measured ref)', num((m && m.reference && m.reference.achieved_rps) || 0)) +
-        kv('Sustainable capacity RPS (est.)', num(curve.capacity_rps)) +
-        kv('Capacity interval', fmtInterval(legacyCi)) +
-        kv('Status', 'LEGACY') +
-        '</div>' + '<p class="ins-note warn">Observed vs sustainable breakdown unavailable (legacy). Sustainable values are model-based estimates, not guarantees.</p>';
+        kv('Observed RPS (measured)', num(observed)) +
+        kv('Modeled capacity RPS (legacy est.)', num(est)) +
+        kv('Capacity interval (legacy)', (low != null || high != null) ? (num(low) + ' – ' + num(high)) : '—') +
+        kv('Sustainable capacity status', badge('LEGACY', 'warn')) +
+        '</div>' + '<p class="ins-note warn">Observed vs sustainable evidence unavailable in legacy schema. Values are model-based estimates, never guarantees and observed load is never a maximum.</p>';
     }
-    var status = cap.status || '—';
-    var tone = status === 'INSUFFICIENT_DATA' ? 'bad' : (status === 'ESTIMATED' ? 'warn' : 'good');
+    var status = cap.status || cap.Status || '—';
+    var sustainable = (cap.sustainable_rps != null ? cap.sustainable_rps : cap.SustainableRPS);
+    var interval = cap.sustainable_interval || cap.SustainableInterval || cap.interval || cap.Interval;
+    var observedIsMax = !!(cap.observed_is_max != null ? cap.observed_is_max : cap.ObservedIsMax);
+    var tone = status === 'INSUFFICIENT_DATA' ? 'bad' : (status === 'DEGRADED_EVIDENCE' ? 'warn' : 'good');
     var html = '<div class="ins-kv">' +
-      kv('Observed RPS (measured)', num(cap.observed_rps)) +
-      kv('Sustainable RPS (est.)', status === 'INSUFFICIENT_DATA' ? 'INSUFFICIENT_DATA' : num(cap.sustainable_rps)) +
-      kv('Capacity interval', status === 'INSUFFICIENT_DATA' ? '—' : fmtInterval(cap.interval)) +
+      kv('Observed RPS (measured evidence)', num(observed)) +
+      kv('Sustainable RPS (model estimate)', (status === 'INSUFFICIENT_DATA' || sustainable == null) ? badge('INSUFFICIENT_DATA', 'bad') : num(sustainable)) +
+      kv('Sustainable interval', (status === 'INSUFFICIENT_DATA' || !interval) ? '—' : fmtInterval(interval)) +
       kv('Capacity status', badge(status, tone)) +
-      kv('Observed is max?', cap.observed_is_max ? 'true (invalid)' : 'false') +
+      kv('Observed treated as max?', observedIsMax ? badge('true (invalid)', 'bad') : badge('false', 'good')) +
       '</div>';
-    if (cap.degradation_signals && cap.degradation_signals.length) html += '<p class="ins-note"><strong>Degradation/saturation signals:</strong> ' + esc(cap.degradation_signals.join('; ')) + '</p>';
-    if (cap.notes && cap.notes.length) html += renderList(cap.notes);
+    if (cap.uncertainty || cap.Uncertainty) html += '<p class="ins-note"><strong>Uncertainty:</strong> ' + esc(cap.uncertainty || cap.Uncertainty) + '</p>';
+    var signals = cap.degradation_signals || cap.DegradationSignals || [];
+    if (signals.length) html += '<p class="ins-note warn"><strong>Degradation/saturation/error signals:</strong> ' + esc(signals.join('; ')) + '</p>';
+    var notes = cap.notes || cap.Notes || [];
+    if (notes.length) html += renderList(notes);
+    html += '<p class="ins-note">Sustainable capacity and intervals are model-based estimates from available evidence, not guarantees. Observed throughput is never treated as maximum capacity.</p>';
     return html;
   }
 
   function renderModelMeta(m, res) {
-    var mi = getModelInfo(m) || (res && res.model_info) || {};
-    var seed = (res && res.seed != null) ? res.seed : mi.seed;
+    var mi = getModelInfo(m) || {};
+    var resSeed = res && (res.simulation_seed != null ? res.simulation_seed : (res.seed != null ? res.seed : (res.SimulationSeed != null ? res.SimulationSeed : (res.scenario && res.scenario.seed))));
+    var simulated = res ? (res.simulated != null ? res.simulated : res.Simulated) : null;
+    var estType = res ? (res.estimate_type || res.EstimateType || '') : '';
     var html = '<div class="ins-kv">' +
-      kv('Model version', mi.version || (m && m.schema_version) || '—') +
-      kv('Simulation seed', seed != null ? String(seed) : '—') +
-      kv('Simulated ≠ measured', (mi.simulated_not_measured === false) ? 'false (unexpected)' : 'true') +
+      kv('Model version', mi.version || mi.Version || (m && (m.schema_version || m.SchemaVersion)) || '—') +
+      kv('Algorithm', mi.algorithm || mi.Algorithm || '—') +
+      kv('Simulation seed', resSeed != null ? String(resSeed) : '—') +
+      kv('Output type', res ? ((simulated === false) ? 'unexpected: not marked simulated' : (estType || 'MODEL_ESTIMATE / simulated')) : '—') +
       '</div>';
-    var params = mi.parameters || {};
-    if (Object.keys(params).length) html += '<details class="ins-details"><summary>Model parameters</summary><pre>' + esc(JSON.stringify(params, null, 2)) + '</pre></details>';
-    if (mi.assumptions && mi.assumptions.length) html += '<p class="ins-note"><strong>Assumptions:</strong> ' + esc(mi.assumptions.join('; ')) + '</p>';
-    if (mi.validation_status) html += '<p class="ins-note"><strong>Validation status:</strong> ' + esc(mi.validation_status) + '</p>';
+    var params = mi.parameters || mi.Parameters || {};
+    if (params && Object.keys(params).length) html += '<details class="ins-details"><summary>Model parameters</summary><pre>' + esc(JSON.stringify(params, null, 2)) + '</pre></details>';
+    var assumptions = mi.assumptions || mi.Assumptions || [];
+    if (assumptions.length) html += '<p class="ins-note"><strong>Assumptions:</strong> ' + esc(assumptions.join('; ')) + '</p>';
+    var vstatus = mi.backtest_status || mi.BacktestStatus || mi.validation_status || mi.ValidationStatus || '';
+    var dstatus = mi.drift_status || mi.DriftStatus || '';
+    if (vstatus || dstatus) html += '<p class="ins-note"><strong>Validation status:</strong> ' + esc(vstatus || '—') + (dstatus ? ' | <strong>Drift:</strong> ' + esc(dstatus) : '') + '</p>';
     return html;
   }
 
@@ -239,31 +266,35 @@
       var thrt = parseFloat((document.getElementById('twinThrRps') || {}).value || '0') || 0;
       var payload = { model: model, scenario: scenario, iterations: iters, seed: 42 };
       if (rps > 0) payload.target_rps = rps;
-      if (p95t > 0) payload.p95_ms = p95t;
-      if (p99t > 0) payload.p99_ms = p99t;
+      if (p95t > 0) { payload.sla_p95_ms = p95t; payload.p95_ms = p95t; }
+      if (p99t > 0) { payload.sla_p99_ms = p99t; payload.p99_ms = p99t; }
       if (errt > 0) payload.max_error_rate_pct = errt;
       if (thrt > 0) payload.min_throughput_rps = thrt;
       var d = await api('/api/insights/twin/simulate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      if (!d || d.ok === false && !d.result) throw new Error((d && d.error) || 'simulation failed');
+      if (!d || (d.ok === false && !d.result)) throw new Error((d && d.error) || 'simulation failed');
       var res = d.result || {};
       var sum = res.summary || {};
       window.__twinLastResult = res;
+      var achieved = sum.achieved_rps || sum.AchievedRPS || {};
+      var errBand = sum.error_rate_pct || sum.ErrorRatePct || {};
+      var p99Band = sum.p99_ms || sum.P99MS || {};
+      var risk = sum.risk_level || sum.RiskLevel || '—';
       var html = '<div class="ins-subtitle">Scenario result (model-based simulation)</div>' +
         '<div class="ins-kv">' +
-        kv('Scenario', (res.scenario && (res.scenario.name || res.scenario.scenario_type)) || scenario) +
-        kv('Risk', badge(sum.risk_level || '—', sum.risk_level === 'high' ? 'bad' : (sum.risk_level === 'elevated' ? 'warn' : 'good'))) +
-        kv('p95(p99) ms', num(sum.p99_ms && sum.p99_ms.p95)) +
-        kv('p95(RPS)', num(sum.achieved_rps && sum.achieved_rps.p95)) +
-        kv('p95(err %)', pct(sum.error_rate_pct && sum.error_rate_pct.p95)) +
-        kv('Saturation prob', pct((sum.saturation_probability || 0) * 100)) +
+        kv('Scenario', (res.scenario && (res.scenario.name || res.scenario.scenario_type || res.scenario.ScenarioType)) || scenario) +
+        kv('Risk', badge(risk, risk === 'high' ? 'bad' : (risk === 'elevated' ? 'warn' : 'good'))) +
+        kv('p99 (p95 of draws)', num(p99Band.p95 != null ? p99Band.p95 : p99Band.P95) + ' ms') +
+        kv('Achieved RPS (p95 of draws)', num(achieved.p95 != null ? achieved.p95 : achieved.P95)) +
+        kv('Error rate % (p95 of draws)', pct(errBand.p95 != null ? errBand.p95 : errBand.P95)) +
+        kv('Saturation probability', pct(((sum.saturation_probability != null ? sum.saturation_probability : sum.SaturationProbability) || 0) * 100)) +
         '</div>' +
         '<div class="ins-subtitle" style="margin-top:10px">Breach probability & confidence intervals</div>' + renderBreachSummary(sum) +
         '<div class="ins-subtitle" style="margin-top:10px">Model metadata</div>' + renderModelMeta(model, res);
       if (d.breach_gate) html += '<p class="ins-note err">Breach-probability gate tripped by configured threshold.</p>';
       if (d.note) html += '<p class="ins-note">' + esc(d.note) + '</p>';
-      html += '<p class="ins-note">All simulated metrics are model-based estimates derived from collected evidence; not direct measurements.</p>';
+      html += '<p class="ins-note">All simulated metrics are model-based estimates derived from collected evidence; they are not direct measurements and not guarantees.</p>';
       html += '<details class="ins-details"><summary>Result JSON</summary><pre>' + esc(JSON.stringify(res, null, 2)) + '</pre></details>';
-      setOut('twinSimOut', html, sum.risk_level === 'high' ? 'warn' : 'ok');
+      setOut('twinSimOut', html, risk === 'high' ? 'warn' : 'ok');
     } catch (e) {
       if (e && e.message === 'locked') return;
       setText('twinSimOut', 'Error: ' + (e && e.message ? e.message : String(e)), 'err');
@@ -283,19 +314,35 @@
       var d = await api('/api/insights/twin/compare', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!d || d.ok === false) throw new Error((d && d.error) || 'compare failed');
       var c = d.comparison || {};
-      var m = c.metrics || {};
-      function mrow(name, obj) {
-        obj = obj || {};
-        var val = (obj.valid === false) ? ('INVALID: ' + (obj.reason || 'n/a')) : (num(obj.actual) + ' actual vs ' + num(obj.predicted) + ' pred (err ' + pct(obj.error_pct) + ')');
+      function row(name, unit, pred, act, errPct, mae) {
+        var valid = (pred != null && act != null && isFinite(pred) && isFinite(act));
+        var val = valid ? (num(act) + unit + ' actual vs ' + num(pred) + unit + ' predicted (error ' + pct(errPct) + (mae != null && isFinite(mae) ? ', MAE ' + num(mae) + unit : '') + ')') : 'INSUFFICIENT_DATA / not comparable';
         return '<tr><td>' + esc(name) + '</td><td>' + esc(val) + '</td></tr>';
       }
-      var html = '<div class="ins-kv">' + kv('Derived validation status', badge(d.derived_validation_status || '—', d.derived_validation_status === 'OK' ? 'good' : (d.derived_validation_status === 'INSUFFICIENT_DATA' ? 'bad' : 'warn'))) + kv('Derived drift status', d.derived_drift_status || '—') + '</div>';
-      html += '<table class="ins-table"><tbody>' + mrow('RPS', m.rps) + mrow('p95 (ms)', m.p95_ms) + mrow('p99 (ms)', m.p99_ms) + mrow('Error %', m.error_rate_pct) + '</tbody></table>';
-      if (d.derived_note) html += '<p class="ins-note">' + esc(d.derived_note) + '</p>';
+      var vStatus = d.derived_validation_status || '—';
+      var drift = d.derived_drift_status || '—';
+      var vTone = vStatus === 'OK' ? 'good' : ((vStatus === 'INSUFFICIENT_DATA' || vStatus === 'DRIFT' || vStatus === 'OOD') ? 'bad' : 'warn');
+      var html = '<div class="ins-kv">' + kv('Derived validation status', badge(vStatus, vTone)) + kv('Derived drift status', badge(drift, drift === 'DETECTED' ? 'bad' : (drift === 'NONE' ? 'good' : 'warn'))) + '</div>';
+      html += '<table class="ins-table"><thead><tr><th>Metric</th><th>Prediction vs actual (measured evidence)</th></tr></thead><tbody>' +
+        row('RPS', '', c.predicted_rps, c.actual_rps, c.rps_error_pct, null) +
+        row('p95 latency', ' ms', c.predicted_p95_ms, c.actual_p95_ms, c.p95_error_pct, c.p95_mae_ms) +
+        row('p99 latency', ' ms', c.predicted_p99_ms, c.actual_p99_ms, c.p99_error_pct, c.p99_mae_ms) +
+        '</tbody></table>';
+      if (d.derived_note) html += '<p class="ins-note"><strong>Derived note:</strong> ' + esc(d.derived_note) + '</p>';
       if (c.notes && c.notes.length) html += renderList(c.notes);
+      var leak = d.leakage || d.leakage_guard || null;
+      if (leak) {
+        var lStatus = leak.status || leak.Status || ((leak.verified || leak.proven) ? 'verified_no_leakage' : 'unverified');
+        var lTone = lStatus === 'verified_no_leakage' ? 'good' : (lStatus === 'leakage_detected' ? 'bad' : 'warn');
+        html += '<div class="ins-subtitle" style="margin-top:10px">Leakage / provenance (honesty check)</div>' +
+          '<div class="ins-kv">' + kv('Leakage status', badge(lStatus, lTone)) + kv('Enforced', (leak.enforced ? 'yes' : 'no')) + kv('Proven/verified', ((leak.proven || leak.verified) ? 'yes' : 'no')) + kv('Method/source', (leak.method || leak.Method || leak.verification_source || leak.VerificationSource || '—')) + '</div>';
+        if (leak.reason || leak.Reason) html += '<p class="ins-note">' + esc(leak.reason || leak.Reason) + '</p>';
+      }
+      if (d.verification) html += '<details class="ins-details"><summary>Manifest/leakage verification</summary><pre>' + esc(JSON.stringify(d.verification, null, 2)) + '</pre></details>';
+      if (d.validation_record) html += '<details class="ins-details"><summary>Validation record (provenance)</summary><pre>' + esc(JSON.stringify(d.validation_record, null, 2)) + '</pre></details>';
       if (d.note) html += '<p class="ins-note">' + esc(d.note) + '</p>';
       html += '<details class="ins-details"><summary>Comparison JSON</summary><pre>' + esc(JSON.stringify(c, null, 2)) + '</pre></details>';
-      setOut('twinCompareOut', html, d.derived_validation_status === 'OK' ? 'ok' : 'warn');
+      setOut('twinCompareOut', html, vStatus === 'OK' ? 'ok' : 'warn');
     } catch (e) {
       if (e && e.message === 'locked') return;
       setText('twinCompareOut', 'Error: ' + (e && e.message ? e.message : String(e)), 'err');
@@ -311,13 +358,27 @@
       var d = await api('/api/insights/twin/sensitivity', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!d || d.ok === false) throw new Error((d && d.error) || 'sensitivity failed');
       var s = d.sensitivity || {};
-      var impacts = s.impacts || [];
-      var html = '<div class="ins-kv">' + kv('Base RPS', num(s.base_rps)) + kv('Base p95', num(s.base_p95_ms)) + kv('Base p99', num(s.base_p99_ms)) + kv('Base err %', pct(s.base_err_pct)) + '</div>';
-      if (impacts.length) {
-        html += '<table class="ins-table"><thead><tr><th>Parameter</th><th>Delta</th><th>ΔRPS</th><th>Δp95</th><th>Δp99</th><th>Δerr%</th><th>Notes</th></tr></thead><tbody>' +
-          impacts.map(function (it) { return '<tr><td>' + esc(it.parameter) + '</td><td>' + esc(it.delta) + '</td><td>' + esc(num(it.delta_rps)) + '</td><td>' + esc(num(it.delta_p95_ms)) + '</td><td>' + esc(num(it.delta_p99_ms)) + '</td><td>' + esc(num(it.delta_error_pct)) + '</td><td>' + esc((it.notes || []).join('; ')) + '</td></tr>'; }).join('') +
-          '</tbody></table>';
+      var points = s.points || s.Points || [];
+      var base = s.baseline || s.Baseline || {};
+      var html = '<div class="ins-kv">' +
+        kv('Baseline scenario', base.name || base.Name || scenario) +
+        kv('Baseline mode', base.mode || base.Mode || '—') +
+        kv('Baseline target RPS', num(base.target_rps != null ? base.target_rps : base.TargetRPS)) +
+        kv('Baseline target users', num(base.target_users != null ? base.target_users : base.TargetUsers)) +
+        kv('Seed', s.seed != null ? String(s.seed) : (s.Seed != null ? String(s.Seed) : '—')) +
+        '</div>';
+      if (points.length) {
+        html += '<table class="ins-table"><thead><tr><th>Parameter</th><th>Value</th><th>Delta</th><th>p99 (p50 draw, ms)</th><th>Breach probability</th><th>Risk</th><th>Note</th></tr></thead><tbody>' +
+          points.map(function (it) {
+            var breach = (it.breach != null ? it.breach : it.Breach);
+            var risk = it.risk || it.Risk || '—';
+            return '<tr><td>' + esc(it.parameter || it.Parameter || '') + '</td><td>' + esc(num(it.value != null ? it.value : it.Value)) + '</td><td>' + esc(num(it.delta != null ? it.delta : it.Delta)) + '</td><td>' + esc(num(it.p99_ms != null ? it.p99_ms : (it.p99_ms_p50 != null ? it.p99_ms_p50 : it.P99MS))) + '</td><td>' + esc(breach == null ? '—' : pct(Number(breach) * 100)) + '</td><td>' + badge(risk, risk === 'high' ? 'bad' : (risk === 'elevated' ? 'warn' : 'good')) + '</td><td>' + esc(it.note || it.Note || '') + '</td></tr>';
+          }).join('') + '</tbody></table>';
+      } else {
+        html += '<p class="ins-note warn">No sensitivity points returned (insufficient data or simulation failure).</p>';
       }
+      var notes = s.notes || s.Notes || [];
+      if (notes.length) html += renderList(notes);
       if (d.note) html += '<p class="ins-note">' + esc(d.note) + '</p>';
       html += '<details class="ins-details"><summary>Sensitivity JSON</summary><pre>' + esc(JSON.stringify(s, null, 2)) + '</pre></details>';
       setOut('twinSensitivityOut', html, 'ok');
@@ -334,18 +395,33 @@
       var d = await api('/api/insights/twin/backtest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!d || d.ok === false) throw new Error((d && d.error) || 'backtest failed');
       var b = d.backtest || {};
-      var dStatus = d.derived_backtest_status || (b.samples ? '—' : 'INSUFFICIENT_DATA');
+      var dStatus = d.derived_backtest_status || '—';
+      var drift = d.derived_drift_status || b.drift || b.drift_status || b.Drift || '—';
+      var ood = !!(b.out_of_domain != null ? b.out_of_domain : b.OutOfDomain);
+      var tone = dStatus === 'OK' ? 'good' : ((dStatus === 'INSUFFICIENT_DATA' || dStatus === 'OOD' || dStatus === 'DRIFT') ? 'bad' : 'warn');
       var html = '<div class="ins-kv">' +
-        kv('Derived backtest status', badge(dStatus, dStatus === 'OK' ? 'good' : (dStatus === 'INSUFFICIENT_DATA' ? 'bad' : 'warn'))) + kv('Derived drift status', d.derived_drift_status || b.drift || '—') +
-        kv('Samples', b.samples) + kv('MAE', num(b.mae)) + kv('RMSE', num(b.rmse)) + kv('MAPE %', num(b.mape_pct)) + kv('Mean error %', num(b.mean_error_pct)) +
-        kv('Drift detected', b.drift_detected ? badge('yes', 'warn') : 'no') + kv('OOD detected', b.ood_detected ? badge('yes', 'warn') : 'no') +
+        kv('Derived backtest status', badge(dStatus, tone)) + kv('Derived drift status', badge(drift, drift === 'DETECTED' ? 'bad' : (drift === 'NONE' ? 'good' : 'warn'))) +
+        kv('Samples', b.samples != null ? b.samples : b.Samples) + kv('MAE', num(b.mae != null ? b.mae : b.MAE)) + kv('RMSE', num(b.rmse != null ? b.rmse : b.RMSE)) + kv('MAPE %', num(b.mape_pct != null ? b.mape_pct : b.MAPE)) +
+        kv('Drift detected', drift === 'DETECTED' ? badge('yes', 'bad') : (drift === 'NONE' ? badge('no', 'good') : badge('unknown', 'warn'))) +
+        kv('Out-of-domain', ood ? badge('yes', 'warn') : badge('no', 'good')) +
         '</div>';
-      if (b.reasons && b.reasons.length) html += renderList(b.reasons);
-      var vr = d.validation_record || {};
-      if (vr.assumptions && vr.assumptions.length) html += '<p class="ins-note"><strong>Assumptions/no-leakage:</strong> ' + esc(vr.assumptions.join('; ')) + '</p>';
+      if (b.calibration || b.Calibration) html += '<p class="ins-note"><strong>Calibration:</strong> ' + esc(b.calibration || b.Calibration) + '</p>';
+      var notes = b.notes || b.Notes || [];
+      if (notes.length) html += renderList(notes);
+      var vr = d.validation_record || d.ValidationRecord || {};
+      var leak = d.leakage || vr.leakage || null;
+      if (leak) {
+        var lStatus = leak.status || leak.Status || 'unverified';
+        var lTone = lStatus === 'verified_no_leakage' ? 'good' : (lStatus === 'leakage_detected' ? 'bad' : 'warn');
+        html += '<div class="ins-subtitle" style="margin-top:10px">Leakage/provenance verification</div>' +
+          '<div class="ins-kv">' + kv('Leakage status', badge(lStatus, lTone)) + kv('Enforced', leak.enforced ? 'yes' : 'no') + kv('Proven/verified', (leak.proven || leak.verified) ? 'yes' : 'no') + kv('Method/source', (leak.method || leak.verification_source || '—')) + '</div>';
+        if (leak.reason) html += '<p class="ins-note">' + esc(leak.reason) + '</p>';
+      }
+      if (vr.assumptions && vr.assumptions.length) html += '<p class="ins-note"><strong>Assumptions:</strong> ' + esc(vr.assumptions.join('; ')) + '</p>';
+      if (d.verification) html += '<details class="ins-details"><summary>Manifest verification</summary><pre>' + esc(JSON.stringify(d.verification, null, 2)) + '</pre></details>';
       if (d.note) html += '<p class="ins-note">' + esc(d.note) + '</p>';
       html += '<details class="ins-details"><summary>Backtest JSON</summary><pre>' + esc(JSON.stringify(d, null, 2)) + '</pre></details>';
-      setOut('twinBacktestOut', html, (b.drift_detected || b.ood_detected) ? 'warn' : 'ok');
+      setOut('twinBacktestOut', html, (drift === 'DETECTED' || ood || dStatus === 'INSUFFICIENT_DATA') ? 'warn' : 'ok');
     } catch (e) {
       if (e && e.message === 'locked') return;
       setText('twinBacktestOut', 'Error: ' + (e && e.message ? e.message : String(e)), 'err');
@@ -359,36 +435,75 @@
       try { payload = parseJSONFrom('resourceAssessJson'); } catch (_) { payload = {}; }
       var d = await api('/api/insights/resources/assess', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!d || d.ok === false) throw new Error((d && d.error) || 'resource assessment failed');
-      var r = d.resource_monitoring || {};
-      var av = r.available || {};
-      var un = r.unavailable || [];
-      var values = (r && r.values) ? r.values : {};
-      var detail = r.metrics_detail || {};
+      var r = d.resource_monitoring || d.ResourceMonitoring || {};
+      var detail = r.metrics_detail || r.MetricsDetail || {};
+      var values = r.values || r.Values || {};
+      var missing = r.missing || r.Missing || [];
       var defs = [
-        { key: 'cpu', label: 'CPU utilization', legacy: av.cpu_utilization_pct, pct: true },
-        { key: 'memory', label: 'Memory utilization', legacy: av.memory_utilization_pct, pct: true },
-        { key: 'network', label: 'Network utilization', legacy: av.network_utilization_pct, pct: true },
-        { key: 'connections', label: 'Active connections', legacy: av.active_connections, pct: false },
-        { key: 'server_response_time', label: 'Server response time (ms)', legacy: av.server_response_time_ms, pct: false },
-        { key: 'memory_growth', label: 'Memory growth', legacy: (r.memory_growth_pct != null ? r.memory_growth_pct : null), pct: true }
+        { key: 'cpu', label: 'CPU utilization', unit: 'percent' },
+        { key: 'memory', label: 'Memory utilization', unit: 'percent' },
+        { key: 'network', label: 'Network utilization', unit: 'percent' },
+        { key: 'connections', label: 'Active connections', unit: 'count' },
+        { key: 'server_response_time', label: 'Server response time', unit: 'ms' },
+        { key: 'memory_growth', label: 'Memory growth', unit: 'percent' },
+        { key: 'cpu_utilization_pct', label: 'CPU utilization', unit: 'percent' },
+        { key: 'memory_utilization_pct', label: 'Memory utilization', unit: 'percent' },
+        { key: 'network_utilization', label: 'Network utilization', unit: 'percent' },
+        { key: 'active_connections', label: 'Active connections', unit: 'count' },
+        { key: 'server_response_time_ms', label: 'Server response time', unit: 'ms' },
+        { key: 'memory_growth_pct', label: 'Memory growth', unit: 'percentage_points' }
       ];
-      var rows = defs.map(function (m) {
-        var d = detail[m.key] || {};
-        var val = d.value != null ? d.value : (m.legacy != null ? m.legacy : values[m.key]);
-        var status = d.status || (val == null ? 'unavailable' : 'available');
-        var unit = d.unit || (m.pct ? 'percent' : (m.key === 'server_response_time' ? 'ms' : 'count'));
-        var labelVal = val == null ? status : ((m.pct || unit === 'percent' || unit === 'percentage_points') ? pct(val) : num(val));
-        var reason = d.reason || (val == null ? 'not collected/provided' : 'provided/derived evidence');
-        var src = d.source ? (' [' + d.source + ']') : '';
-        var statusCell = esc(status + src + (reason ? ' — ' + reason : ''));
-        return '<tr><td>' + esc(m.label) + (unit && val != null ? ' <span class="ins-note">(' + esc(unit) + ')</span>' : '') + '</td><td>' + esc(labelVal) + '</td><td>' + statusCell + '</td></tr>';
-      }).join('');
-      var html = '<table class="ins-table"><thead><tr><th>Metric</th><th>Value</th><th>Status / evidence</th></tr></thead><tbody>' + rows + '</tbody></table>';
-      if (un.length) html += '<p class="ins-note warn"><strong>Unavailable/insufficient metrics (explicit):</strong> ' + esc(un.join(', ')) + '</p>';
-      if (r.notes && r.notes.length) html += renderList(r.notes);
+      var seen = {};
+      var rows = [];
+      function addRow(key, label, fallbackUnit) {
+        if (seen[key]) return;
+        var det = detail[key] || null;
+        // remap common aliases
+        if (!det) {
+          var alias = null;
+          if (key === 'cpu_utilization_pct') alias = detail['cpu'];
+          else if (key === 'memory_utilization_pct') alias = detail['memory'];
+          else if (key === 'network_utilization') alias = detail['network'];
+          else if (key === 'active_connections') alias = detail['connections'];
+          else if (key === 'server_response_time_ms') alias = detail['server_response_time'];
+          else if (key === 'memory_growth_pct') alias = detail['memory_growth'];
+          if (alias) { det = alias; seen[key] = true; }
+        }
+        if (!det && values[key] == null && missing.indexOf(key) === -1) return;
+        seen[key] = true;
+        det = det || {};
+        var val = (det.value != null ? det.value : det.Value);
+        if (val == null && values[key] != null) val = values[key];
+        var status = det.status || det.Status || (val == null ? 'unavailable' : 'available');
+        var unit = det.unit || det.Unit || fallbackUnit || '';
+        var source = det.source || det.Source || r.source || r.Source || '—';
+        var reason = det.reason || det.Reason || (val == null ? 'not collected/provided' : '');
+        var notes = det.notes || det.Notes || [];
+        var obs = det.observed_window_start || det.ObservedWindowStart || '';
+        var obsEnd = det.observed_window_end || det.ObservedWindowEnd || '';
+        var obsAt = det.observed_at || det.ObservedAt || '';
+        var samp = det.observation_sample_count || det.ObservationSampleCount || 0;
+        var meta = 'status=' + status + '; source=' + source + (unit ? '; unit=' + unit : '');
+        if (reason) meta += '; reason=' + reason;
+        if (obs || obsEnd) meta += '; window=' + (obs || '?') + ' .. ' + (obsEnd || '?');
+        else if (obsAt) meta += '; observed_at=' + obsAt;
+        if (samp) meta += '; samples=' + samp;
+        if (notes.length) meta += '; notes=' + notes.join(' | ');
+        var isPct = (unit === 'percent' || unit === 'percentage_points' || unit === '%');
+        var valText = (val == null || !isFinite(Number(val))) ? ('— (' + status + ')') : (isPct ? pct(val) : (num(val) + (unit ? ' ' + unit : '')));
+        rows.push('<tr><td>' + esc(label) + '</td><td>' + esc(valText) + '</td><td class="st-' + esc(status) + '">' + esc(meta) + '</td></tr>');
+      }
+      defs.forEach(function (mdef) { addRow(mdef.key, mdef.label, mdef.unit); });
+      Object.keys(detail).sort().forEach(function (k) { if (!seen[k]) addRow(k, k, detail[k] && (detail[k].unit || detail[k].Unit) || ''); });
+      var html = '<div class="ins-kv">' + kv('Evidence available', (r.available || r.Available) ? 'yes' : 'no') + kv('Source', r.source || r.Source || '—') + kv('Schema', r.schema_version || r.SchemaVersion || '—') + kv('Samples', (r.sample_count != null ? r.sample_count : r.SampleCount)) + '</div>';
+      html += '<table class="ins-table"><thead><tr><th>Metric</th><th>Value</th><th>Status / unit / source / reason</th></tr></thead><tbody>' + (rows.length ? rows.join('') : '<tr><td colspan="3">No standardized resource metrics reported.</td></tr>') + '</tbody></table>';
+      if (missing.length) html += '<p class="ins-note warn"><strong>Unavailable/insufficient metrics (explicit, never fabricated):</strong> ' + esc(missing.join(', ')) + '</p>';
+      var notes = r.notes || r.Notes || [];
+      if (notes.length) html += renderList(notes);
       if (d.note) html += '<p class="ins-note">' + esc(d.note) + '</p>';
       html += '<details class="ins-details"><summary>Resource assessment JSON</summary><pre>' + esc(JSON.stringify(r, null, 2)) + '</pre></details>';
-      setOut('resourceAssessOut', html, un.length ? 'warn' : 'ok');
+      var warn = !!(missing.length || !(r.available || r.Available));
+      setOut('resourceAssessOut', html, warn ? 'warn' : 'ok');
     } catch (e) {
       if (e && e.message === 'locked') return;
       setText('resourceAssessOut', 'Error: ' + (e && e.message ? e.message : String(e)), 'err');
@@ -401,8 +516,9 @@
       var manifest = parseJSONFrom('bountyManifestJson');
       var d = await api('/api/insights/bounty/validate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ manifest: manifest }) });
       if (!d || d.ok === false) throw new Error((d && d.error) || 'validation failed');
+      var checks = d.checks || d.manifest_checks || [];
       var html = '<div class="ins-kv">' + kv('Verdict', d.verdict) + kv('Package ID', d.package_id) + '</div>';
-      if (d.manifest_checks && d.manifest_checks.length) html += renderChecks(d.manifest_checks);
+      if (checks && checks.length) html += renderChecks(checks);
       if (d.reasons && d.reasons.length) html += '<ul class="ins-notes err">' + d.reasons.map(function(x){return '<li>'+esc(x)+'</li>';}).join('') + '</ul>';
       if (d.notes && d.notes.length) html += renderList(d.notes);
       var cls = d.verdict === 'failed' ? 'err' : (d.verdict === 'verified' ? 'ok' : 'warn');
@@ -460,10 +576,11 @@
       if (!d || d.ok === false) throw new Error((d && d.error) || 'verification failed');
       var report = d.report || {};
       var verdict = d.verdict || report.verdict || 'unknown';
+      var checks = report.checks || report.manifest_checks || d.checks || [];
       var html = '<div class="ins-kv">' + kv('Verdict', verdict) + kv('Package ID', report.package_id || d.package_id) + kv('Uploaded files', d.uploaded_artifacts) + '</div>';
-      if (report.manifest_checks && report.manifest_checks.length) html += renderChecks(report.manifest_checks);
+      if (checks && checks.length) html += renderChecks(checks);
       if (report.reasons && report.reasons.length) html += '<ul class="ins-notes err">' + report.reasons.map(function(x){return '<li>'+esc(x)+'</li>';}).join('') + '</ul>';
-      var notes = [].concat(report.reasons || [], report.notes || []);
+      var notes = [].concat(report.notes || d.notes || []);
       if (notes.length) html += renderList(notes);
       if (report.attest) html += '<details class="ins-details"><summary>Attestation summary</summary><pre>' + esc(JSON.stringify(report.attest, null, 2)) + '</pre></details>';
       html += '<details class="ins-details"><summary>Verification report JSON</summary><pre>' + esc(JSON.stringify(report, null, 2)) + '</pre></details>';

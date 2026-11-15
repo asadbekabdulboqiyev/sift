@@ -139,6 +139,8 @@ function viewReport() {
     showView('viewHistory');
     return;
   }
+  S.reportIndex = S.history.length - 1;
+  if (typeof renderHistory === 'function') renderHistory();
   showView('viewHistory');
   var sec = document.getElementById('historySection');
   if (!sec) return;

@@ -42,6 +42,8 @@ func resetCertStoreForTest(t *testing.T) string {
 func pentestReportJSON() map[string]any {
 	return map[string]any{
 		"target":     "https://example.com",
+		"started_at": "2026-11-07T08:00:00Z",
+		"duration":   60000000000, // 1m
 		"risk_score": 12,
 		"grade":      "B",
 		"verdict":    "PASS",
@@ -49,7 +51,7 @@ func pentestReportJSON() map[string]any {
 		"high":       0,
 		"medium":     0,
 		"low":        0,
-		"info":       0,
+		"info_count": 0,
 		"owasp_pass": 0,
 	}
 }

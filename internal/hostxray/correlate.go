@@ -2,6 +2,7 @@ package hostxray
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"time"
 )
@@ -127,14 +128,14 @@ func buildSampleEvents(samples []Sample) []sampleEvent {
 	events := make([]sampleEvent, 0, len(valid))
 	for i, sample := range valid {
 		event := sampleEvent{ts: sample.Timestamp}
-		if sample.CPU.Available {
+		if sample.CPU.Available && !math.IsNaN(sample.CPU.UtilizationPct) && !math.IsInf(sample.CPU.UtilizationPct, 0) {
 			event.cpuPct = sample.CPU.UtilizationPct
 			event.cpuValid = true
 		}
-		if sample.Mem.Available {
+		if sample.Mem.Available && !math.IsNaN(sample.Mem.UsedPct) && !math.IsInf(sample.Mem.UsedPct, 0) {
 			event.memUsed = sample.Mem.UsedPct
 		}
-		if sample.PSI.Memory != nil {
+		if sample.PSI.Memory != nil && !math.IsNaN(sample.PSI.Memory.Some10) && !math.IsInf(sample.PSI.Memory.Some10, 0) {
 			event.psiMem = sample.PSI.Memory.Some10
 		}
 		if i > 0 {
@@ -498,10 +499,12 @@ func normalizeSignals(signals []Signal) []Signal {
 			continue
 		}
 		signal.ErrorRate = clampFraction(signal.ErrorRate)
-		if signal.RPS < 0 {
+		switch {
+		case math.IsNaN(signal.RPS) || math.IsInf(signal.RPS, 0) || signal.RPS < 0:
 			signal.RPS = 0
 		}
-		if signal.P99Ms < 0 {
+		switch {
+		case math.IsNaN(signal.P99Ms) || math.IsInf(signal.P99Ms, 0) || signal.P99Ms < 0:
 			signal.P99Ms = 0
 		}
 		out = append(out, signal)
@@ -512,9 +515,9 @@ func normalizeSignals(signals []Signal) []Signal {
 
 func clampFraction(v float64) float64 {
 	switch {
-	case v < 0:
+	case math.IsNaN(v) || math.IsInf(v, -1) || v < 0:
 		return 0
-	case v > 1:
+	case math.IsInf(v, 1) || v > 1:
 		return 1
 	default:
 		return v

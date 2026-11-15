@@ -35,10 +35,11 @@ var (
 	certStoreInit sync.Once
 )
 
-func certStoreEnsure() {
+func certStoreEnsure() error {
 	certStoreInit.Do(func() {
 		certStoreErr = certStoreInitOnce()
 	})
+	return certStoreErr
 }
 
 func certStoreInitOnce() error {
@@ -107,6 +108,7 @@ func certStoreIssue(c certificate.Certificate) (*certificate.Certificate, string
 		prevHash = certStoreHash[0] // newest line's hash
 	}
 	c.PreviousCertificateHash = prevHash
+	c.CertificateID = certificate.CertificateID(&c)
 
 	line, err := json.Marshal(c)
 	if err != nil {

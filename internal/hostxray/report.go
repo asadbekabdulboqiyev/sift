@@ -478,16 +478,44 @@ func writeArtifact(path string, data []byte) error {
 	if clean == "." || clean == string(filepath.Separator) {
 		return errors.New("host xray: artifact path is empty or not a file")
 	}
-	if dir := filepath.Dir(clean); dir != "" && dir != "." {
+	dir := filepath.Dir(clean)
+	if dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return fmt.Errorf("host xray: create artifact directory %s: %w", dir, err)
 		}
 	}
-	if err := os.WriteFile(clean, data, 0o600); err != nil {
-		return fmt.Errorf("host xray: write %s: %w", clean, err)
+
+	tmp, err := os.CreateTemp(dir, filepath.Base(clean)+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("host xray: create temp artifact for %s: %w", clean, err)
 	}
-	// os.WriteFile does not tighten the mode of an existing file, so enforce
-	// 0600 explicitly: artifacts can contain host topology hints.
+	tmpName := tmp.Name()
+	cleanup := func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+	}
+
+	if err := tmp.Chmod(0o600); err != nil {
+		cleanup()
+		return fmt.Errorf("host xray: restrict permissions on temp artifact %s: %w", tmpName, err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		cleanup()
+		return fmt.Errorf("host xray: write temp artifact %s: %w", tmpName, err)
+	}
+	if err := tmp.Sync(); err != nil {
+		cleanup()
+		return fmt.Errorf("host xray: sync temp artifact %s: %w", tmpName, err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("host xray: close temp artifact %s: %w", tmpName, err)
+	}
+	if err := os.Rename(tmpName, clean); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("host xray: replace %s: %w", clean, err)
+	}
+	// Enforce 0600 after rename in case platform/filesystem semantics differ.
 	if err := os.Chmod(clean, 0o600); err != nil {
 		return fmt.Errorf("host xray: restrict permissions on %s: %w", clean, err)
 	}

@@ -2,6 +2,7 @@ package audit360
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -273,6 +274,15 @@ func TestSealAndVerify(t *testing.T) {
 		if ok {
 			t.Fatal("tampered raw evidence hash must not verify")
 		}
+		// tamper capacity-blocked evidence fields (must be seal-bound)
+		tampered3 := *rep
+		tampered3.CapacityBlocked = true
+		tampered3.BlockedStatus = 403
+		tampered3.BlockedSharePct = 100
+		ok, _ = VerifySeal(&tampered3, sig, pub)
+		if ok {
+			t.Fatal("tampered capacity-blocked fields must not verify")
+		}
 	}
 }
 
@@ -322,5 +332,229 @@ func TestRunIntegrationAgainstLocalServer(t *testing.T) {
 		if rep.BreakingPointReached || rep.BreakingPointUsers != 0 {
 			t.Fatalf("stress unavailable but breaking point reported: %+v", rep)
 		}
+	}
+}
+
+func TestComputeResilience_CriticalFindingCannotYieldLowRiskOrHighOverall(t *testing.T) {
+	score, risk, findings, _ := ComputeResilience([]Finding{{
+		Title:         "Critical security exposure",
+		Severity:      "critical",
+		ImpactSummary: "critical",
+		Remediation:   "fix",
+		Evidence:      "measured",
+		Source:        "security_scan",
+	}}, false, StressOutcome{Available: true, Breached: false, MaxObservedUsers: 500, MaxObservedRPS: 200, MaxSafeRPS: 180, PeakP99MS: 100})
+	if risk != RiskCritical {
+		t.Fatalf("risk = %q, want %q when critical finding exists", risk, RiskCritical)
+	}
+	if score > 54 {
+		t.Fatalf("overall score = %d, want <=54 when critical finding exists (findings=%+v)", score, findings)
+	}
+	if len(findings) == 0 {
+		t.Fatal("expected findings")
+	}
+}
+
+func TestComputeResilience_HighFindingCannotYieldLowRisk(t *testing.T) {
+	score, risk, _, _ := ComputeResilience([]Finding{{
+		Title: "High severity issue", Severity: "high", ImpactSummary: "impact", Remediation: "fix", Evidence: "ev", Source: "security_scan",
+	}}, false, StressOutcome{Available: true, Breached: false, MaxObservedUsers: 500, MaxObservedRPS: 200, MaxSafeRPS: 180, PeakP99MS: 100})
+	if risk == RiskLow {
+		t.Fatalf("risk must not be Low when high-severity finding exists (score=%d)", score)
+	}
+	if score > 79 {
+		t.Fatalf("overall score = %d, want <=79 when high-severity finding exists", score)
+	}
+}
+
+func TestComputeResilience_SkippedPassiveNoFabricatedCapacityBreach(t *testing.T) {
+	score, _, findings, notes := ComputeResilience(nil, false, StressOutcome{Skipped: true})
+	if score < 0 || score > 100 {
+		t.Fatalf("score out of range: %d", score)
+	}
+	for _, f := range findings {
+		lt := strings.ToLower(f.Title)
+		if strings.Contains(lt, "capacity limit reached") || strings.Contains(lt, "capacity test unavailable") {
+			t.Fatalf("skipped passive run must not claim breach/unavailable capacity failure: %+v", findings)
+		}
+	}
+	joined := strings.ToLower(strings.Join(notes, " "))
+	if !strings.Contains(joined, "skipped") && !strings.Contains(joined, "passive") {
+		t.Fatalf("expected passive/skipped note, got %v", notes)
+	}
+}
+
+func TestComputeResilience_ZeroSampleOutcomeNoInvalidState(t *testing.T) {
+	// Zero/timeout-like edge: no samples, all zero metrics, unavailable/unmeasurable.
+	score, risk, findings, _ := ComputeResilience(nil, false, StressOutcome{})
+	if score < 0 || score > 100 {
+		t.Fatalf("score out of range for zero-sample outcome: %d", score)
+	}
+	if risk == "" {
+		t.Fatal("risk must be set")
+	}
+	foundUnavailable := false
+	for _, f := range findings {
+		if strings.Contains(strings.ToLower(f.Title), "capacity test unavailable") {
+			foundUnavailable = true
+		}
+	}
+	if !foundUnavailable {
+		t.Fatalf("expected unavailable finding for zero-sample outcome, got %+v", findings)
+	}
+}
+
+func TestSealVerify_TamperedCertificateIDFails(t *testing.T) {
+	rep := &Audit360Report{
+		ResilienceScore: 80, RiskLevel: RiskLow, TargetURL: "http://127.0.0.1:8090",
+		Timestamp: time.Now().UTC().Format(time.RFC3339), StressTestAvailable: true,
+		Findings: []Finding{}, Notes: []string{"n"}, DurationMS: 10,
+		ScoringVersion: ScoringVersion, RawEvidenceHash: "h", RawEvidenceFormat: "f",
+		Scores: &ScoreBreakdown{Overall: 80, Security: 80, Resilience: 80, Capacity: 80, EvidenceQuality: 80},
+	}
+	certID, sig, pub, err := Seal(rep)
+	if err != nil {
+		t.Logf("seal warning: %v", err)
+	}
+	if sig == "" {
+		t.Skip("signature unavailable in environment")
+	}
+	rep.CertificateID = certID
+	rep.VPMPSignature = sig
+	ok, _ := VerifySeal(rep, sig, pub)
+	if !ok {
+		t.Fatal("expected untampered report to verify")
+	}
+	tampered := *rep
+	// single-byte style change in sealed identity field
+	if tampered.CertificateID != "" {
+		b := []byte(tampered.CertificateID)
+		b[len(b)-1] ^= 1
+		tampered.CertificateID = string(b)
+	}
+	ok, reason := VerifySeal(&tampered, sig, pub)
+	if ok || !strings.Contains(strings.ToLower(reason), "certificate") {
+		t.Fatalf("tampered certificate id must fail verification, ok=%v reason=%q", ok, reason)
+	}
+}
+
+func TestRunReportConsistency_StressUnavailableNoFabricatedMetrics(t *testing.T) {
+	// Unreachable target should yield no fabricated breach/capacity metrics and consistent state.
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	rep, err := Run(ctx, Options{
+		TargetURL:   "http://127.0.0.1:1", // almost certainly unreachable
+		MaxDuration: 8 * time.Second,
+		Mode:        ModeStandard,
+	}, nil)
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	if rep == nil {
+		t.Fatal("expected report")
+	}
+	if rep.Scores == nil {
+		t.Fatal("expected scores")
+	}
+	if rep.ResilienceScore != rep.Scores.Overall {
+		t.Fatalf("overall/resilience_score drift: report=%d scores=%d", rep.ResilienceScore, rep.Scores.Overall)
+	}
+	if rep.DurationMS < 0 {
+		t.Fatalf("duration must be non-negative: %d", rep.DurationMS)
+	}
+	if rep.CapacityBlocked {
+		t.Fatal("unreachable/unavailable run must not be marked as capacity-blocked rejection")
+	}
+	if rep.BreakingPointReached || rep.BreakingPointUsers != 0 || rep.MaxSafeRPS != 0 || rep.MaxObservedRPS != 0 {
+		t.Fatalf("unavailable stress must not fabricate capacity metrics: %+v", rep)
+	}
+	if rep.RiskLevel == "" {
+		t.Fatal("risk level must be set")
+	}
+	// Returned sealed report must be self-consistent: signature/certificate must verify
+	// against the final report payload (no post-seal mutation drift).
+	if rep.VPMPSignature != "" {
+		if rep.RawEvidenceHash == "" || rep.CertificateID == "" || rep.CertificateID == "unavailable" {
+			t.Fatalf("sealed report missing integrity identifiers: cert=%q hash=%q", rep.CertificateID, rep.RawEvidenceHash)
+		}
+		// Public key is recorded in notes for attestation context; extract for verification.
+		pub := ""
+		for _, n := range rep.Notes {
+			const pfx = "VPMP signer public key (hex): "
+			if strings.HasPrefix(n, pfx) {
+				pub = strings.TrimSpace(strings.TrimPrefix(n, pfx))
+			}
+		}
+		if pub == "" {
+			t.Fatal("sealed report missing signer public key note required for verification context")
+		}
+		ok, reason := VerifySeal(rep, rep.VPMPSignature, pub)
+		if !ok {
+			t.Fatalf("returned report signature must verify against final payload: %s", reason)
+		}
+	}
+}
+
+func TestComputeAssessment_SanitizesNonFiniteStressMetrics(t *testing.T) {
+	nan := math.NaN()
+	inf := math.Inf(1)
+	breakdown, risk, findings, notes := ComputeAssessment(nil, false, StressOutcome{
+		Available:        true,
+		Breached:         false,
+		MaxObservedRPS:   inf,
+		MaxSafeRPS:       nan,
+		MaxObservedUsers: 10,
+		PeakErrorRatePct: nan,
+		PeakP99MS:        inf,
+	})
+	if breakdown.Overall < 0 || breakdown.Overall > 100 || breakdown.Security < 0 || breakdown.Capacity < 0 || breakdown.Resilience < 0 || breakdown.EvidenceQuality < 0 {
+		t.Fatalf("scores must remain bounded finite ints: %+v", breakdown)
+	}
+	if risk == "" {
+		t.Fatal("risk must be set")
+	}
+	joined := strings.Join(notes, " ")
+	if strings.Contains(joined, "NaN") || strings.Contains(joined, "Inf") {
+		t.Fatalf("notes must not contain NaN/Inf: %v", notes)
+	}
+	for _, f := range findings {
+		if strings.Contains(f.Evidence, "NaN") || strings.Contains(f.Evidence, "Inf") || strings.Contains(f.ImpactSummary, "NaN") {
+			t.Fatalf("findings must not contain NaN/Inf: %+v", f)
+		}
+	}
+}
+
+func TestComputeAssessment_ZeroSamplesUnavailableConsistent(t *testing.T) {
+	breakdown, risk, findings, _ := ComputeAssessment(nil, false, StressOutcome{Available: false})
+	if breakdown.Overall == 100 {
+		t.Fatal("unavailable stress with no measured capacity should not claim perfect overall assessment")
+	}
+	if risk == "" {
+		t.Fatal("risk must be set")
+	}
+	found := false
+	for _, f := range findings {
+		if strings.Contains(strings.ToLower(f.Title), "capacity test unavailable") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected unavailable-capacity finding, got %+v", findings)
+	}
+}
+
+func TestComputeAssessment_PartialTimeoutAndZeroSamples(t *testing.T) {
+	// Partial security scan + unavailable stress (e.g. timeout/0 samples) must be explicit and bounded.
+	breakdown, _, findings, notes := ComputeAssessment([]Finding{
+		{Title: "Missing header", Severity: "medium", Source: "security_scan", Evidence: "X-Test missing"},
+	}, true, StressOutcome{Available: false, MaxObservedUsers: 0, MaxObservedRPS: 0})
+	if breakdown.Security >= 100 || breakdown.EvidenceQuality >= 100 {
+		t.Fatalf("partial/unavailable evidence must reduce relevant scores: %+v", breakdown)
+	}
+	if len(findings) == 0 {
+		t.Fatal("expected findings for partial/unavailable evidence")
+	}
+	if strings.Join(notes, " ") == "" {
+		t.Fatal("expected explanatory notes")
 	}
 }

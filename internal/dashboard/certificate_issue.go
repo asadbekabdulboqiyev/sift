@@ -105,7 +105,10 @@ func (s *Server) handleCertificateIssue(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	certStoreEnsure()
+	if err := certStoreEnsure(); err != nil {
+		http.Error(w, "certificate store unavailable: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	kp, created, err := loadDashboardSealingKey()
 	if err != nil {
 		http.Error(w, "load sealing key: "+err.Error(), http.StatusInternalServerError)
@@ -154,7 +157,10 @@ func (s *Server) handleCertificateDownload(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "certificate id required", http.StatusBadRequest)
 		return
 	}
-	certStoreEnsure()
+	if err := certStoreEnsure(); err != nil {
+		http.Error(w, "certificate store unavailable: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	cert, ok := certStoreGet(id)
 	if !ok {
 		http.Error(w, "certificate not found", http.StatusNotFound)
@@ -218,7 +224,10 @@ func (s *Server) handleCertificateVerify(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	certStoreEnsure()
+	if err := certStoreEnsure(); err != nil {
+		http.Error(w, "certificate store unavailable: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	chainBreak := certStoreVerifyChain()
 	chainIntact := chainBreak == -1
 
@@ -232,6 +241,8 @@ func (s *Server) handleCertificateVerify(w http.ResponseWriter, r *http.Request)
 		"signed_at":                 cert.SignedAt,
 		"experiment_reference":      cert.ExperimentReference,
 		"previous_certificate_hash": cert.PreviousCertificateHash,
+		"document_sha":              cert.Assessment.DocumentSHA,
+		"version":                   cert.Version,
 		"chain_intact":              chainIntact,
 		"findings_count":            len(cert.Assessment.Findings),
 		"covered":                   cert.Assessment.Covered,
@@ -251,7 +262,10 @@ func (s *Server) handleCertificateHistory(w http.ResponseWriter, r *http.Request
 		http.Error(w, "cross-origin requests are not allowed", http.StatusForbidden)
 		return
 	}
-	certStoreEnsure()
+	if err := certStoreEnsure(); err != nil {
+		http.Error(w, "certificate store unavailable: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	summaries := certStoreSummaries()
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{

@@ -178,18 +178,14 @@ func (j *job) publishStatus() {
 
 func (j *job) publish(ev Event) {
 	j.mu.RLock()
-	subs := make([]chan Event, 0, len(j.subs))
 	for ch := range j.subs {
-		subs = append(subs, ch)
-	}
-	j.mu.RUnlock()
-	for _, ch := range subs {
 		select {
 		case ch <- ev:
 		default:
 			// drop if slow subscriber
 		}
 	}
+	j.mu.RUnlock()
 }
 
 func defaultStages() []StageProgress {

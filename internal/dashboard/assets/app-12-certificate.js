@@ -43,6 +43,55 @@ function certRefreshReset() {
   certStatus('Waiting for a file — a pentest report or a certificate.', '');
 }
 
+function certQrPayload(cert) {
+  if (!cert) return '';
+  var a = cert.assessment || {};
+  var payload = JSON.stringify({
+    v: 1,
+    type: 'sift.certificate',
+    id: String(cert.certificate_id || ''),
+    sha: String(a.document_sha || ''),
+    ver: String(cert.version || '')
+  });
+  if (payload.length > 240) {
+    payload = JSON.stringify({ v: 1, type: 'sift.certificate', id: String(cert.certificate_id || ''), sha: String(a.document_sha || '') });
+  }
+  return payload;
+}
+
+function certDrawQr(canvasId, hintId, cert) {
+  var canvas = document.getElementById(canvasId);
+  var wrap = canvas ? canvas.closest('.cert-qr') : document.getElementById(canvasId + 'Wrap');
+  var hint = document.getElementById(hintId);
+  if (!canvas) return;
+  if (!wrap) wrap = document.getElementById(canvasId === 'certQr' ? 'certQrWrap' : 'certVerifyQrWrap');
+  var payload = certQrPayload(cert);
+  var canDraw = cert && cert.certificate_id && payload;
+  if (!canDraw) {
+    if (wrap) wrap.classList.add('hidden');
+    return;
+  }
+  if (wrap) wrap.classList.remove('hidden');
+  try {
+    if (window.SiftQRCode && typeof window.SiftQRCode.drawToCanvas === 'function') {
+      var ok = window.SiftQRCode.drawToCanvas(canvas, payload, { ecLevel: 'M', margin: 4, dark: '#111827', light: '#ffffff' });
+      if (ok) {
+        if (hint) hint.textContent = 'Scannable QR: certificate ID and bound document hash (verification reference, not a signature).';
+        return;
+      }
+    }
+  } catch (e) {}
+  var ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#111827';
+    ctx.font = '10px sans-serif';
+    ctx.fillText('QR unavailable', 18, 68);
+  }
+  if (hint) hint.textContent = 'QR preview unavailable for this payload.';
+}
+
 function certShowResult(kind, cert, rawText) {
   var wrap = document.getElementById('certResult');
   var title = document.getElementById('certResultTitle');
@@ -55,7 +104,7 @@ function certShowResult(kind, cert, rawText) {
 
   if (kind === 'verify-valid') {
     verdict.className = 'cert-verdict ok';
-    verdict.textContent = 'VALID — this certificate was not edited after signing.';
+    verdict.textContent = 'VALID — signature and bound document hash match (certificate not edited after signing).';
     if (title) title.textContent = 'Verified certificate';
   } else if (kind === 'verify-invalid') {
     verdict.className = 'cert-verdict bad';
@@ -63,7 +112,7 @@ function certShowResult(kind, cert, rawText) {
     if (title) title.textContent = 'Verification failed';
   } else if (kind === 'issued') {
     verdict.className = 'cert-verdict ok';
-    verdict.textContent = 'ISSUED — sealed with the host signing key.';
+    verdict.textContent = 'ISSUED — sealed with the host signing key (Ed25519).';
     if (title) title.textContent = 'New certificate';
   } else {
     verdict.className = 'cert-verdict';
@@ -78,9 +127,17 @@ function certShowResult(kind, cert, rawText) {
     facts.appendChild(certFact('Risk', (a.risk_score === 0 || a.risk_score ? a.risk_score : '—') + '/100'));
     var c = a.counts || {};
     facts.appendChild(certFact('Findings', [c.critical || 0, c.high || 0, c.medium || 0, c.low || 0, c.info || 0].join(' · ')));
-    facts.appendChild(certFact('Signer', (cert.public_key || '').slice(0, 16) + '…'));
-    facts.appendChild(certFact('Signed at', cert.signed_at));
+    facts.appendChild(certFact('Signer key', (cert.public_key || '').slice(0, 16) + (cert.public_key ? '…' : '')));
+    facts.appendChild(certFact('Signed at', cert.signed_at || a.signed_at));
     if (a.covered && a.covered.length) facts.appendChild(certFact('Coverage', a.covered.join(', ')));
+  }
+  if (cert) {
+    if (cert.certificate_id) facts.appendChild(certFact('Certificate ID', cert.certificate_id));
+    if (cert.version) facts.appendChild(certFact('Format', cert.version));
+    if (a && a.document_sha) facts.appendChild(certFact('Document SHA-256', a.document_sha));
+    if (cert.experiment_reference) facts.appendChild(certFact('Experiment', cert.experiment_reference));
+    if (cert.validity_period) facts.appendChild(certFact('Validity period', cert.validity_period));
+    if (cert.previous_certificate_hash !== undefined) facts.appendChild(certFact('Previous cert hash', cert.previous_certificate_hash || '(first in chain)'));
   }
 
   var findingsWrap = document.getElementById('certFindingsWrap');
@@ -108,7 +165,7 @@ function certShowResult(kind, cert, rawText) {
 
   var htmlWrap = document.getElementById('certHtmlWrap');
   var frame = document.getElementById('certHtmlFrame');
-  var html = certState.html || '';
+  var html = certState.html || (cert && cert.html) || '';
   if (htmlWrap && frame) {
     if (html) {
       htmlWrap.classList.remove('hidden');
@@ -118,6 +175,8 @@ function certShowResult(kind, cert, rawText) {
       frame.removeAttribute('srcdoc');
     }
   }
+
+  certDrawQr('certQr', 'certQrHint', cert);
 
   var actions = document.getElementById('certActions');
   if (actions) {
@@ -134,6 +193,8 @@ function certReset() {
   if (wrap) wrap.classList.add('hidden');
   var actions = document.getElementById('certActions');
   if (actions) actions.classList.add('hidden');
+  var qr = document.getElementById('certQrWrap');
+  if (qr) qr.classList.add('hidden');
   var input = document.getElementById('certFile');
   if (input) input.value = '';
 }
@@ -143,7 +204,7 @@ function certEnv(err) {
 }
 
 function certVerify(raw, obj) {
-  certStatus('Checking the signature…', 'busy');
+  certStatus('Checking the signature and bound document…', 'busy');
   fetch(API + '/api/certificate/verify', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -151,13 +212,14 @@ function certVerify(raw, obj) {
   }).then(function(r) { return r.json(); }).then(function(res) {
     certState.cert = obj;
     certState.html = obj.html || '';
-    certState.certId = res.certificate_id || '';
+    certState.certId = res.certificate_id || obj.certificate_id || '';
+    certState.inStore = false; // uploaded/external unless we know otherwise
     if (String(res.valid) === 'true') {
       certStatus('Valid certificate.', 'ok');
       certShowResult('verify-valid', obj);
       toast('Certificate is valid', 'ok');
     } else {
-      certState.reason = res.reason || res.detail || 'signature mismatch';
+      certState.reason = res.reason || res.detail || 'verification failed';
       certStatus('Invalid: ' + certState.reason, 'bad');
       certShowResult('verify-invalid', obj);
     }
@@ -318,6 +380,7 @@ function certViewLatest() {
       certState.certId = cert.certificate_id || id;
       certState.html = cert.html || '';
       certState.fileName = id + '.json';
+      certState.inStore = true;
       certLatestStatus('Certificate ' + id + ' issued from the last pentest.', 'ok');
       certStatus('Certificate issued from the last pentest.', 'ok');
       certShowResult('issued', cert);
@@ -420,18 +483,18 @@ function wireCertificate() {
 
   var dlJson = document.getElementById('btnCertDownloadJson');
   if (dlJson) dlJson.addEventListener('click', function() {
-    if (!certState.certId) return;
-    certDownloadApi(certState.certId, 'json');
+    if (!certState.certId && !certState.cert) return;
+    certDownloadOrFallback(certState.certId, 'json');
   });
   var dlHtml = document.getElementById('btnCertDownloadHtml');
   if (dlHtml) dlHtml.addEventListener('click', function() {
-    if (!certState.certId) return;
-    certDownloadApi(certState.certId, 'html');
+    if (!certState.certId && !certState.cert) return;
+    certDownloadOrFallback(certState.certId, 'html');
   });
   var dlPdf = document.getElementById('btnCertDownloadPdf');
   if (dlPdf) dlPdf.addEventListener('click', function() {
-    if (!certState.certId) return;
-    certDownloadApi(certState.certId, 'pdf');
+    if (!certState.certId && !certState.cert) return;
+    certDownloadOrFallback(certState.certId, 'pdf');
   });
   var reset = document.getElementById('btnCertReset');
   if (reset) reset.addEventListener('click', certReset);
@@ -533,6 +596,7 @@ function certIssueApi(raw, issuer, experimentRef) {
     certState.cert = res.body;
     certState.certId = res.body.certificate_id;
     certState.html = res.body.html || '';
+    certState.inStore = true;
     certStatus('Certificate issued.', 'ok');
     certShowResult('issued', res.body);
     toast('Certificate issued', 'ok');
@@ -543,36 +607,52 @@ function certIssueApi(raw, issuer, experimentRef) {
 
     // Auto-download certificate files
     if (certState.certId) {
-      // Download JSON
-      var urlJson = API + '/api/certificate/download/' + encodeURIComponent(certState.certId) + '?format=json';
-      var aJson = document.createElement('a');
-      aJson.href = urlJson;
-      aJson.download = certState.certId + '.json';
-      document.body.appendChild(aJson);
-      aJson.click();
-      document.body.removeChild(aJson);
-
-      // Download HTML
-      var urlHtml = API + '/api/certificate/download/' + encodeURIComponent(certState.certId) + '?format=html';
-      var aHtml = document.createElement('a');
-      aHtml.href = urlHtml;
-      aHtml.download = certState.certId + '.html';
-      document.body.appendChild(aHtml);
-      aHtml.click();
-      document.body.removeChild(aHtml);
-
-      // Download PDF
-      var urlPdf = API + '/api/certificate/download/' + encodeURIComponent(certState.certId) + '?format=pdf';
-      var aPdf = document.createElement('a');
-      aPdf.href = urlPdf;
-      aPdf.download = certState.certId + '.pdf';
-      document.body.appendChild(aPdf);
-      aPdf.click();
-      document.body.removeChild(aPdf);
+      certDownloadApi(certState.certId, 'json');
+      certDownloadApi(certState.certId, 'html');
+      certDownloadApi(certState.certId, 'pdf');
     }
   }).catch(function() {
     certStatus('Could not reach the dashboard API.', 'bad');
   });
+}
+
+function certDownloadOrFallback(id, format) {
+  var cert = certState.cert;
+  if (id) {
+    // If we only have an uploaded/verified cert that may not be in the local store,
+    // fall back to client-side download when server download is unavailable.
+    if (!certState.inStore && cert) {
+      certDownloadClient(cert, format);
+      return;
+    }
+    // Try server download; for unknown external certs this may 404, but that is
+    // expected and better than fabricating content.
+    certDownloadApi(id, format);
+    return;
+  }
+  if (cert) certDownloadClient(cert, format);
+}
+
+function certDownloadClient(cert, format) {
+  var id = (cert && cert.certificate_id) || 'certificate';
+  if (format === 'json') {
+    certDownload(id + '.json', JSON.stringify(cert, null, 2), 'application/json');
+    return;
+  }
+  if (format === 'html') {
+    var html = (cert && cert.html) || '';
+    if (!html) { toast('No HTML content available for this certificate', 'error'); return; }
+    certDownload(id + '.html', html, 'text/html');
+    return;
+  }
+  if (format === 'pdf') {
+    // PDF rendering is server-side; prefer API when possible.
+    if (certState.certId) {
+      certDownloadApi(certState.certId, 'pdf');
+      return;
+    }
+    toast('PDF download requires a stored certificate ID', 'error');
+  }
 }
 
 /* ---- Download: GET /api/certificate/download/:id?format=json|html|pdf ---- */
@@ -608,25 +688,33 @@ function certVerifyFile(file) {
       var chain = document.getElementById('certVerifyChain');
       if (!wrap || !verdict || !facts) return;
       while (facts.firstChild) facts.removeChild(facts.firstChild);
-      while (chain.firstChild) chain.removeChild(chain.firstChild);
+      while (chain && chain.firstChild) chain.removeChild(chain.firstChild);
       wrap.classList.remove('hidden');
+      var qrWrap = document.getElementById('certVerifyQrWrap');
+      if (qrWrap) qrWrap.classList.add('hidden');
       if (res.valid) {
         verdict.className = 'cert-verdict ok';
-        verdict.textContent = 'VALID — signature and document hash match.';
+        verdict.textContent = 'VALID — signature and bound document hash match (certificate not edited after signing).';
         certAppendFact(facts, 'Certificate ID', res.certificate_id);
         certAppendFact(facts, 'Target', res.target);
         certAppendFact(facts, 'Grade', res.grade);
         certAppendFact(facts, 'Verdict', res.verdict);
-        certAppendFact(facts, 'Risk score', res.risk_score + '/100');
+        certAppendFact(facts, 'Risk score', (res.risk_score === 0 || res.risk_score ? res.risk_score : '—') + '/100');
         certAppendFact(facts, 'Signed at', res.signed_at);
+        certAppendFact(facts, 'Format', res.version || '—');
+        certAppendFact(facts, 'Document SHA-256', res.document_sha || (obj.assessment && obj.assessment.document_sha) || '—');
         certAppendFact(facts, 'Experiment', res.experiment_reference || '—');
         certAppendFact(facts, 'Findings', res.findings_count);
         certAppendFact(facts, 'Covered', (res.covered || []).join(', ') || '—');
         certState.certId = res.certificate_id || '';
-        var chainEl = document.createElement('div');
-        chainEl.className = 'chain-ok';
-        chainEl.textContent = 'Hash chain: ' + (res.chain_intact ? 'INTACT' : 'BROKEN');
-        chain.appendChild(chainEl);
+        if (chain) {
+          var chainEl = document.createElement('div');
+          chainEl.className = res.chain_intact ? 'chain-ok' : 'chain-bad';
+          chainEl.textContent = 'Local store hash chain: ' + (res.chain_intact ? 'INTACT' : 'BROKEN') + ' (global integrity of stored certificates)';
+          chain.appendChild(chainEl);
+        }
+        var qrCert = obj && obj.assessment ? obj : { certificate_id: res.certificate_id, version: res.version, assessment: { document_sha: res.document_sha } };
+        certDrawQr('certVerifyQr', 'certVerifyQrHint', qrCert);
         certVerifyStatusMsg('Certificate is valid.', 'ok');
         toast('Certificate verified — VALID', 'ok');
       } else {
@@ -691,11 +779,16 @@ function certLoadHistory() {
         var tdRisk = document.createElement('td'); tdRisk.textContent = c.risk_score + '/100';
         var tdSigned = document.createElement('td'); tdSigned.textContent = c.signed_at;
         var tdDl = document.createElement('td');
-        var btn = document.createElement('button');
-        btn.className = 'btn btn-ghost';
-        btn.textContent = 'JSON';
-        btn.addEventListener('click', function() { certDownloadApi(c.certificate_id, 'json'); });
-        tdDl.appendChild(btn);
+        ['json', 'html', 'pdf'].forEach(function(fmt) {
+          var btn = document.createElement('button');
+          btn.className = 'btn btn-ghost';
+          btn.type = 'button';
+          btn.textContent = fmt.toUpperCase();
+          btn.addEventListener('click', (function(cid, f) {
+            return function() { certDownloadApi(cid, f); };
+          })(c.certificate_id, fmt));
+          tdDl.appendChild(btn);
+        });
         tr.appendChild(tdId); tr.appendChild(tdTarget); tr.appendChild(tdGrade);
         tr.appendChild(tdVerdict); tr.appendChild(tdRisk); tr.appendChild(tdSigned);
         tr.appendChild(tdDl);

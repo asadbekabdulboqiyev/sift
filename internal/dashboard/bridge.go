@@ -61,7 +61,8 @@ func NewEngineBridge(server *Server) *EngineBridge {
 // StartRun initializes a new load test run. It fully resets the run state —
 // counters, last snapshot, stopped/finished flags and the stop channel — so a
 // new run can always be started after a previous run completed, stopped or
-// failed.
+// failed. Stale live metrics and previous-run attestation artifacts are cleared
+// so the Overview never presents results from a different run.
 func (b *EngineBridge) StartRun(config *RunConfig) {
 	if config == nil {
 		config = &RunConfig{}
@@ -82,6 +83,8 @@ func (b *EngineBridge) StartRun(config *RunConfig) {
 	// Initialize attestation collector and keys
 	b.initAttestation(config)
 
+	b.server.SetAttestationInfo(AttestationInfo{})
+	b.server.UpdateSnapshot(&LiveSnapshot{StatusCodes: make(map[int]uint64)})
 	b.server.SetRunState(&RunState{
 		Status:    "running",
 		Config:    config,
@@ -207,6 +210,7 @@ func (b *EngineBridge) RecordRequest(statusCode int, latency time.Duration, isEr
 		MaxLatency:  latencyMillis(hist.MaxLatency()),
 		StatusCodes: cloneStatusCodes(b.statusCodes),
 	}
+	b.lastSnap = snap
 	b.mu.Unlock()
 
 	b.server.UpdateSnapshot(snap)
@@ -288,11 +292,12 @@ func (b *EngineBridge) finish(failed bool, errMsg string) {
 	elapsed := time.Since(startTime)
 	b.mu.Unlock()
 
+	actualDuration := elapsed
+	if actualDuration < 0 {
+		actualDuration = 0
+	}
+
 	if failed {
-		actualDuration := elapsed
-		if actualDuration < 0 {
-			actualDuration = 0
-		}
 		endTime := startTime.Add(actualDuration)
 		b.server.SetRunState(&RunState{
 			Status:    "failed",
@@ -310,12 +315,14 @@ func (b *EngineBridge) finish(failed bool, errMsg string) {
 	if stopped {
 		status = "stopped"
 	}
-	// Emit attestation on completion/stopped
-	_ = b.emitAttestation()
+	// Emit attestation on completion/stopped with the same actual duration used
+	// for the final run state and history entry, so overview/history/attestation
+	// cannot drift in timing.
+	_ = b.emitAttestation(actualDuration)
 
 	progress := 100.0
 	if config.DurationSeconds > 0 {
-		p := elapsed.Seconds() / float64(config.DurationSeconds) * 100
+		p := actualDuration.Seconds() / float64(config.DurationSeconds) * 100
 		if p > 0 && p < 100 {
 			progress = p
 		}
@@ -339,10 +346,6 @@ func (b *EngineBridge) finish(failed bool, errMsg string) {
 	plannedDuration := time.Duration(config.DurationSeconds) * time.Second
 	// Record actual measured elapsed duration for integrity/consistency; keep
 	// planned duration in config separately (UI can compare planned vs actual).
-	actualDuration := elapsed
-	if actualDuration < 0 {
-		actualDuration = 0
-	}
 	endTime := startTime.Add(actualDuration)
 	b.server.SetRunState(&RunState{
 		Status:    status,
@@ -487,7 +490,7 @@ func (b *EngineBridge) initAttestation(config *RunConfig) {
 	b.collector = coll
 }
 
-func (b *EngineBridge) emitAttestation() error {
+func (b *EngineBridge) emitAttestation(actualDuration time.Duration) error {
 	b.mu.Lock()
 	collector := b.collector
 	coordKey := b.coordKey
@@ -495,7 +498,6 @@ func (b *EngineBridge) emitAttestation() error {
 	runID := b.runID
 	dataDir := b.attestDataDir
 	config := b.config
-	startTime := b.startTime
 	b.mu.Unlock()
 
 	if collector == nil || coordKey == nil || workerKey == nil {
@@ -512,22 +514,14 @@ func (b *EngineBridge) emitAttestation() error {
 	bundlePath := filepath.Join(bundlesDir, "bundle.json")
 	sidecarPath := evidence.SidecarPath(bundlePath)
 
-	// Build scenario-like config for bundle. Prefer actual measured elapsed
-	// duration (integrity) over planned duration.
-	actualElapsed := time.Since(startTime)
-	if actualElapsed < 0 {
-		actualElapsed = 0
+	// Build scenario-like config for bundle. Use the caller-provided actual run
+	// duration (same value recorded in state/history) so overview, history, and
+	// attestation stay consistent. Never fabricate planned duration for a
+	// completed run that measured zero elapsed time.
+	if actualDuration < 0 {
+		actualDuration = 0
 	}
-	durationNS := actualElapsed.Nanoseconds()
-	if b.finished {
-		// When run has finished, prefer the elapsed captured at completion if it
-		// is available via state history semantics is not stored here; keep a
-		// non-negative actual elapsed best-effort.
-	}
-	if durationNS <= 0 && config != nil && config.DurationSeconds > 0 {
-		// Fallback for degenerate cases.
-		durationNS = int64(config.DurationSeconds) * int64(time.Second)
-	}
+	durationNS := actualDuration.Nanoseconds()
 
 	plannedRPS := int64(0)
 	if config != nil && config.RateLimit > 0 {
@@ -540,15 +534,21 @@ func (b *EngineBridge) emitAttestation() error {
 		return err
 	}
 
+	target := ""
+	profile := "dashboard"
+	if config != nil {
+		target = config.TargetURL
+		if config.Profile != "" {
+			profile = config.Profile
+		}
+	}
+
 	tool := attest.Tool{Name: "Sift", Version: version.Version}
 	run := attest.Run{
-		Target:     config.TargetURL,
-		Profile:    "dashboard",
+		Target:     target,
+		Profile:    profile,
 		DurationNS: durationNS,
 		PlannedRPS: planned,
-	}
-	if config != nil && config.Profile != "" {
-		run.Profile = config.Profile
 	}
 
 	bundle, err := evidence.BuildBundle(evidence.BundleInput{

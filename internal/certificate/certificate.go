@@ -126,6 +126,54 @@ func NewFromPentest(target, scope, issuer, toolVersion string, risk int, grade, 
 	}
 }
 
+// ValidateAssessmentInput checks that an assessment is internally consistent and
+// safe to sign. It rejects contradictory metrics and impossible timing values so
+// certificates fail closed instead of attesting fabricated or incoherent state.
+func ValidateAssessmentInput(a Assessment) error {
+	if strings.TrimSpace(a.Target) == "" {
+		return fmt.Errorf("certificate: assessment target is empty")
+	}
+	if a.RiskScore < 0 || a.RiskScore > 100 {
+		return fmt.Errorf("certificate: risk_score %d is outside 0..100", a.RiskScore)
+	}
+	if a.OWASPPass < 0 || a.OWASPPass > 10 {
+		return fmt.Errorf("certificate: owasp_pass %d is outside 0..10", a.OWASPPass)
+	}
+	for name, n := range map[string]int{
+		"critical": a.Counts.Critical,
+		"high":     a.Counts.High,
+		"medium":   a.Counts.Medium,
+		"low":      a.Counts.Low,
+		"info":     a.Counts.Info,
+	} {
+		if n < 0 {
+			return fmt.Errorf("certificate: %s count %d is negative", name, n)
+		}
+	}
+	derived := Counts{}
+	for _, f := range a.Findings {
+		switch strings.ToLower(strings.TrimSpace(f.Severity)) {
+		case "critical":
+			derived.Critical++
+		case "high":
+			derived.High++
+		case "medium":
+			derived.Medium++
+		case "low":
+			derived.Low++
+		default:
+			derived.Info++
+		}
+	}
+	if derived != a.Counts {
+		return fmt.Errorf("certificate: severity counts do not match findings (counts %+v, findings %+v)", a.Counts, derived)
+	}
+	if err := validateAssessmentTiming(a); err != nil {
+		return err
+	}
+	return nil
+}
+
 // canonical returns the deterministic JSON bytes to sign. Struct field order
 // is fixed by the type declaration, so this is stable across runs and builds.
 // Slices are copied before sorting so the caller's assessment is not mutated
@@ -231,9 +279,10 @@ func Sign(kp *attest.Keypair, a Assessment, boundHTML string) (*Certificate, err
 	}, nil
 }
 
-// Verify checks the certificate's Ed25519 signature over its own assessment and
-// recomputes the document SHA-256 from the embedded HTML to ensure the rendered
-// body was not altered. It returns nil when both are valid.
+// Verify checks the certificate's Ed25519 signature over its own assessment,
+// recomputes the document SHA-256 from the embedded HTML, and validates that
+// the signed assessment/envelope do not contain contradictory or impossible
+// values. It returns nil when the certificate is valid.
 func Verify(c *Certificate) error {
 	if c == nil {
 		return fmt.Errorf("certificate: nil certificate")
@@ -261,7 +310,138 @@ func Verify(c *Certificate) error {
 	if got := documentSHA(c.HTML); got != c.Assessment.DocumentSHA {
 		return fmt.Errorf("certificate: document hash mismatch — rendered body was altered")
 	}
+	if err := validateAssessment(c.Assessment); err != nil {
+		return err
+	}
+	if err := validateEnvelope(c); err != nil {
+		return err
+	}
 	return nil
+}
+
+// validateAssessment rejects contradictory or impossible signed values. This is
+// a fail-closed integrity check: a certificate must not attest to an internally
+// inconsistent assessment.
+func validateAssessment(a Assessment) error {
+	if strings.TrimSpace(a.Target) == "" {
+		return fmt.Errorf("certificate: assessment target is empty")
+	}
+	if a.RiskScore < 0 || a.RiskScore > 100 {
+		return fmt.Errorf("certificate: risk_score %d is outside 0..100", a.RiskScore)
+	}
+	if a.OWASPPass < 0 || a.OWASPPass > 10 {
+		return fmt.Errorf("certificate: owasp_pass %d is outside 0..10", a.OWASPPass)
+	}
+	for name, n := range map[string]int{
+		"critical": a.Counts.Critical,
+		"high":     a.Counts.High,
+		"medium":   a.Counts.Medium,
+		"low":      a.Counts.Low,
+		"info":     a.Counts.Info,
+	} {
+		if n < 0 {
+			return fmt.Errorf("certificate: %s count %d is negative", name, n)
+		}
+	}
+	derived := Counts{}
+	for _, f := range a.Findings {
+		switch strings.ToLower(strings.TrimSpace(f.Severity)) {
+		case "critical":
+			derived.Critical++
+		case "high":
+			derived.High++
+		case "medium":
+			derived.Medium++
+		case "low":
+			derived.Low++
+		default:
+			derived.Info++
+		}
+	}
+	if derived != a.Counts {
+		return fmt.Errorf("certificate: severity counts do not match findings (counts %+v, findings %+v)", a.Counts, derived)
+	}
+	if a.DocumentSHA == "" || len(a.DocumentSHA) != 64 {
+		return fmt.Errorf("certificate: document_sha is missing or malformed")
+	}
+	if _, err := hex.DecodeString(a.DocumentSHA); err != nil {
+		return fmt.Errorf("certificate: document_sha is not hex: %w", err)
+	}
+	if err := validateAssessmentTiming(a); err != nil {
+		return err
+	}
+	return nil
+}
+
+func parseAssessmentTime(s string) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return t, nil
+	}
+	return time.Parse(time.RFC3339, s)
+}
+
+func validateAssessmentTiming(a Assessment) error {
+	if strings.TrimSpace(a.Started) == "" || strings.TrimSpace(a.Ended) == "" {
+		return fmt.Errorf("certificate: assessment timestamps are missing")
+	}
+	start, err := parseAssessmentTime(a.Started)
+	if err != nil {
+		return fmt.Errorf("certificate: started timestamp is invalid: %w", err)
+	}
+	end, err := parseAssessmentTime(a.Ended)
+	if err != nil {
+		return fmt.Errorf("certificate: ended timestamp is invalid: %w", err)
+	}
+	if end.Before(start) {
+		return fmt.Errorf("certificate: ended timestamp is before started timestamp")
+	}
+	if strings.TrimSpace(a.Duration) == "" {
+		return fmt.Errorf("certificate: duration is missing")
+	}
+	dur, err := time.ParseDuration(a.Duration)
+	if err != nil {
+		return fmt.Errorf("certificate: duration is invalid: %w", err)
+	}
+	if dur <= 0 {
+		return fmt.Errorf("certificate: duration must be greater than zero")
+	}
+	// Duration must be consistent with the timestamps. Sub-second precision in
+	// timestamps is preserved (RFC3339Nano) so fractional-second scans do not
+	// fail validation due to second-level truncation.
+	if got := end.Sub(start); got != dur {
+		return fmt.Errorf("certificate: duration %s does not match timestamps (%s)", a.Duration, got)
+	}
+	return nil
+}
+
+func validateEnvelope(c *Certificate) error {
+	if strings.TrimSpace(c.CertificateID) == "" {
+		return fmt.Errorf("certificate: certificate_id is missing")
+	}
+	wantID := CertificateID(c)
+	if c.CertificateID != wantID {
+		return fmt.Errorf("certificate: certificate_id does not match certificate contents")
+	}
+	if c.PreviousCertificateHash != "" {
+		if len(c.PreviousCertificateHash) != 64 {
+			return fmt.Errorf("certificate: previous_certificate_hash is malformed")
+		}
+		if _, err := hex.DecodeString(c.PreviousCertificateHash); err != nil {
+			return fmt.Errorf("certificate: previous_certificate_hash is not hex: %w", err)
+		}
+	}
+	return nil
+}
+
+// CertificateID derives a deterministic, tamper-evident identifier from the
+// certificate's signed and envelope material. It is verifiable from the
+// certificate itself.
+func CertificateID(c *Certificate) string {
+	if c == nil {
+		return ""
+	}
+	h := sha256.Sum256([]byte(c.Signature + "\x00" + c.PublicKey + "\x00" + c.Assessment.SignedAt + "\x00" + c.Assessment.Target + "\x00" + c.PreviousCertificateHash + "\x00" + c.ExperimentReference + "\x00" + c.ValidityPeriod))
+	return "ss-cert-" + hex.EncodeToString(h[:])[:16]
 }
 
 // VerifyBytes parses a JSON certificate and verifies it.

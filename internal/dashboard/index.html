@@ -37,7 +37,7 @@
       <button class="sb-link" type="button" data-view="viewInsights">
         <span class="sb-ico" aria-hidden="true">✦</span><span>Insights</span><span class="sb-key">5</span>
       </button>
-      <button class="sb-link sb-link--admin tip tp-58" type="button" data-view="viewAdmin" id="navAdmin" data-tip="Open admin area">
+      <button class="sb-link sb-link--admin tip tp-58 hidden" type="button" data-view="viewAdmin" id="navAdmin" data-tip="Open admin area">
         <span class="sb-ico" aria-hidden="true">⚙</span><span>Admin</span><span class="sb-key">A</span>
       </button>
     </nav>
@@ -975,6 +975,11 @@
           <div class="panel-title"><span class="dot dot-green"></span> <span id="certResultTitle">Result</span></div>
           <div class="cert-verdict" id="certVerdict"></div>
           <div class="cert-facts" id="certFacts"></div>
+          <div class="cert-qr mt-12 hidden" id="certQrWrap">
+            <div class="cert-subtitle">Verification QR</div>
+            <canvas id="certQr" width="132" height="132" class="cert-qr-canvas" aria-label="Certificate verification QR"></canvas>
+            <p class="cert-note" id="certQrHint">Encodes certificate ID and bound document hash for quick reference (not a signature).</p>
+          </div>
           <div class="cert-findings hidden" id="certFindingsWrap">
             <div class="cert-subtitle">Findings</div>
             <ul class="cert-findings" id="certFindings"></ul>
@@ -1005,6 +1010,11 @@
           <div class="cert-verdict" id="certVerifyVerdict"></div>
           <div class="cert-facts" id="certVerifyFacts"></div>
           <div class="cert-chain mt-12" id="certVerifyChain"></div>
+          <div class="cert-qr mt-12 hidden" id="certVerifyQrWrap">
+            <div class="cert-subtitle">Verification QR</div>
+            <canvas id="certVerifyQr" width="132" height="132" class="cert-qr-canvas" aria-label="Certificate verification QR"></canvas>
+            <p class="cert-note" id="certVerifyQrHint">Encodes certificate ID and bound document hash for quick reference (not a signature).</p>
+          </div>
         </div>
       </div>
     </div>
@@ -1017,7 +1027,7 @@
         <div class="table-wrap mt-12">
           <table>
             <thead>
-              <tr><th>ID</th><th>Target</th><th>Grade</th><th>Verdict</th><th>Risk</th><th>Signed at</th><th>Download</th></tr>
+              <tr><th>ID</th><th>Target</th><th>Grade</th><th>Verdict</th><th>Risk</th><th>Signed at</th><th>Downloads</th></tr>
             </thead>
             <tbody id="certHistoryBody"></tbody>
           </table>
@@ -1076,8 +1086,10 @@
         <div class="card-header"><div><div class="card-title">Prediction vs actual</div><div class="card-subtitle">Compare model/simulation predictions against measured report evidence (MAE/RMSE/MAPE/error%).</div></div></div>
         <label class="ins-label" for="twinActualJson">Actual report JSON (measured)</label>
         <textarea id="twinActualJson" class="ins-textarea" spellcheck="false" placeholder='Paste actual report JSON'></textarea>
+        <label class="ins-label" for="twinCompareExtraJson">Optional manifest/provenance/strict JSON (for compare)</label>
+        <textarea id="twinCompareExtraJson" class="ins-textarea" spellcheck="false" placeholder='{"manifest":{...},"strict_validation":true,"leakage":{...},"split":{...},"dataset":{...}}'></textarea>
         <div class="ins-actions"><button class="btn btn-primary btn-sm tip tp-58" id="btnTwinCompare" type="button" data-tip="Compare">Compare</button><button class="btn btn-ghost btn-sm tip tp-58" id="btnTwinLoadActualFromLatest" type="button" data-tip="Load">Load latest run</button></div>
-        <p class="ins-note">Uses the latest simulation result if available; otherwise simulates from model + selected scenario.</p>
+        <p class="ins-note">Uses the latest simulation result if available; otherwise simulates from model + selected scenario. Strict validation requires verifiable manifest/provenance (no fabricated leakage proof).</p>
         <div id="twinCompareOut" class="ins-out"></div>
       </div>
       <div class="card">
@@ -1092,8 +1104,9 @@
       <div class="card">
         <div class="card-header"><div><div class="card-title">Model validation & backtesting</div><div class="card-subtitle">Compute MAE/RMSE/MAPE/error% and detect drift/OOD from paired predicted vs actual samples. Caller must enforce train/validation split and no leakage.</div></div></div>
         <label class="ins-label" for="twinBacktestJson">Backtest JSON</label>
-        <textarea id="twinBacktestJson" class="ins-textarea" spellcheck="false" placeholder='{"predicted":[...],"actual":[...],"model_range_low":0,"model_range_high":0,"model_version":"..."}'></textarea>
+        <textarea id="twinBacktestJson" class="ins-textarea" spellcheck="false" placeholder='{"predicted":[...],"actual":[...],"model_range_low":0,"model_range_high":0,"model_version":"...","manifest":{...},"strict_validation":true}'></textarea>
         <div class="ins-actions"><button class="btn btn-primary btn-sm tip tp-58" id="btnTwinBacktest" type="button" data-tip="Run backtest metrics">Run backtest metrics</button></div>
+        <p class="ins-note">Manifest/provenance and strict flags are accepted in the payload; leakage status is derived from verification and never fabricated.</p>
         <div id="twinBacktestOut" class="ins-out"></div>
       </div>
       <div class="card">
@@ -1195,7 +1208,7 @@ sift bounty status --log triage.jsonl</code></pre>
           <div class="field field-sm">
             <label class="field-label" for="adminCode">Admin code</label>
             <input id="adminCode" type="text" name="adminCode" placeholder="" autocapitalize="characters" autocomplete="off" spellcheck="false" inputmode="text" aria-describedby="adminCodeHelp">
-            <p class="field-hint" id="adminCodeHelp">The admin code is read from the <code>SIFT_ADMIN_CODE</code> environment variable. Generate it with: <code>Sift admin code</code>.</p>
+            <p class="field-hint" id="adminCodeHelp">Run <code>Sift admin code</code> on this host to display the current admin code, then enter it here. The dashboard never receives or stores the code automatically.</p>
           </div>
           <div class="field field-sm">
             <label class="field-label" for="adminMinutes">Minutes</label>

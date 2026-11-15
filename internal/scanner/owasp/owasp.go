@@ -154,8 +154,35 @@ func (c *OWASPChecker) CheckAll() *OWASPReport {
 	report.Categories["A09"] = c.checkA09()
 	c.runIntrusive(func() { report.Categories["A10"] = c.checkA10() })
 
+	// A category with zero probe coverage produced no evidence: the gate
+	// refused every probe, the scan was a dry run, or the server was never
+	// reached. Reporting it as PASS would be claiming something we did not
+	// test. Mark it NOT TESTED and discard any conclusion drawn without
+	// responses so the report cannot overstate coverage or emit false
+	// positives from unreachable/WAF-blocked targets.
+	for id, cat := range report.Categories {
+		if cat == nil {
+			continue
+		}
+		if c.probesOK == nil || c.probesOK[id] == 0 {
+			cat.Status = "NOT TESTED"
+			cat.Score = 0
+			cat.Findings = nil
+			cat.Remediation = nil
+		}
+	}
+
 	report.Score = c.CalculateScore(report)
 	report.Grade = c.calculateGrade(report.Score)
+	testedCount := 0
+	for _, cat := range report.Categories {
+		if cat != nil && cat.Status != "NOT TESTED" {
+			testedCount++
+		}
+	}
+	if testedCount == 0 {
+		report.Grade = ""
+	}
 
 	c.Results = report
 	return report
@@ -604,18 +631,22 @@ func (c *OWASPChecker) checkA03() *OWASPCategory {
 func (c *OWASPChecker) checkA04() *OWASPCategory {
 	cat := c.newCategory("A04")
 
-	// Rate limiting test: send rapid requests
-	allowedCount := 0
+	// Rate limiting test: send rapid requests. Only claim "no rate limiting"
+	// when every probe actually reached the server and succeeded; timeouts,
+	// refusals, or WAF/rate-limit blocks (e.g. 429/403) are not evidence of
+	// an unprotected endpoint.
+	allowedCount, responded := 0, 0
 	for i := 0; i < 50; i++ {
 		resp, _ := c.makeRequest("GET", "/", nil, nil)
-		if resp != nil && resp.StatusCode == 200 {
+		if resp == nil {
+			continue
+		}
+		responded++
+		if resp.StatusCode == 200 {
 			allowedCount++
 		}
-		if resp != nil {
-			_ = resp.Body.Close()
-		}
 	}
-	if allowedCount == 50 {
+	if responded == 50 && allowedCount == 50 {
 		c.addFinding(cat,
 			"No rate limiting detected: 50/50 rapid requests succeeded",
 			"Implement rate limiting (e.g., 100 requests/minute per IP)",
@@ -965,26 +996,33 @@ func (c *OWASPChecker) checkA07() *OWASPCategory {
 		}
 	}
 
-	// Brute force protection: test rapid login attempts
+	// Brute force protection: test rapid login attempts.
 	lockoutDetected := false
+	attemptsReached := 0
 	for i := 0; i < 20; i++ {
 		resp2, body2 := c.makeRequest("POST", "/api/login",
 			http.Header{"Content-Type": {"application/json"}},
 			strings.NewReader(fmt.Sprintf(`{"username":"test%d","password":"wrongpass"}`, i)))
-		if resp2 != nil && (resp2.StatusCode == 429 || resp2.StatusCode == 503) {
+		if resp2 == nil {
+			continue
+		}
+		attemptsReached++
+		if resp2.StatusCode == 429 || resp2.StatusCode == 503 {
 			lockoutDetected = true
 			break
 		}
-		if resp2 != nil {
-			body2Lower := strings.ToLower(body2)
-			if strings.Contains(body2Lower, "too many") || strings.Contains(body2Lower, "rate limit") ||
-				strings.Contains(body2Lower, "temporarily locked") || strings.Contains(body2Lower, "brute force") {
-				lockoutDetected = true
-				break
-			}
+		body2Lower := strings.ToLower(body2)
+		if strings.Contains(body2Lower, "too many") || strings.Contains(body2Lower, "rate limit") ||
+			strings.Contains(body2Lower, "temporarily locked") || strings.Contains(body2Lower, "brute force") {
+			lockoutDetected = true
+			break
 		}
 	}
-	if !lockoutDetected {
+	// Only claim missing brute-force protection when the login endpoint was
+	// actually reached. If every attempt failed to connect, timed out, or was
+	// refused by the gate/WAF before a response, there is no evidence either
+	// way — not a confirmed absence of protection.
+	if attemptsReached > 0 && !lockoutDetected {
 		c.addFinding(cat,
 			"No brute force protection: 20 failed login attempts with no lockout/rate limit",
 			"Implement account lockout, rate limiting, and CAPTCHA after failed attempts",
@@ -1289,18 +1327,29 @@ func (c *OWASPChecker) checkA10() *OWASPCategory {
 
 // --- Score & Grade Calculation ---
 
-// CalculateScore calculates the overall score from all categories
+// CalculateScore calculates the overall score from all categories.
+//
+// Categories explicitly marked NOT TESTED carry no evidence and are excluded:
+// counting them as 100 would let an untested (or gate-refused) scan report a
+// perfect score. If nothing was tested, the score is 0.
 func (c *OWASPChecker) CalculateScore(report *OWASPReport) int {
 	if len(report.Categories) == 0 {
 		return 0
 	}
 
-	totalScore := 0
+	totalScore, tested := 0, 0
 	for _, cat := range report.Categories {
+		if cat == nil || cat.Status == "NOT TESTED" {
+			continue
+		}
 		totalScore += cat.Score
+		tested++
+	}
+	if tested == 0 {
+		return 0
 	}
 
-	return totalScore / len(report.Categories)
+	return totalScore / tested
 }
 
 func (c *OWASPChecker) calculateGrade(score int) string {
@@ -1330,8 +1379,12 @@ func (c *OWASPChecker) Render() string {
 	b.WriteString("\n╔══════════════════════════════════════════════════════════════╗\n")
 	b.WriteString("║           OWASP TOP 10 — AUTOMATED SECURITY AUDIT          ║\n")
 	b.WriteString("╠══════════════════════════════════════════════════════════════╣\n")
+	gradeDisplay := r.Grade
+	if gradeDisplay == "" {
+		gradeDisplay = "N/A"
+	}
 	b.WriteString(fmt.Sprintf("║  Target: %-50s ║\n", r.Categories["A01"].Name))
-	b.WriteString(fmt.Sprintf("║  Score:  %d/100  Grade: %-35s ║\n", r.Score, r.Grade))
+	b.WriteString(fmt.Sprintf("║  Score:  %d/100  Grade: %-35s ║\n", r.Score, gradeDisplay))
 	b.WriteString("╚══════════════════════════════════════════════════════════════╝\n\n")
 
 	// Category order
@@ -1349,6 +1402,8 @@ func (c *OWASPChecker) Render() string {
 			statusIcon = "❌"
 		case "WARNING":
 			statusIcon = "⚠️"
+		case "NOT TESTED":
+			statusIcon = "➖"
 		}
 
 		b.WriteString(fmt.Sprintf("┌─── %s: %s ─── %s [%d/100]\n", cat.ID, cat.Name, statusIcon, cat.Score))
@@ -1367,7 +1422,7 @@ func (c *OWASPChecker) Render() string {
 	}
 
 	// Summary
-	passCount, warnCount, failCount := 0, 0, 0
+	passCount, warnCount, failCount, notTestedCount := 0, 0, 0, 0
 	for _, cat := range r.Categories {
 		switch cat.Status {
 		case "PASS":
@@ -1376,12 +1431,18 @@ func (c *OWASPChecker) Render() string {
 			warnCount++
 		case "FAIL":
 			failCount++
+		case "NOT TESTED":
+			notTestedCount++
 		}
 	}
 
 	b.WriteString("════════════════════════════════════════════════════════════════\n")
-	b.WriteString(fmt.Sprintf(" SUMMARY: ✅ %d PASS  ⚠️  %d WARNING  ❌ %d FAIL\n", passCount, warnCount, failCount))
-	b.WriteString(fmt.Sprintf(" OVERALL SCORE: %d/100  GRADE: %s\n", r.Score, r.Grade))
+	if notTestedCount > 0 {
+		b.WriteString(fmt.Sprintf(" SUMMARY: ✅ %d PASS  ⚠️  %d WARNING  ❌ %d FAIL  ➖ %d NOT TESTED\n", passCount, warnCount, failCount, notTestedCount))
+	} else {
+		b.WriteString(fmt.Sprintf(" SUMMARY: ✅ %d PASS  ⚠️  %d WARNING  ❌ %d FAIL\n", passCount, warnCount, failCount))
+	}
+	b.WriteString(fmt.Sprintf(" OVERALL SCORE: %d/100  GRADE: %s\n", r.Score, gradeDisplay))
 	b.WriteString("════════════════════════════════════════════════════════════════\n")
 
 	return b.String()

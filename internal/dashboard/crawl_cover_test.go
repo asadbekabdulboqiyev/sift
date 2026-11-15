@@ -97,7 +97,7 @@ func TestCrawlGateAndAudit(t *testing.T) {
 	t.Setenv("SIFT_AUDIT_LOG", "")
 
 	// OpScan: a public target is allowed without a ticket.
-	out, err := crawlGate("https://93.184.216.34/")
+	out, err := crawlGate("https://93.184.216.34/", "")
 	if err != nil {
 		t.Fatalf("gate: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestCrawlGateAndAudit(t *testing.T) {
 		t.Errorf("public crawl target denied: %+v", out)
 	}
 
-	out, err = crawlGate("http://169.254.169.254/")
+	out, err = crawlGate("http://169.254.169.254/", "")
 	if err != nil {
 		t.Fatalf("gate: %v", err)
 	}
@@ -289,7 +289,7 @@ func TestCrawlScanDryRunClampsAndAllowAll(t *testing.T) {
 	if res.Gate.RefusedDryRun == 0 {
 		t.Errorf("dry run refused nothing: %+v", res.Gate)
 	}
-	for _, want := range []string{"Dry run", "Offsite links are allowed"} {
+	for _, want := range []string{"Dry run", "Offsite links were requested"} {
 		found := false
 		for _, n := range res.Notes {
 			if strings.Contains(n, want) {

@@ -112,6 +112,21 @@ func clampScore(v int) int {
 	return v
 }
 
+func finiteOrZero(v float64) float64 {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0
+	}
+	return v
+}
+
+func nonNegFinite(v float64) float64 {
+	v = finiteOrZero(v)
+	if v < 0 {
+		return 0
+	}
+	return v
+}
+
 func riskForOverall(score int) string {
 	switch {
 	case score >= 80:
@@ -126,6 +141,17 @@ func riskForOverall(score int) string {
 // ComputeAssessment calculates component scores, overall score/risk, findings and notes.
 // No values are fabricated: capacity metrics are only scored/labeled when measured.
 func ComputeAssessment(secFindings []Finding, securityPartial bool, stress StressOutcome) (ScoreBreakdown, string, []Finding, []string) {
+	// Normalize measured stress inputs so NaN/Infinity/negative values cannot
+	// leak into scoring, notes, or cross-module assessment state.
+	stress.MaxSafeRPS = nonNegFinite(stress.MaxSafeRPS)
+	stress.MaxObservedRPS = nonNegFinite(stress.MaxObservedRPS)
+	if stress.MaxObservedUsers < 0 {
+		stress.MaxObservedUsers = 0
+	}
+	stress.PeakErrorRatePct = nonNegFinite(stress.PeakErrorRatePct)
+	stress.PeakP99MS = nonNegFinite(stress.PeakP99MS)
+	stress.RejectSharePct = nonNegFinite(stress.RejectSharePct)
+
 	findings := dedupeFindings(secFindings)
 	notes := []string{}
 
@@ -246,6 +272,37 @@ func ComputeAssessment(secFindings []Finding, securityPartial bool, stress Stres
 	evidenceScore = clampScore(evidenceScore)
 	overall := clampScore(int(math.Round(0.35*float64(securityScore) + 0.25*float64(resilienceScore) + 0.25*float64(capacityScore) + 0.15*float64(evidenceScore))))
 
+	findings = dedupeFindings(findings)
+
+	// Enforce logical consistency: overall/risk must not contradict the most
+	// severe measured/reported finding. A single critical or high finding cannot
+	// coexist with a "low risk" or overly optimistic overall score.
+	hasCritical, hasHigh := false, false
+	for _, f := range findings {
+		switch normalizeSeverity(f.Severity) {
+		case "critical":
+			hasCritical = true
+		case "high":
+			hasHigh = true
+		}
+	}
+	risk := riskForOverall(overall)
+	switch {
+	case hasCritical:
+		if overall > 54 {
+			overall = 54
+		}
+		risk = RiskCritical
+	case hasHigh:
+		if overall > 79 {
+			overall = 79
+		}
+		if risk == RiskLow {
+			risk = RiskModerate
+		}
+	}
+	overall = clampScore(overall)
+
 	breakdown := ScoreBreakdown{
 		Overall:         overall,
 		Security:        securityScore,
@@ -253,8 +310,6 @@ func ComputeAssessment(secFindings []Finding, securityPartial bool, stress Stres
 		Capacity:        capacityScore,
 		EvidenceQuality: evidenceScore,
 	}
-	risk := riskForOverall(overall)
-	findings = dedupeFindings(findings)
 	return breakdown, risk, findings, notes
 }
 
