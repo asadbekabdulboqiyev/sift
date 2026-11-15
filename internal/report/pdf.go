@@ -690,7 +690,7 @@ func SaveReport(report *PentestReport, format, filename string) error {
 		return fmt.Errorf("unsupported report format: %s", format)
 	}
 
-	return os.WriteFile(filename, data, 0o600)
+	return atomicWriteFile(filename, data, 0o600)
 }
 
 func esc(s string) string {

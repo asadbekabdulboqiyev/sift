@@ -345,6 +345,43 @@ func (r Report) Render(w io.Writer) {
 	fmt.Fprintln(w)
 }
 
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	cleanup := func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		cleanup()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := os.Chmod(path, perm); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (r Report) SaveJSON(dir string) (string, error) {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return "", err
@@ -354,7 +391,7 @@ func (r Report) SaveJSON(dir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	if err := atomicWriteFile(path, data, 0o600); err != nil {
 		return "", err
 	}
 	return path, nil
@@ -367,7 +404,7 @@ func (r Report) SaveTXT(dir string) (string, error) {
 	path := uniquePath(dir, reportFilename(r.Name, "txt"))
 	var sb strings.Builder
 	r.Render(&sb)
-	if err := os.WriteFile(path, []byte(sb.String()), 0o600); err != nil {
+	if err := atomicWriteFile(path, []byte(sb.String()), 0o600); err != nil {
 		return "", err
 	}
 	return path, nil
@@ -392,7 +429,7 @@ func (r Report) SaveCSV(dir string) (string, error) {
 		prevReq = s.Requests
 		prevErr = s.Errors
 	}
-	if err := os.WriteFile(path, []byte(sb.String()), 0o600); err != nil {
+	if err := atomicWriteFile(path, []byte(sb.String()), 0o600); err != nil {
 		return "", err
 	}
 	return path, nil
