@@ -215,21 +215,40 @@ func WriteBundle(b attest.Bundle, recs []attest.Record, bundlePath string) (stri
 
 func writeSidecar(path string, recs []attest.Record) error {
 	path = filepath.Clean(path)
-	if dir := filepath.Dir(path); dir != "" {
+	dir := filepath.Dir(path)
+	if dir != "" {
 		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return fmt.Errorf("evidence: create %s: %w", dir, err)
 		}
 	}
-	f, err := os.Create(path) // #nosec G304 -- sidecar path is derived from an operator-selected bundle path
+	f, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
 	if err != nil {
-		return fmt.Errorf("evidence: create sidecar %s: %w", path, err)
+		return fmt.Errorf("evidence: create sidecar temp for %s: %w", path, err)
+	}
+	tmpName := f.Name()
+	cleanup := func() {
+		_ = f.Close()
+		_ = os.Remove(tmpName)
+	}
+	if err := f.Chmod(0o600); err != nil {
+		cleanup()
+		return fmt.Errorf("evidence: chmod sidecar temp %s: %w", path, err)
 	}
 	if err := attest.WriteSamples(f, recs); err != nil {
-		_ = f.Close()
+		cleanup()
 		return fmt.Errorf("evidence: write sidecar %s: %w", path, err)
 	}
+	if err := f.Sync(); err != nil {
+		cleanup()
+		return fmt.Errorf("evidence: sync sidecar %s: %w", path, err)
+	}
 	if err := f.Close(); err != nil {
+		_ = os.Remove(tmpName)
 		return fmt.Errorf("evidence: close sidecar %s: %w", path, err)
 	}
-	return nil
+	if err := os.Rename(tmpName, path); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("evidence: finalize sidecar %s: %w", path, err)
+	}
+	return os.Chmod(path, 0o600)
 }

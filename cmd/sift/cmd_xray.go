@@ -202,7 +202,7 @@ func cmdXrayReport() {
 			fatal(fmt.Errorf("xray evidence-out: encode: %w", err))
 			return
 		}
-		if err := os.WriteFile(ePath, append(b, '\n'), 0o600); err != nil {
+		if err := atomicWriteFile(ePath, append(b, '\n'), 0o600); err != nil {
 			fatal(fmt.Errorf("xray evidence-out: write %s: %w", ePath, err))
 			return
 		}

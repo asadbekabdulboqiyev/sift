@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -240,7 +241,7 @@ func emitScanJSON(v any, sf *scanFlags) error {
 		return fmt.Errorf("encode result: %w", err)
 	}
 	if sf.outputJSON != "" {
-		if err := os.WriteFile(sf.outputJSON, append(data, '\n'), 0o600); err != nil {
+		if err := atomicWriteFile(sf.outputJSON, append(data, '\n'), 0o600); err != nil {
 			return fmt.Errorf("write %s: %w", sf.outputJSON, err)
 		}
 	}
@@ -264,6 +265,45 @@ func emitScanCLIErrorJSON(sf *scanFlags, err error) {
 		return
 	}
 	fmt.Println(string(data))
+}
+
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return err
+		}
+	}
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	cleanup := func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		cleanup()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		cleanup()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	return os.Chmod(path, perm)
 }
 
 // scanDirectDialEnvelope is the JSON document a direct-dial scanner writes
