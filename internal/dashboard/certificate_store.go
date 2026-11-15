@@ -119,8 +119,15 @@ func certStoreIssue(c certificate.Certificate) (*certificate.Certificate, string
 	if err != nil {
 		return nil, "", err
 	}
-	defer f.Close()
 	if _, err := f.Write(append(line, '\n')); err != nil {
+		_ = f.Close()
+		return nil, "", err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return nil, "", err
+	}
+	if err := f.Close(); err != nil {
 		return nil, "", err
 	}
 
