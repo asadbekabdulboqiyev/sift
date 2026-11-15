@@ -117,7 +117,7 @@ function wireAdminReveal() {
   try { if (sessionStorage.getItem('ss_admin_revealed') === '1') revealAdmin(false); } catch (e) {}
 
   // Browsers may encode '#' as '%23', so match on the secret substring instead.
-  function hashIsAdmin(h) { return h.indexOf('slasz') >= 0; }
+  function hashIsAdmin(h) { return h.indexOf('slasz') >= 0 || h.indexOf('admin') >= 0; }
 
   if (hashIsAdmin(location.hash)) revealAdmin(true);
   window.addEventListener('hashchange', function() {
