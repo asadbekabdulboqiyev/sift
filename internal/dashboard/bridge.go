@@ -289,12 +289,18 @@ func (b *EngineBridge) finish(failed bool, errMsg string) {
 	b.mu.Unlock()
 
 	if failed {
+		actualDuration := elapsed
+		if actualDuration < 0 {
+			actualDuration = 0
+		}
+		endTime := startTime.Add(actualDuration)
 		b.server.SetRunState(&RunState{
 			Status:    "failed",
 			Config:    config,
 			StartTime: startTime,
-			EndTime:   time.Now(),
-			Elapsed:   elapsed,
+			EndTime:   endTime,
+			Elapsed:   actualDuration,
+			Duration:  time.Duration(config.DurationSeconds) * time.Second,
 			Error:     errMsg,
 		})
 		return
@@ -330,14 +336,21 @@ func (b *EngineBridge) finish(failed bool, errMsg string) {
 		statusCodes = snap.StatusCodes
 	}
 
-	duration := time.Duration(config.DurationSeconds) * time.Second
+	plannedDuration := time.Duration(config.DurationSeconds) * time.Second
+	// Record actual measured elapsed duration for integrity/consistency; keep
+	// planned duration in config separately (UI can compare planned vs actual).
+	actualDuration := elapsed
+	if actualDuration < 0 {
+		actualDuration = 0
+	}
+	endTime := startTime.Add(actualDuration)
 	b.server.SetRunState(&RunState{
 		Status:    status,
 		Config:    config,
 		StartTime: startTime,
-		EndTime:   time.Now(),
-		Elapsed:   elapsed,
-		Duration:  duration,
+		EndTime:   endTime,
+		Elapsed:   actualDuration,
+		Duration:  plannedDuration,
 		Progress:  progress,
 	})
 
@@ -356,7 +369,7 @@ func (b *EngineBridge) finish(failed bool, errMsg string) {
 			MaxLatency:    maxLat,
 			StatusCodes:   statusCodes,
 		},
-		Duration: elapsed.Round(time.Millisecond).String(),
+		Duration: actualDuration.Round(time.Millisecond).String(),
 	}
 	b.server.AddHistoryEntry(entry)
 }
@@ -499,9 +512,20 @@ func (b *EngineBridge) emitAttestation() error {
 	bundlePath := filepath.Join(bundlesDir, "bundle.json")
 	sidecarPath := evidence.SidecarPath(bundlePath)
 
-	// Build scenario-like config for bundle
-	durationNS := int64(time.Since(startTime).Nanoseconds())
-	if config != nil && config.DurationSeconds > 0 {
+	// Build scenario-like config for bundle. Prefer actual measured elapsed
+	// duration (integrity) over planned duration.
+	actualElapsed := time.Since(startTime)
+	if actualElapsed < 0 {
+		actualElapsed = 0
+	}
+	durationNS := actualElapsed.Nanoseconds()
+	if b.finished {
+		// When run has finished, prefer the elapsed captured at completion if it
+		// is available via state history semantics is not stored here; keep a
+		// non-negative actual elapsed best-effort.
+	}
+	if durationNS <= 0 && config != nil && config.DurationSeconds > 0 {
+		// Fallback for degenerate cases.
 		durationNS = int64(config.DurationSeconds) * int64(time.Second)
 	}
 

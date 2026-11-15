@@ -104,14 +104,17 @@ type Master struct {
 	// Keyed by remote address, valued by the human-readable reason.
 	rejected map[string]string
 
-	agg         *Aggregator
-	runID       string
-	doneCh      chan struct{}
-	doneOnce    sync.Once
-	runTimeout  *time.Timer
-	workerCount int
-	completed   int
-	started     bool
+	agg            *Aggregator
+	runID          string
+	runStartedAt   time.Time
+	runEndedAt     time.Time
+	doneCh         chan struct{}
+	doneOnce       sync.Once
+	runTimeout     *time.Timer
+	workerCount    int
+	completed      int
+	started        bool
+	failureReasons map[string]string
 }
 
 // NewMaster builds a Master for the given configuration.
@@ -122,21 +125,22 @@ func NewMaster(cfg MasterConfig) *Master {
 	}
 	cfg.Logf = logf
 	m := &Master{
-		cfg:           cfg,
-		conns:         make(map[string]*grpc.ClientConn),
-		clients:       make(map[string]distproto.MasterWorkerClient),
-		streams:       make(map[string]distproto.MasterWorker_CoordinateClient),
-		registered:    make(map[string]*distproto.RegisterRequest),
-		registeredAt:  make(map[string]time.Time),
-		reports:       make(map[string]*report.Report),
-		finished:      make(map[string]bool),
-		lastSeen:      make(map[string]time.Time),
-		statusReports: make(map[string]*distproto.StatusReport),
-		workerPubs:    make(map[string]ed25519.PublicKey),
-		workerIDs:     make(map[string]string),
-		rejected:      make(map[string]string),
-		agg:           NewAggregator(),
-		doneCh:        make(chan struct{}),
+		cfg:            cfg,
+		conns:          make(map[string]*grpc.ClientConn),
+		clients:        make(map[string]distproto.MasterWorkerClient),
+		streams:        make(map[string]distproto.MasterWorker_CoordinateClient),
+		registered:     make(map[string]*distproto.RegisterRequest),
+		registeredAt:   make(map[string]time.Time),
+		reports:        make(map[string]*report.Report),
+		finished:       make(map[string]bool),
+		lastSeen:       make(map[string]time.Time),
+		statusReports:  make(map[string]*distproto.StatusReport),
+		workerPubs:     make(map[string]ed25519.PublicKey),
+		workerIDs:      make(map[string]string),
+		rejected:       make(map[string]string),
+		failureReasons: make(map[string]string),
+		agg:            NewAggregator(),
+		doneCh:         make(chan struct{}),
 	}
 	// Seed the pin table from the static config too. Register applies the same
 	// map for self-registering workers, but a static fleet never registers, so
@@ -433,6 +437,7 @@ func (m *Master) StartRun(ctx context.Context, runID string) error {
 	}
 	m.started = true
 	m.runID = runID
+	m.runStartedAt = time.Now()
 	// Deterministic order keeps worker_index stable.
 	addrs := make([]string, 0, len(m.clients))
 	for addr := range m.clients {
@@ -488,8 +493,25 @@ func (m *Master) StartRun(ctx context.Context, runID string) error {
 	if m.cfg.RunTimeout > 0 {
 		m.mu.Lock()
 		m.runTimeout = time.AfterFunc(m.cfg.RunTimeout, func() {
-			m.cfg.Logf("run deadline %s exceeded; finalizing with partial results", m.cfg.RunTimeout)
-			m.forceDone()
+			m.cfg.Logf("run deadline %s exceeded; requesting graceful stop to collect actual partial timing", m.cfg.RunTimeout)
+			m.StopRun(runID, true)
+			// Allow workers to finish in-flight work and send RunCompleted reports
+			// with actual measured timing before finalizing partial results.
+			go func() {
+				grace := 10 * time.Second
+				if m.cfg.RunTimeout > 0 && m.cfg.RunTimeout < grace {
+					grace = m.cfg.RunTimeout / 2
+					if grace < 2*time.Second {
+						grace = 2 * time.Second
+					}
+				}
+				select {
+				case <-m.doneCh:
+					return
+				case <-time.After(grace):
+					m.forceDone()
+				}
+			}()
 		})
 		m.mu.Unlock()
 	}
@@ -502,6 +524,17 @@ func (m *Master) recvLoop(addr string, stream distproto.MasterWorker_CoordinateC
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
 				m.cfg.Logf("worker %s stream closed: %v", addr, err)
+				m.mu.Lock()
+				if m.failureReasons[addr] == "" {
+					m.failureReasons[addr] = err.Error()
+				}
+				m.mu.Unlock()
+			} else {
+				m.mu.Lock()
+				if m.failureReasons[addr] == "" {
+					m.failureReasons[addr] = "stream closed"
+				}
+				m.mu.Unlock()
 			}
 			m.workerFinished(addr, true)
 			return
@@ -531,6 +564,11 @@ func (m *Master) recvLoop(addr string, stream distproto.MasterWorker_CoordinateC
 				msg = p.RunFailed.Error
 			}
 			m.cfg.Logf("worker %s run failed: %s", addr, msg)
+			if msg != "" {
+				m.mu.Lock()
+				m.failureReasons[addr] = msg
+				m.mu.Unlock()
+			}
 			m.touch(addr)
 			m.workerFinished(addr, true)
 			return
@@ -571,6 +609,178 @@ func (m *Master) storeReport(addr string, protoReport *distproto.Report) {
 	m.mu.Unlock()
 }
 
+// partialReportLocked synthesizes a best-effort partial final report from the
+// latest per-worker telemetry snapshot. It must be called with m.mu held and
+// never fabricates planned/profile duration or fake metrics.
+func (m *Master) partialReportLocked(addr string) *report.Report {
+	snap, ok := m.agg.SnapshotOf(addr)
+	if !ok || snap == nil {
+		return nil
+	}
+	reason := m.failureReasons[addr]
+	lastSeen := m.lastSeen[addr]
+	end := lastSeen
+	if end.IsZero() {
+		end = m.runEndedAt
+	}
+	if end.IsZero() {
+		end = time.Now()
+	}
+	start := m.runStartedAt
+	return partialReportFromSnapshot(m.cfg.Scenario, snap, start, end, reason)
+}
+
+func partialReportFromSnapshot(sc *config.Scenario, snap *distproto.TelemetrySnapshot, runStart, end time.Time, reason string) *report.Report {
+	if snap == nil {
+		return nil
+	}
+	duration := time.Duration(snap.ElapsedMs) * time.Millisecond
+	if duration < 0 {
+		duration = 0
+	}
+	if end.IsZero() {
+		if snap.Timestamp > 0 {
+			end = time.UnixMilli(snap.Timestamp)
+		} else {
+			end = time.Now()
+		}
+	}
+	start := time.Time{}
+	if duration > 0 {
+		start = end.Add(-duration)
+	} else if !runStart.IsZero() && !end.Before(runStart) {
+		// No defensible measured elapsed; do not fabricate duration from bounds.
+		start = runStart
+	}
+
+	status := StatusFromProto(snap.StatusCodes)
+	if status == nil {
+		status = make(map[int]uint64)
+	}
+	errs := ErrorsFromProto(snap.ErrorTypes)
+	if errs == nil {
+		errs = make(map[string]uint64)
+	}
+	errs["distributed:partial_worker"] = errs["distributed:partial_worker"] + 1
+	if reason != "" {
+		// Keep a bounded marker without inventing metric counts; counts remain snapshot-derived.
+		_ = reason
+	}
+
+	rep := &report.Report{
+		Status:        status,
+		Errors:        errs,
+		StartedAt:     start,
+		EndedAt:       end,
+		Duration:      duration,
+		ActiveUsers:   snap.ActiveUsers,
+		TotalRequests: uint64(snap.TotalRequests), // #nosec G115 -- counters are expected to remain within int64 range
+		TotalErrors:   uint64(snap.TotalErrors),   // #nosec G115 -- counters are expected to remain within int64 range
+		RPS:           snap.Rps,
+	}
+	if sc != nil {
+		rep.Name = sc.Name
+		if sc.BaseURL != "" {
+			rep.BaseURL = sc.BaseURL
+		} else if len(sc.Steps) > 0 {
+			rep.BaseURL = sc.Steps[0].URL
+		}
+		rep.LoadProfile = sc.Profile.Type
+		rep.TargetRPS = sc.Profile.TargetRPS
+	}
+	if rep.TotalRequests > 0 {
+		rep.ErrorRatePct = float64(rep.TotalErrors) / float64(rep.TotalRequests) * 100
+	}
+	if rep.Duration > 0 && rep.RPS <= 0 {
+		rep.RPS = float64(rep.TotalRequests) / rep.Duration.Seconds()
+	}
+
+	if lat := snap.Latency; lat != nil {
+		min, avg, max, p50, p95, p99 := latencyFromProto(lat)
+		rep.Overall = report.StepReport{
+			Name:       "overall",
+			Requests:   rep.TotalRequests,
+			Errors:     rep.TotalErrors,
+			Status:     copyStatusMap(status),
+			ErrorTypes: copyErrorMap(errs),
+			Min:        min,
+			Avg:        avg,
+			Max:        max,
+			P50:        p50,
+			P95:        p95,
+			P99:        p99,
+		}
+	} else {
+		rep.Overall = report.StepReport{
+			Name:       "overall",
+			Requests:   rep.TotalRequests,
+			Errors:     rep.TotalErrors,
+			Status:     copyStatusMap(status),
+			ErrorTypes: copyErrorMap(errs),
+		}
+	}
+
+	for _, st := range snap.Steps {
+		if st == nil {
+			continue
+		}
+		min, avg, max, p50, p95, p99 := latencyFromProto(st.Latency)
+		sr := report.StepReport{
+			Name:       st.Name,
+			Requests:   uint64(st.Requests), // #nosec G115 -- counters are expected to remain within int64 range
+			Errors:     uint64(st.Errors),   // #nosec G115 -- counters are expected to remain within int64 range
+			Status:     StatusFromProto(st.StatusCodes),
+			ErrorTypes: ErrorsFromProto(st.ErrorTypes),
+			Min:        min,
+			Avg:        avg,
+			Max:        max,
+			P50:        p50,
+			P95:        p95,
+			P99:        p99,
+		}
+		if sr.Status == nil {
+			sr.Status = make(map[int]uint64)
+		}
+		if sr.ErrorTypes == nil {
+			sr.ErrorTypes = make(map[string]uint64)
+		}
+		rep.Steps = append(rep.Steps, sr)
+	}
+
+	// Normalize timing for consistency without inventing planned duration.
+	if rep.Duration > 0 && !rep.StartedAt.IsZero() {
+		rep.EndedAt = rep.StartedAt.Add(rep.Duration)
+	} else if rep.Duration > 0 && !rep.EndedAt.IsZero() {
+		rep.StartedAt = rep.EndedAt.Add(-rep.Duration)
+	} else if rep.Duration <= 0 {
+		// No defensible measured duration; keep bounds only if both known, else leave unset.
+		if rep.StartedAt.IsZero() || rep.EndedAt.IsZero() || rep.EndedAt.Before(rep.StartedAt) {
+			rep.StartedAt = time.Time{}
+			rep.EndedAt = time.Time{}
+			rep.Duration = 0
+		} else {
+			rep.Duration = 0
+		}
+	}
+	return rep
+}
+
+func copyStatusMap(in map[int]uint64) map[int]uint64 {
+	out := make(map[int]uint64, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func copyErrorMap(in map[string]uint64) map[string]uint64 {
+	out := make(map[string]uint64, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
 func (m *Master) workerFinished(addr string, failed bool) {
 	m.mu.Lock()
 	if m.finished[addr] {
@@ -579,6 +789,13 @@ func (m *Master) workerFinished(addr string, failed bool) {
 	}
 	m.finished[addr] = true
 	m.completed++
+	// Preserve partial evidence before dropping live telemetry. Do not fabricate:
+	// synthesize only when a final report is missing and a defensible snapshot exists.
+	if failed && m.reports[addr] == nil {
+		if rep := m.partialReportLocked(addr); rep != nil {
+			m.reports[addr] = rep
+		}
+	}
 	if failed {
 		m.failed = append(m.failed, addr)
 		m.agg.Forget(addr)
@@ -592,14 +809,54 @@ func (m *Master) workerFinished(addr string, failed bool) {
 
 func (m *Master) finish() {
 	m.mu.Lock()
+	if m.runEndedAt.IsZero() {
+		m.runEndedAt = time.Now()
+	}
 	if m.runTimeout != nil {
 		m.runTimeout.Stop()
+	}
+	// Defensive: if called with stragglers, preserve any available partial timing.
+	if m.completed < m.workerCount {
+		for addr := range m.clients {
+			if m.finished[addr] || m.reports[addr] != nil {
+				continue
+			}
+			if rep := m.partialReportLocked(addr); rep != nil {
+				m.reports[addr] = rep
+			}
+		}
 	}
 	m.mu.Unlock()
 	m.doneOnce.Do(func() { close(m.doneCh) })
 }
 
 func (m *Master) forceDone() {
+	m.mu.Lock()
+	if m.runEndedAt.IsZero() {
+		m.runEndedAt = time.Now()
+	}
+	// Synthesize partial reports for workers that never sent a final report but
+	// produced telemetry snapshots (e.g. timeout/grace period expired).
+	addrs := make([]string, 0, len(m.clients))
+	for addr := range m.clients {
+		addrs = append(addrs, addr)
+	}
+	for _, addr := range addrs {
+		if m.finished[addr] || m.reports[addr] != nil {
+			continue
+		}
+		if rep := m.partialReportLocked(addr); rep != nil {
+			m.reports[addr] = rep
+		}
+		m.finished[addr] = true
+		m.completed++
+		m.failed = append(m.failed, addr)
+		m.agg.Forget(addr)
+	}
+	if m.runTimeout != nil {
+		m.runTimeout.Stop()
+	}
+	m.mu.Unlock()
 	m.doneOnce.Do(func() { close(m.doneCh) })
 }
 
@@ -646,6 +903,9 @@ func (m *Master) checkLiveness(addrs []string) {
 		}
 		m.cfg.Logf("worker %s DEAD: no heartbeat for %s and Ping failed", addr, livenessDeadline)
 		m.mu.Lock()
+		if m.failureReasons[addr] == "" {
+			m.failureReasons[addr] = "liveness timeout"
+		}
 		if s, ok := m.streams[addr]; ok {
 			// Closing the send side unblocks recvLoop, which then marks the
 			// worker finished through the normal path (idempotent).
@@ -669,6 +929,13 @@ func (m *Master) probeWorker(addr string) bool {
 	defer cancel()
 	_, err := client.Ping(ctx, &distproto.PingRequest{})
 	return err == nil
+}
+
+// PartialReportForTest exposes synthesized partial report logic for tests.
+func (m *Master) PartialReportForTest(addr string) *report.Report {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.partialReportLocked(addr)
 }
 
 // StopRun asks the workers to stop the run.

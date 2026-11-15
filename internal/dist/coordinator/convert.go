@@ -177,17 +177,41 @@ func ReportToProto(r *report.Report) *distproto.Report {
 }
 
 // ReportFromProto converts a transported proto report back into a report.Report.
+// Duration is treated as the actual elapsed timing source of truth: when a
+// start timestamp and duration are present, EndedAt is normalized for
+// consistency (mirrors report.Build timing semantics). Proto timestamp fields
+// use 0 to mean "unset" (Unix epoch is not treated as a real timestamp).
 func ReportFromProto(r *distproto.Report) *report.Report {
 	if r == nil {
 		return nil
+	}
+	var startedAt, endedAt time.Time
+	if r.StartedAt != 0 {
+		startedAt = time.UnixMilli(r.StartedAt)
+	}
+	if r.EndedAt != 0 {
+		endedAt = time.UnixMilli(r.EndedAt)
+	}
+	duration := time.Duration(r.DurationMs) * time.Millisecond
+	if duration < 0 {
+		duration = 0
+	}
+	switch {
+	case !startedAt.IsZero() && duration > 0:
+		endedAt = startedAt.Add(duration)
+	case !startedAt.IsZero() && endedAt.Before(startedAt):
+		endedAt = startedAt
+	case startedAt.IsZero() && !endedAt.IsZero() && duration > 0:
+		// Infer start for consistency when only end+duration are known.
+		startedAt = endedAt.Add(-duration)
 	}
 	out := &report.Report{
 		Name:          r.Name,
 		BaseURL:       r.BaseUrl,
 		LoadProfile:   r.LoadProfile,
-		StartedAt:     time.UnixMilli(r.StartedAt),
-		EndedAt:       time.UnixMilli(r.EndedAt),
-		Duration:      time.Duration(r.DurationMs) * time.Millisecond,
+		StartedAt:     startedAt,
+		EndedAt:       endedAt,
+		Duration:      duration,
 		ActiveUsers:   r.ActiveUsers,
 		TotalRequests: uint64(r.TotalRequests), // #nosec G115 -- counters are expected to remain within int64 range
 		TotalErrors:   uint64(r.TotalErrors),   // #nosec G115 -- counters are expected to remain within int64 range

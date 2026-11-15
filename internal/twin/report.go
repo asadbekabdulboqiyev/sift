@@ -42,19 +42,33 @@ type ArtifactPaths struct {
 	ReportPath      string             `json:"report_path"`
 }
 
-// WriteModel writes only twin-model.json. It is used by `twin fit`, where no
-// simulation exists yet.
+// WriteModel writes only twin-model.json in dir. It normalizes/validates the
+// model and writes the current schema version.
 func WriteModel(dir string, m Model) (string, error) {
-	if err := m.Validate(); err != nil {
-		return "", fmt.Errorf("twin: refusing to write an invalid model: %w", err)
-	}
 	if strings.TrimSpace(dir) == "" {
 		return "", fmt.Errorf("twin: output directory is required")
 	}
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return "", fmt.Errorf("twin: create output directory %s: %w", dir, err)
 	}
-	path := filepath.Join(dir, ModelArtifactName)
+	return SaveModel(filepath.Join(dir, ModelArtifactName), m)
+}
+
+// SaveModel writes a normalized/validated model to an explicit file path.
+// This supports in-place updates (e.g. persisting validation status) while
+// preserving schema normalization/validation semantics.
+func SaveModel(path string, m Model) (string, error) {
+	nm, err := ValidateAndNormalize(m)
+	if err != nil {
+		return "", fmt.Errorf("twin: refusing to write an invalid model: %w", err)
+	}
+	m = nm
+	if strings.TrimSpace(path) == "" {
+		return "", fmt.Errorf("twin: model path is required")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return "", fmt.Errorf("twin: create model directory for %s: %w", path, err)
+	}
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("twin: encode model: %w", err)
@@ -80,8 +94,8 @@ func WriteArtifacts(dir string, m Model, results map[string]Result) (ArtifactPat
 			return ArtifactPaths{}, fmt.Errorf("twin: result map contains an empty scenario name")
 		}
 		res := results[name]
-		if res.SchemaVersion != SchemaVersion {
-			return ArtifactPaths{}, fmt.Errorf("twin: scenario %q result has schema %q (want %q)", name, res.SchemaVersion, SchemaVersion)
+		if res.SchemaVersion != SchemaVersion && res.SchemaVersion != SchemaVersionV1 {
+			return ArtifactPaths{}, fmt.Errorf("twin: scenario %q result has schema %q (want %q or %q)", name, res.SchemaVersion, SchemaVersion, SchemaVersionV1)
 		}
 		if res.Scenario.Name != name {
 			return ArtifactPaths{}, fmt.Errorf("twin: result keyed %q carries scenario name %q", name, res.Scenario.Name)
@@ -103,6 +117,8 @@ func WriteArtifacts(dir string, m Model, results map[string]Result) (ArtifactPat
 	paths := ArtifactPaths{ModelPath: modelPath}
 	for _, name := range names {
 		res := results[name]
+		// Normalize written schema to current version for reproducibility.
+		res.SchemaVersion = SchemaVersion
 		path := filepath.Join(dir, simulationFilename(name))
 		data, mErr := json.MarshalIndent(res, "", "  ")
 		if mErr != nil {
@@ -123,9 +139,7 @@ func WriteArtifacts(dir string, m Model, results map[string]Result) (ArtifactPat
 	return paths, nil
 }
 
-// LoadModel reads a model artifact. The path is operator-selected, so it is
-// cleaned before use; reading an arbitrary file chosen on the command line is
-// the intended behaviour.
+// LoadModel reads a model artifact and normalizes legacy schemas in-memory.
 func LoadModel(path string) (Model, error) {
 	clean := filepath.Clean(path)
 	data, err := os.ReadFile(clean) // #nosec G304 -- operator-selected model artifact
@@ -136,14 +150,14 @@ func LoadModel(path string) (Model, error) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		return Model{}, fmt.Errorf("twin: parse model %s: %w", clean, err)
 	}
-	if err := m.Validate(); err != nil {
+	nm, err := ValidateAndNormalize(m)
+	if err != nil {
 		return Model{}, fmt.Errorf("twin: model %s is not usable: %w", clean, err)
 	}
-	return m, nil
+	return nm, nil
 }
 
-// LoadResult parses a simulation artifact. It is primarily useful to tests and
-// downstream tooling; the CLI does not need it.
+// LoadResult parses a simulation artifact.
 func LoadResult(path string) (Result, error) {
 	clean := filepath.Clean(path)
 	data, err := os.ReadFile(clean) // #nosec G304 -- operator-selected simulation artifact
@@ -154,9 +168,10 @@ func LoadResult(path string) (Result, error) {
 	if err := json.Unmarshal(data, &r); err != nil {
 		return Result{}, fmt.Errorf("twin: parse result %s: %w", clean, err)
 	}
-	if r.SchemaVersion != SchemaVersion {
-		return Result{}, fmt.Errorf("twin: result %s has schema %q (want %q)", clean, r.SchemaVersion, SchemaVersion)
+	if r.SchemaVersion != SchemaVersion && r.SchemaVersion != SchemaVersionV1 {
+		return Result{}, fmt.Errorf("twin: result %s has schema %q (want %q or %q)", clean, r.SchemaVersion, SchemaVersion, SchemaVersionV1)
 	}
+	r.SchemaVersion = SchemaVersion
 	return r, nil
 }
 
@@ -200,6 +215,9 @@ func renderMarkdown(m Model, names []string, results map[string]Result) string {
 	b.WriteString("## Fitted model\n\n")
 	fmt.Fprintf(&b, "| Field | Value |\n|---|---|\n")
 	fmt.Fprintf(&b, "| Schema | `%s` |\n", m.SchemaVersion)
+	if m.ModelInfo != nil {
+		fmt.Fprintf(&b, "| Model version | %s (`%s`) |\n", markdownCell(m.ModelInfo.Version, "n/a"), markdownCell(m.ModelInfo.Algorithm, "n/a"))
+	}
 	fmt.Fprintf(&b, "| Source report | %s |\n", markdownCell(m.Source.ReportName, "n/a"))
 	fmt.Fprintf(&b, "| Target | %s |\n", markdownCell(m.Source.TargetURL, "n/a"))
 	fmt.Fprintf(&b, "| Load profile | %s |\n", markdownCell(m.Source.LoadProfile, "n/a"))
@@ -210,16 +228,69 @@ func renderMarkdown(m Model, names []string, results map[string]Result) string {
 	fmt.Fprintf(&b, "| Observed error rate | %.3f%% |\n", m.Workload.ErrorRatePct)
 	fmt.Fprintf(&b, "| Baseline latency | p50 %.2f ms / p95 %.2f ms / p99 %.2f ms |\n", m.Curve.Baseline.P50MS, m.Curve.Baseline.P95MS, m.Curve.Baseline.P99MS)
 	fmt.Fprintf(&b, "| Estimated capacity | %.2f rps (%.2f - %.2f rps, +/-%.1f%%) |\n", m.Curve.CapacityRPS, m.Curve.CapacityLowRPS, m.Curve.CapacityHighRPS, m.Curve.CapacityRelativeUncertainty*100)
+	if m.Capacity != nil {
+		fmt.Fprintf(&b, "| Observed capacity | %.2f rps (never treated as maximum) |\n", m.Capacity.ObservedRPS)
+		if m.Capacity.Status == CapacityInsufficient || m.Capacity.SustainableRPS == nil {
+			fmt.Fprintf(&b, "| Sustainable capacity | INSUFFICIENT_DATA |\n")
+		} else {
+			s := *m.Capacity.SustainableRPS
+			if m.Capacity.SustainableInterval != nil {
+				fmt.Fprintf(&b, "| Sustainable capacity | %.2f rps [%.2f, %.2f] (%s, %s) |\n", s, m.Capacity.SustainableInterval.Low, m.Capacity.SustainableInterval.High, m.Capacity.Status, m.Capacity.SustainableInterval.Method)
+			} else {
+				fmt.Fprintf(&b, "| Sustainable capacity | %.2f rps (%s) |\n", s, m.Capacity.Status)
+			}
+		}
+	}
 	fmt.Fprintf(&b, "| Reference utilisation | %.3f |\n", m.Curve.ReferenceUtilization)
-	fmt.Fprintf(&b, "| Confidence | %s |\n", m.Confidence)
+	if m.ConfidenceV2 != nil {
+		fmt.Fprintf(&b, "| Confidence | %s %.1f/100 (sufficient=%t, data_quality=%s) |\n", m.ConfidenceV2.Level, m.ConfidenceV2.Score, m.ConfidenceV2.Sufficient, m.ConfidenceV2.DataQuality)
+	} else {
+		fmt.Fprintf(&b, "| Confidence | %s |\n", m.Confidence)
+	}
 	b.WriteString("\n")
 
+	if m.ConfidenceV2 != nil {
+		b.WriteString("### Confidence (evidence-based)\n\n")
+		fmt.Fprintf(&b, "%s\n\n", m.ConfidenceV2.Summary)
+		if len(m.ConfidenceV2.Factors) > 0 {
+			b.WriteString("| Factor | Score | Weight | Status | Evidence | Uncertainty/Missing |\n|---|---:|---:|---|---|---|\n")
+			for _, f := range m.ConfidenceV2.Factors {
+				fmt.Fprintf(&b, "| %s | %.1f | %.2f | %s | %s | %s |\n", markdownCell(f.Name, ""), f.Score, f.Weight, markdownCell(f.Status, ""), markdownCell(f.Evidence, ""), markdownCell(ternaryStr(f.Uncertainty != "", f.Uncertainty, f.Impact), ""))
+			}
+			b.WriteString("\n")
+		}
+		if len(m.ConfidenceV2.MissingData) > 0 {
+			b.WriteString("**Missing data (not measured):** " + strings.Join(m.ConfidenceV2.MissingData, ", ") + "\n\n")
+		}
+	}
+	if m.Capacity != nil {
+		b.WriteString("### Capacity assessment\n\n")
+		fmt.Fprintf(&b, "- Observed RPS: **%.2f** (never treated as maximum capacity)\n", m.Capacity.ObservedRPS)
+		if m.Capacity.Status == CapacityInsufficient || m.Capacity.SustainableRPS == nil {
+			b.WriteString("- Sustainable capacity: **INSUFFICIENT_DATA**\n")
+		} else {
+			fmt.Fprintf(&b, "- Sustainable capacity (estimate): **%.2f rps**", *m.Capacity.SustainableRPS)
+			if m.Capacity.SustainableInterval != nil {
+				fmt.Fprintf(&b, " [%.2f, %.2f]", m.Capacity.SustainableInterval.Low, m.Capacity.SustainableInterval.High)
+			}
+			b.WriteString("\n")
+		}
+		if m.Capacity.Uncertainty != "" {
+			fmt.Fprintf(&b, "- Uncertainty: %s\n", m.Capacity.Uncertainty)
+		}
+		if len(m.Capacity.DegradationSignals) > 0 {
+			b.WriteString("- Degradation/saturation signals: " + strings.Join(m.Capacity.DegradationSignals, "; ") + "\n")
+		}
+		for _, n := range m.Capacity.Notes {
+			fmt.Fprintf(&b, "- %s\n", n)
+		}
+		b.WriteString("\n")
+	}
+
 	b.WriteString("### How capacity was derived\n\n")
-	b.WriteString("Capacity uses an M/M/1 tail approximation: `p99(rho) = L0 / (1 - rho)` with\n")
-	b.WriteString("`L0 = p50 / ln 2`. Substituting the measured p99 yields the utilisation the run\n")
-	b.WriteString("operated at, and capacity is the observed throughput divided by that utilisation.\n")
-	b.WriteString("The utilisation is clamped to [0.10, 0.98] so a flat or pathological tail cannot\n")
-	b.WriteString("produce an absurd extrapolation.\n\n")
+	b.WriteString("Capacity uses an M/M/1 tail approximation anchored to the measured operating point, with uncertainty bounds.\n")
+	b.WriteString("Sustainable capacity is an evidence-based estimate (not a guarantee) that may account for degradation/error/saturation signals and may be `INSUFFICIENT_DATA`.\n")
+	b.WriteString("Observed throughput is never treated as maximum capacity.\n\n")
 
 	if len(m.Calibration.Notes) > 0 {
 		b.WriteString("### Calibration notes\n\n")
@@ -227,6 +298,42 @@ func renderMarkdown(m Model, names []string, results map[string]Result) string {
 			fmt.Fprintf(&b, "- %s\n", note)
 		}
 		b.WriteString("\n")
+	}
+	if m.ResourceEvidence != nil {
+		b.WriteString("### Resource monitoring evidence (optional)\n\n")
+		fmt.Fprintf(&b, "- Source: `%s`\n", markdownCell(m.ResourceEvidence.Source, "unspecified"))
+		fmt.Fprintf(&b, "- Evidence available: `%t`\n", m.ResourceEvidence.Available)
+		if len(m.ResourceEvidence.MetricsDetail) > 0 {
+			keys := make([]string, 0, len(m.ResourceEvidence.MetricsDetail))
+			for k := range m.ResourceEvidence.MetricsDetail {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			b.WriteString("\n| Metric | Status | Value | Unit | Source | Reason |\n|---|---|---:|---|---|---|\n")
+			for _, k := range keys {
+				d := m.ResourceEvidence.MetricsDetail[k]
+				val := "n/a"
+				if d.Value != nil {
+					val = fmt.Sprintf("%.4g", *d.Value)
+				}
+				reason := d.Reason
+				if reason == "" && len(d.Notes) > 0 {
+					reason = strings.Join(d.Notes, "; ")
+				}
+				fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s |\n", markdownCell(d.Name, k), markdownCell(d.Status, ""), val, markdownCell(d.Unit, ""), markdownCell(d.Source, ""), markdownCell(reason, ""))
+			}
+		} else {
+			if len(m.ResourceEvidence.Metrics) > 0 {
+				fmt.Fprintf(&b, "- Available metrics: `%s`\n", strings.Join(m.ResourceEvidence.Metrics, ", "))
+			}
+			if len(m.ResourceEvidence.Missing) > 0 {
+				fmt.Fprintf(&b, "- Missing/unavailable/insufficient: `%s`\n", strings.Join(m.ResourceEvidence.Missing, ", "))
+			}
+		}
+		if len(m.ResourceEvidence.Notes) > 0 {
+			b.WriteString("- Notes: " + markdownCell(strings.Join(m.ResourceEvidence.Notes, " | "), "") + "\n")
+		}
+		b.WriteString("\n> Resource evidence is reported only when provided/derivable; unavailable metrics are explicitly labeled and never fabricated.\n\n")
 	}
 
 	b.WriteString("## Scenarios\n\n")

@@ -50,6 +50,12 @@ type Report struct {
 	Steps         []StepReport             `json:"steps"`
 	SLA           []SLAResult              `json:"sla,omitempty"`
 	Timeline      []metrics.TimelineSample `json:"timeline,omitempty"`
+	// ResourceEvidence holds optional, evidence-based resource monitoring data
+	// (CPU/memory/network/connections/memory growth/server response time) with
+	// explicit availability/insufficiency labeling. It is never fabricated and
+	// must not be interpreted as measured load-test telemetry unless the source
+	// states so. Omitted when unavailable.
+	ResourceEvidence json.RawMessage `json:"resource_evidence,omitempty"`
 }
 
 // renderLatencyBars builds ASCII bar rows for key latency percentiles. Bar
@@ -102,6 +108,14 @@ func fromStepStats(name string, s *metrics.StepStats) StepReport {
 	}
 }
 
+// Build constructs a Report from completed telemetry and scenario config.
+//
+// Timing integrity: Duration is the monotonic actual elapsed execution time
+// captured by telemetry (high-resolution). StartedAt and EndedAt are recorded
+// independently as wall-clock timestamps, and EndedAt is normalized to
+// StartedAt+Duration so the reported duration always matches the actual elapsed
+// execution time and remains internally consistent even when wall-clock and
+// monotonic readings differ slightly.
 func Build(t *metrics.Telemetry, scenario *config.Scenario) Report {
 	reqs := t.TotalRequests()
 	errs := t.TotalErrors()
@@ -109,15 +123,27 @@ func Build(t *metrics.Telemetry, scenario *config.Scenario) Report {
 	if reqs > 0 {
 		errPct = float64(errs) / float64(reqs) * 100
 	}
+	duration := t.Elapsed()
+	if duration < 0 {
+		duration = 0
+	}
+	startedAt := t.Start
+	endedAt := t.End
+	if !startedAt.IsZero() {
+		endedAt = startedAt.Add(duration)
+	} else if endedAt.IsZero() {
+		// Extremely defensive: preserve zero values if telemetry has none.
+		endedAt = startedAt
+	}
 	r := Report{
 		Name:          scenario.Name,
 		BaseURL:       target(scenario),
 		LoadProfile:   scenario.Profile.Type,
 		TargetRPS:     scenario.Profile.TargetRPS,
 		Gate:          scenario.Profile.Gate,
-		StartedAt:     t.Start,
-		EndedAt:       t.End,
-		Duration:      t.Elapsed(),
+		StartedAt:     startedAt,
+		EndedAt:       endedAt,
+		Duration:      duration,
 		ActiveUsers:   t.PeakUsers.Load(),
 		TotalRequests: reqs,
 		TotalErrors:   errs,
@@ -134,6 +160,34 @@ func Build(t *metrics.Telemetry, scenario *config.Scenario) Report {
 	}
 	r.SLA = EvaluateSLA(&r, scenario.SLA)
 	return r
+}
+
+// ValidateTimestamps checks that StartedAt/EndedAt/Duration are consistent and
+// that Duration represents non-negative actual elapsed execution time.
+func (r Report) ValidateTimestamps() error {
+	if r.Duration < 0 {
+		return fmt.Errorf("duration must be non-negative, got %s", r.Duration)
+	}
+	if r.StartedAt.IsZero() || r.EndedAt.IsZero() {
+		if r.Duration == 0 && r.StartedAt.IsZero() && r.EndedAt.IsZero() {
+			return nil
+		}
+		return fmt.Errorf("started_at and ended_at must be set when duration is recorded")
+	}
+	if r.EndedAt.Before(r.StartedAt) {
+		return fmt.Errorf("ended_at %s is before started_at %s", r.EndedAt.Format(time.RFC3339Nano), r.StartedAt.Format(time.RFC3339Nano))
+	}
+	expected := r.StartedAt.Add(r.Duration)
+	delta := r.EndedAt.Sub(expected)
+	if delta < 0 {
+		delta = -delta
+	}
+	// Allow tiny representation/serialization drift; duration is the source of truth.
+	const tolerance = 2 * time.Millisecond
+	if delta > tolerance {
+		return fmt.Errorf("timestamp inconsistency: ended_at-started_at=%s duration=%s (delta %s)", r.EndedAt.Sub(r.StartedAt), r.Duration, delta)
+	}
+	return nil
 }
 
 // Render writes a premium, colorized report to w.
@@ -271,6 +325,9 @@ func (r Report) Render(w io.Writer) {
 	fmt.Fprintf(w, "    Duration:        %s\n", r.Duration.Round(time.Millisecond))
 	if r.Gate {
 		fmt.Fprintln(w, colorize(colorYellow, c, "    Mode:            simultaneous strike (race window)"))
+	}
+	if len(r.ResourceEvidence) > 0 && string(r.ResourceEvidence) != "null" {
+		fmt.Fprintf(w, "    Resource evidence: attached (explicit; unavailable metrics labeled)\n")
 	}
 	fmt.Fprintln(w)
 

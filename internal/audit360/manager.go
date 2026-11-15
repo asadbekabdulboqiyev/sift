@@ -1,0 +1,277 @@
+package audit360
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"sync"
+	"time"
+)
+
+// Manager runs and tracks Sift 360° jobs.
+type Manager struct {
+	mu   sync.RWMutex
+	jobs map[string]*job
+}
+
+type job struct {
+	mu        sync.RWMutex
+	status    JobStatus
+	report    *Audit360Report
+	subs      map[chan Event]struct{}
+	cancel    context.CancelFunc
+	demoStore string
+}
+
+func NewManager() *Manager {
+	return &Manager{jobs: make(map[string]*job)}
+}
+
+func (m *Manager) Start(ctx context.Context, target string, maxDur time.Duration, demoStoreURL string) (string, error) {
+	id := newJobID()
+	stages := defaultStages()
+	now := time.Now()
+	st := JobStatus{
+		JobID:        id,
+		TargetURL:    target,
+		State:        "queued",
+		StartedAt:    now,
+		UpdatedAt:    now,
+		CurrentStage: "",
+		Stages:       stages,
+		ProgressPct:  0,
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	j := &job{
+		status:    st,
+		subs:      make(map[chan Event]struct{}),
+		cancel:    cancel,
+		demoStore: demoStoreURL,
+	}
+	m.mu.Lock()
+	// simple retention: keep last 20 jobs
+	if len(m.jobs) > 20 {
+		for k := range m.jobs {
+			delete(m.jobs, k)
+			break
+		}
+	}
+	m.jobs[id] = j
+	m.mu.Unlock()
+
+	go m.run(runCtx, j, target, maxDur)
+	return id, nil
+}
+
+func (m *Manager) run(ctx context.Context, j *job, target string, maxDur time.Duration) {
+	j.update(func(s *JobStatus) {
+		s.State = "running"
+		s.UpdatedAt = time.Now()
+		s.CurrentStage = StageScan
+	})
+	j.publishStatus()
+
+	rep, err := Run(ctx, Options{TargetURL: target, MaxDuration: maxDur, DemoStoreURL: j.demoStore}, func(stageID, status, detail, errMsg string) {
+		j.update(func(s *JobStatus) {
+			applyStageUpdate(s, stageID, status, detail, errMsg)
+		})
+		j.publishStatus()
+	})
+	if err != nil {
+		j.update(func(s *JobStatus) {
+			s.State = "failed"
+			s.Error = err.Error()
+			s.FinishedAt = time.Now()
+			s.UpdatedAt = s.FinishedAt
+			s.ProgressPct = progressFromStages(s.Stages)
+		})
+		j.publish(Event{Type: "failed", Status: j.snapshot(), Error: err.Error()})
+		return
+	}
+
+	j.mu.Lock()
+	j.report = rep
+	j.mu.Unlock()
+	j.update(func(s *JobStatus) {
+		s.State = "completed"
+		s.Report = rep
+		s.FinishedAt = time.Now()
+		s.UpdatedAt = s.FinishedAt
+		s.CurrentStage = ""
+		markAllDone(s)
+		s.ProgressPct = 100
+	})
+	j.publish(Event{Type: "completed", Status: j.snapshot(), Report: rep})
+}
+
+func (m *Manager) Get(jobID string) (*JobStatus, bool) {
+	m.mu.RLock()
+	j, ok := m.jobs[jobID]
+	m.mu.RUnlock()
+	if !ok {
+		return nil, false
+	}
+	st := j.snapshot()
+	return st, true
+}
+
+func (m *Manager) Subscribe(jobID string) (<-chan Event, func(), bool) {
+	m.mu.RLock()
+	j, ok := m.jobs[jobID]
+	m.mu.RUnlock()
+	if !ok {
+		return nil, nil, false
+	}
+	ch := make(chan Event, 16)
+	j.mu.Lock()
+	j.subs[ch] = struct{}{}
+	// send immediate snapshot
+	snap := j.snapshotLocked()
+	j.mu.Unlock()
+	select {
+	case ch <- Event{Type: "status", Status: snap}:
+	default:
+	}
+	cancel := func() {
+		j.mu.Lock()
+		if _, ok := j.subs[ch]; ok {
+			delete(j.subs, ch)
+			close(ch)
+		}
+		j.mu.Unlock()
+	}
+	return ch, cancel, true
+}
+
+func (j *job) update(fn func(*JobStatus)) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	fn(&j.status)
+	j.status.UpdatedAt = time.Now()
+	j.status.ProgressPct = progressFromStages(j.status.Stages)
+}
+
+func (j *job) snapshot() *JobStatus {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	return j.snapshotLocked()
+}
+
+func (j *job) snapshotLocked() *JobStatus {
+	cp := j.status
+	cp.Stages = append([]StageProgress(nil), j.status.Stages...)
+	if j.report != nil {
+		// copy pointer ok; report treated immutable after completion
+		cp.Report = j.report
+	}
+	return &cp
+}
+
+func (j *job) publishStatus() {
+	j.publish(Event{Type: "status", Status: j.snapshot()})
+}
+
+func (j *job) publish(ev Event) {
+	j.mu.RLock()
+	subs := make([]chan Event, 0, len(j.subs))
+	for ch := range j.subs {
+		subs = append(subs, ch)
+	}
+	j.mu.RUnlock()
+	for _, ch := range subs {
+		select {
+		case ch <- ev:
+		default:
+			// drop if slow subscriber
+		}
+	}
+}
+
+func defaultStages() []StageProgress {
+	return []StageProgress{
+		{ID: StageScan, Label: "Scanning Security", Status: StatusPending},
+		{ID: StageStress, Label: "Testing Load Limit", Status: StatusPending},
+		{ID: StageResilience, Label: "Calculating Resilience", Status: StatusPending},
+		{ID: StageSeal, Label: "Sealing VPMP Certificate", Status: StatusPending},
+	}
+}
+
+func applyStageUpdate(s *JobStatus, stageID, status, detail, errMsg string) {
+	found := -1
+	for i := range s.Stages {
+		if s.Stages[i].ID == stageID {
+			found = i
+			break
+		}
+	}
+	if found == -1 {
+		return
+	}
+	st := &s.Stages[found]
+	st.Status = status
+	if detail != "" {
+		st.Detail = detail
+	}
+	if errMsg != "" {
+		st.Error = errMsg
+	}
+	now := time.Now()
+	if status == StatusRunning && st.StartedAt.IsZero() {
+		st.StartedAt = now
+		s.CurrentStage = stageID
+	}
+	if status == StatusCompleted || status == StatusFailed || status == StatusSkipped {
+		if st.StartedAt.IsZero() {
+			st.StartedAt = now
+		}
+		st.EndedAt = now
+		if s.CurrentStage == stageID {
+			s.CurrentStage = ""
+		}
+	}
+	s.ProgressPct = progressFromStages(s.Stages)
+}
+
+func markAllDone(s *JobStatus) {
+	for i := range s.Stages {
+		if s.Stages[i].Status == StatusPending || s.Stages[i].Status == StatusRunning {
+			s.Stages[i].Status = StatusCompleted
+			if s.Stages[i].EndedAt.IsZero() {
+				s.Stages[i].EndedAt = time.Now()
+			}
+		}
+	}
+}
+
+func progressFromStages(stages []StageProgress) int {
+	if len(stages) == 0 {
+		return 0
+	}
+	total := 0
+	for _, st := range stages {
+		switch st.Status {
+		case StatusCompleted, StatusFailed, StatusSkipped:
+			total += 100
+		case StatusRunning:
+			total += 45
+		default:
+			total += 0
+		}
+	}
+	p := total / len(stages)
+	if p < 0 {
+		p = 0
+	}
+	if p > 100 {
+		p = 100
+	}
+	return p
+}
+
+func newJobID() string {
+	var b [12]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return hex.EncodeToString([]byte(time.Now().Format("20060102150405.000000000")))
+	}
+	return "a360-" + hex.EncodeToString(b[:])
+}

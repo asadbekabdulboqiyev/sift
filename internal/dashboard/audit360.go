@@ -1,0 +1,173 @@
+package dashboard
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/asadbekabdulboqiyev/sift/internal/audit360"
+)
+
+const audit360MaxBody = 16 << 10
+
+func (s *Server) ensureAudit360Manager() *audit360.Manager {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.audit360 == nil {
+		s.audit360 = audit360.NewManager()
+	}
+	return s.audit360
+}
+
+func (s *Server) demoStoreTargetURL() string {
+	s.mu.RLock()
+	st := s.store
+	s.mu.RUnlock()
+	if st == nil {
+		return "http://127.0.0.1:8090"
+	}
+	return st.URL()
+}
+
+func (s *Server) handleAudit360Start(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", "POST")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !sameOrigin(r) {
+		http.Error(w, "cross-origin requests are not allowed", http.StatusForbidden)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, audit360MaxBody)
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	var req audit360.StartRequest
+	if err := dec.Decode(&req); err != nil {
+		writeAudit360JSON(w, http.StatusBadRequest, audit360.StartResponse{OK: false, Error: "invalid JSON body: " + err.Error()})
+		return
+	}
+
+	demoURL := s.demoStoreTargetURL()
+	target, maxDur, err := audit360.ValidateStartRequest(req, demoURL)
+	if err != nil {
+		// Requirement: reject with 403 Forbidden if authorized is false or target not in allowlist/demo-store.
+		// Also reject malformed/unsafe targets clearly (safety-first); use 403 for authz/allowlist violations.
+		msg := err.Error()
+		code := http.StatusForbidden
+		if strings.Contains(msg, "target_url") && (strings.Contains(msg, "required") || strings.Contains(msg, "valid")) {
+			// malformed target is not an allowlist pass; keep forbidden-safe posture? better 400 would be clearer,
+			// but requirement states 403 for specific cases. Use 403 for unauthorized/allowlist, 400 for format.
+			if strings.Contains(msg, "required") || strings.Contains(msg, "valid http(s)") || strings.Contains(msg, "credentials") {
+				code = http.StatusBadRequest
+			}
+		}
+		writeAudit360JSON(w, code, audit360.StartResponse{OK: false, Error: msg})
+		return
+	}
+
+	mgr := s.ensureAudit360Manager()
+	jobID, err := mgr.Start(context.Background(), target, maxDur, demoURL)
+	if err != nil {
+		writeAudit360JSON(w, http.StatusInternalServerError, audit360.StartResponse{OK: false, Error: err.Error()})
+		return
+	}
+	writeAudit360JSON(w, http.StatusAccepted, audit360.StartResponse{
+		OK:        true,
+		JobID:     jobID,
+		StatusURL: "/api/audit-360/status?job_id=" + jobID,
+		StreamURL: "/api/audit-360/stream?job_id=" + jobID,
+	})
+}
+
+func (s *Server) handleAudit360Status(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	jobID := strings.TrimSpace(r.URL.Query().Get("job_id"))
+	if jobID == "" {
+		writeAudit360JSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "job_id is required"})
+		return
+	}
+	mgr := s.ensureAudit360Manager()
+	st, ok := mgr.Get(jobID)
+	if !ok {
+		writeAudit360JSON(w, http.StatusNotFound, map[string]any{"ok": false, "error": "job not found"})
+		return
+	}
+	writeAudit360JSON(w, http.StatusOK, st)
+}
+
+func (s *Server) handleAudit360Stream(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", "GET")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	jobID := strings.TrimSpace(r.URL.Query().Get("job_id"))
+	if jobID == "" {
+		http.Error(w, "job_id is required", http.StatusBadRequest)
+		return
+	}
+	mgr := s.ensureAudit360Manager()
+	ch, cancelSub, ok := mgr.Subscribe(jobID)
+	if !ok {
+		http.Error(w, "job not found", http.StatusNotFound)
+		return
+	}
+	defer cancelSub()
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	// Initial comment to establish stream promptly.
+	_, _ = fmt.Fprintf(w, ": ok\n\n")
+	flusher.Flush()
+
+	keepalive := time.NewTicker(15 * time.Second)
+	defer keepalive.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case ev, ok := <-ch:
+			if !ok {
+				return
+			}
+			b, err := json.Marshal(ev)
+			if err != nil {
+				continue
+			}
+			_, _ = fmt.Fprintf(w, "event: %s\n", ev.Type)
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", b)
+			flusher.Flush()
+			if ev.Type == "completed" || ev.Type == "failed" {
+				return
+			}
+		case <-keepalive.C:
+			_, _ = fmt.Fprintf(w, ": keepalive\n\n")
+			flusher.Flush()
+		}
+	}
+}
+
+func writeAudit360JSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}

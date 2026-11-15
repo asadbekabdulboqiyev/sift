@@ -3255,3 +3255,115 @@ html {
 .ins-check label { display:flex; gap:8px; align-items:center; }
 .report-view { padding: 4px 2px; }
 .report-view .ins-kv { margin-bottom: 4px; }
+
+/* P3 insights: evidence/badges */
+.ins-subtitle { font-size: 12px; font-weight: 700; color: var(--text-2); text-transform: uppercase; letter-spacing: .03em; }
+.ins-badge { display:inline-flex; align-items:center; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; border:1px solid var(--border); background:var(--bg-1); color:var(--text-1); }
+.ins-badge.ok { color: var(--green, #34d399); border-color: rgba(52,211,153,.35); }
+.ins-badge.warn { color: #fbbf24; border-color: rgba(251,191,36,.35); }
+.ins-badge.err { color: var(--red, #f87171); border-color: rgba(248,113,113,.35); }
+
+/* ===== Sift 360° Audit (1-click full diagnostic) ===== */
+.a360-hero { margin: 0 0 16px; border: 1px solid rgba(255,255,255,0.08); background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015)); }
+.a360-head { display:flex; justify-content:space-between; gap:16px; align-items:flex-start; margin-bottom:12px; }
+.a360-kicker { font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:#9ca3af; margin-bottom:4px; }
+.a360-title { margin:0; font-size:24px; line-height:1.2; }
+.a360-sub { margin:6px 0 0; color:#b7bcc8; max-width:72ch; }
+.a360-badge { font-size:12px; color:#d7ffe8; background:rgba(16,185,129,.12); border:1px solid rgba(16,185,129,.35); padding:6px 10px; border-radius:999px; white-space:nowrap; }
+.a360-form { display:grid; gap:10px; margin-top:8px; }
+.a360-row { display:flex; gap:12px; align-items:flex-end; }
+.a360-row--meta { align-items:center; justify-content:space-between; flex-wrap:wrap; }
+.a360-field--grow { flex:1; min-width:260px; }
+.a360-input-wrap { display:flex; gap:8px; align-items:center; }
+.a360-input-wrap .form-input { flex:1; }
+.a360-check { display:flex; gap:8px; align-items:center; color:#e5e7eb; font-size:14px; }
+.a360-check input { width:16px; height:16px; }
+.a360-start { min-width:220px; }
+.a360-progress { margin-top:14px; padding:14px; border:1px solid rgba(255,255,255,.08); border-radius:12px; background:rgba(0,0,0,.18); }
+.a360-progress-head { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom:10px; }
+.a360-progress-title { font-weight:700; }
+.a360-progress-meta { color:#b7bcc8; font-size:13px; }
+.a360-track { height:8px; border-radius:999px; background:rgba(255,255,255,.08); overflow:hidden; margin-bottom:12px; }
+.a360-track-fill { height:100%; width:0%; background:linear-gradient(90deg,#3b82f6,#22c55e); transition:width .35s ease; }
+.a360-stages { list-style:none; padding:0; margin:0; display:grid; gap:8px; }
+.a360-stage { display:flex; gap:10px; align-items:flex-start; padding:8px 10px; border-radius:10px; background:rgba(255,255,255,.02); border:1px solid rgba(255,255,255,.05); }
+.a360-dot { width:10px; height:10px; border-radius:50%; margin-top:6px; background:#6b7280; box-shadow:0 0 0 4px rgba(107,114,128,.15); flex:0 0 auto; }
+.a360-stage.running .a360-dot { background:#60a5fa; box-shadow:0 0 0 4px rgba(96,165,250,.18); }
+.a360-stage.completed .a360-dot { background:#22c55e; box-shadow:0 0 0 4px rgba(34,197,94,.18); }
+.a360-stage.failed .a360-dot { background:#ef4444; box-shadow:0 0 0 4px rgba(239,68,68,.18); }
+.a360-stage-text { display:grid; gap:2px; }
+.a360-stage-text small { color:#aeb4c0; font-size:12px; line-height:1.35; }
+.a360-running { display:flex; align-items:center; gap:10px; margin-top:10px; color:#d1d5db; font-size:13px; }
+.a360-ekg { width:64px; height:32px; --ink:#22c55e; }
+
+/* Provided EKG loader */
+.ld-ekg { width: 64px; height: 32px; }
+.ld-ekg polyline {
+  fill: none;
+  stroke: var(--ink, currentColor);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 90;
+  stroke-dashoffset: 90;
+  animation: ekg 1.6s linear infinite;
+}
+@keyframes ekg {
+  0%       { stroke-dashoffset: 90; }
+  60%, 75% { stroke-dashoffset: 0; }
+  100%     { stroke-dashoffset: -90; }
+}
+
+.a360-result { margin-top:14px; display:grid; gap:14px; }
+.a360-result-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap; }
+.a360-result-title { margin:0; font-size:20px; }
+.a360-result-sub { margin:4px 0 0; color:#b7bcc8; font-size:13px; }
+.a360-score-grid { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:12px; }
+.a360-gauge-card, .a360-capacity-card, .a360-vpmp-card, .a360-findings-card { border:1px solid rgba(255,255,255,.08); border-radius:12px; padding:14px; background:rgba(255,255,255,.02); }
+.a360-gauge { position:relative; width:140px; height:140px; margin:0 auto 8px; }
+.a360-gauge-svg { width:100%; height:100%; transform:rotate(-90deg); }
+.a360-gauge-bg { fill:none; stroke:rgba(255,255,255,.1); stroke-width:10; }
+.a360-gauge-fg { fill:none; stroke:#22c55e; stroke-width:10; stroke-linecap:round; stroke-dasharray:314; stroke-dashoffset:314; transition:stroke-dashoffset .6s ease, stroke .3s ease; }
+.a360-gauge-center { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.a360-gauge-score { font-size:34px; font-weight:800; line-height:1; }
+.a360-gauge-label { color:#aeb4c0; font-size:12px; }
+.a360-risk { text-align:center; font-weight:700; margin-top:4px; }
+.a360-risk-note { text-align:center; color:#aeb4c0; font-size:12px; margin-top:4px; }
+.a360-card-title { font-weight:700; margin-bottom:8px; }
+.a360-capacity-main { font-size:20px; font-weight:700; line-height:1.3; margin-bottom:6px; }
+.a360-capacity-sub { color:#c4cad6; font-size:13px; margin-bottom:8px; }
+.a360-notes { margin:0; padding-left:18px; color:#b7bcc8; font-size:12px; display:grid; gap:4px; }
+.a360-vpmp-badge { border:1px dashed rgba(34,197,94,.45); background:rgba(34,197,94,.08); border-radius:10px; padding:10px; margin-bottom:10px; }
+.a360-vpmp-seal { display:inline-block; font-size:11px; font-weight:800; letter-spacing:.08em; color:#052e16; background:#86efac; padding:3px 8px; border-radius:999px; margin-bottom:6px; }
+.a360-vpmp-id, .a360-vpmp-sig { font-size:12px; color:#d1fae5; word-break:break-all; }
+.a360-qr-wrap { display:grid; gap:6px; justify-items:start; }
+.a360-qr-label { font-size:12px; color:#b7bcc8; }
+.a360-qr { width:132px; height:132px; border-radius:8px; background:#fff; padding:6px; }
+.a360-qr-hint { font-size:11px; color:#9ca3af; }
+.a360-findings { display:grid; gap:10px; }
+.a360-finding { border:1px solid rgba(255,255,255,.07); border-radius:10px; padding:12px; background:rgba(0,0,0,.12); }
+.a360-finding-head { display:flex; gap:8px; align-items:center; justify-content:space-between; margin-bottom:6px; }
+.a360-finding-title { font-weight:700; }
+.a360-sev { font-size:11px; text-transform:uppercase; letter-spacing:.06em; padding:3px 8px; border-radius:999px; border:1px solid rgba(255,255,255,.15); }
+.a360-sev.critical, .a360-sev.high { color:#fecaca; border-color:rgba(239,68,68,.4); background:rgba(239,68,68,.12); }
+.a360-sev.medium { color:#fde68a; border-color:rgba(245,158,11,.4); background:rgba(245,158,11,.12); }
+.a360-sev.low { color:#bfdbfe; border-color:rgba(59,130,246,.35); background:rgba(59,130,246,.12); }
+.a360-sev.info { color:#d1d5db; border-color:rgba(156,163,175,.35); background:rgba(156,163,175,.12); }
+.a360-finding p { margin:4px 0; color:#d6dae3; font-size:13px; line-height:1.45; }
+.a360-finding p strong { color:#f3f4f6; }
+.a360-empty { color:#aeb4c0; font-size:13px; }
+
+@media (max-width: 980px) {
+  .a360-score-grid { grid-template-columns: 1fr; }
+  .a360-row, .a360-head { flex-direction:column; align-items:stretch; }
+  .a360-input-wrap { flex-direction:column; align-items:stretch; }
+}
+
+@media print {
+  body * { visibility: hidden !important; }
+  #audit360Result, #audit360Result * { visibility: visible !important; }
+  #audit360Result { position: absolute; left: 0; top: 0; width: 100%; margin: 0; border: none; background: #fff; color: #111; }
+  #audit360Result .a360-gauge-card, #audit360Result .a360-capacity-card, #audit360Result .a360-vpmp-card, #audit360Result .a360-findings-card, #audit360Result .a360-finding { background:#fff; color:#111; border-color:#ddd; }
+  #audit360Result .a360-result-sub, #audit360Result .a360-capacity-sub, #audit360Result .a360-notes, #audit360Result .a360-finding p, #audit360Result .a360-risk-note, #audit360Result .a360-qr-hint { color:#333; }
+  #a360PrintBtn { display:none !important; }
+}

@@ -76,6 +76,113 @@
       <p class="page-sub">Configure a run, watch live metrics, and review results in real time.</p>
     </div>
 
+  <!-- Sift 360° Hero -->
+  <section class="card a360-hero" id="audit360Hero" aria-labelledby="a360Title">
+    <div class="a360-head">
+      <div>
+        <div class="a360-kicker">1-click full audit</div>
+        <h2 class="a360-title" id="a360Title">🛡️ Sift 360° — 1-Click Full Audit</h2>
+        <p class="a360-sub">Security scan, breaking-point stress test, resilience score, and VPMP-attested certificate in ~25 seconds (authorized demo targets only).</p>
+      </div>
+      <div class="a360-badge">VPMP v1 attested</div>
+    </div>
+    <form id="audit360Form" class="a360-form" novalidate autocomplete="off">
+      <div class="a360-row">
+        <div class="a360-field a360-field--grow">
+          <label class="form-label" for="a360Target">Target URL</label>
+          <div class="a360-input-wrap">
+            <input id="a360Target" class="form-input" type="text" inputmode="url" spellcheck="false" autocomplete="off" placeholder="http://127.0.0.1:8090" aria-describedby="a360TargetHelp a360Error">
+            <button type="button" class="btn btn-ghost btn-sm" id="a360FillDemo" title="Quick-fill local VoltStore demo server URL">Use VoltStore demo</button>
+          </div>
+          <div class="form-help" id="a360TargetHelp">Allowed target: local VoltStore demo server (<code>http://127.0.0.1:8090</code>) when explicitly authorized.</div>
+        </div>
+      </div>
+      <div class="a360-row a360-row--meta">
+        <label class="a360-check">
+          <input id="a360Authorized" type="checkbox">
+          <span>I confirm explicit authorization to test this target.</span>
+        </label>
+        <button type="submit" class="btn btn-start a360-start" id="a360StartBtn">
+          <span class="a360-start-ico" aria-hidden="true">🛡️</span>
+          <span>Run Sift 360° Audit</span>
+        </button>
+      </div>
+      <p class="field-error" id="a360Error" role="alert"></p>
+    </form>
+
+    <div class="a360-progress hidden" id="audit360Progress" aria-live="polite">
+      <div class="a360-progress-head">
+        <div class="a360-progress-title">Audit in progress</div>
+        <div class="a360-progress-meta"><span id="a360Pct">0%</span> · <span id="a360StageLabel">Preparing…</span></div>
+      </div>
+      <div class="a360-track" aria-hidden="true"><div class="a360-track-fill" id="a360TrackFill"></div></div>
+      <ol class="a360-stages" id="a360Stages">
+        <li class="a360-stage" data-stage="scan_security"><span class="a360-dot"></span><span class="a360-stage-text"><strong>1. Scanning Security</strong><small id="a360Detail-scan_security">Pending</small></span></li>
+        <li class="a360-stage" data-stage="test_load"><span class="a360-dot"></span><span class="a360-stage-text"><strong>2. Testing Load Limit</strong><small id="a360Detail-test_load">Pending</small></span></li>
+        <li class="a360-stage" data-stage="calculate_resilience"><span class="a360-dot"></span><span class="a360-stage-text"><strong>3. Calculating Resilience</strong><small id="a360Detail-calculate_resilience">Pending</small></span></li>
+        <li class="a360-stage" data-stage="seal_certificate"><span class="a360-dot"></span><span class="a360-stage-text"><strong>4. Sealing VPMP Certificate</strong><small id="a360Detail-seal_certificate">Pending</small></span></li>
+      </ol>
+      <div class="a360-running" id="a360RunningIndicator">
+        <svg class="ld-ekg a360-ekg" viewBox="0 0 64 32" aria-hidden="true"><polyline points="0,16 14,16 20,6 28,26 34,16 64,16"></polyline></svg>
+        <span>Live analysis running…</span>
+      </div>
+    </div>
+
+    <div class="a360-result hidden" id="audit360Result">
+      <div class="a360-result-head">
+        <div>
+          <div class="a360-kicker">Executive Audit Scorecard</div>
+          <h3 class="a360-result-title">Sift 360° Report</h3>
+          <p class="a360-result-sub" id="a360ResultMeta">—</p>
+        </div>
+        <div class="a360-result-actions">
+          <button type="button" class="btn btn-ghost" id="a360PrintBtn">Print / Export Verified Report</button>
+        </div>
+      </div>
+
+      <div class="a360-score-grid">
+        <div class="a360-gauge-card">
+          <div class="a360-gauge" id="a360Gauge" aria-label="Resilience score gauge">
+            <svg viewBox="0 0 120 120" class="a360-gauge-svg">
+              <circle cx="60" cy="60" r="50" class="a360-gauge-bg"></circle>
+              <circle cx="60" cy="60" r="50" class="a360-gauge-fg" id="a360GaugeFg"></circle>
+            </svg>
+            <div class="a360-gauge-center">
+              <div class="a360-gauge-score" id="a360Score">—</div>
+              <div class="a360-gauge-label">/100</div>
+            </div>
+          </div>
+          <div class="a360-risk" id="a360Risk">—</div>
+          <div class="a360-risk-note" id="a360RiskNote">Resilience score based on measured security and capacity evidence.</div>
+        </div>
+        <div class="a360-capacity-card">
+          <div class="a360-card-title">Capacity Limit</div>
+          <div class="a360-capacity-main" id="a360CapacityMain">—</div>
+          <div class="a360-capacity-sub" id="a360CapacitySub">—</div>
+          <ul class="a360-notes" id="a360Notes"></ul>
+        </div>
+        <div class="a360-vpmp-card">
+          <div class="a360-card-title">VPMP Attestation</div>
+          <div class="a360-vpmp-badge" id="a360VpmpBadge">
+            <div class="a360-vpmp-seal">VERIFIED</div>
+            <div class="a360-vpmp-id" id="a360CertId">Certificate: —</div>
+            <div class="a360-vpmp-sig" id="a360SigShort">Signature: —</div>
+          </div>
+          <div class="a360-qr-wrap">
+            <div class="a360-qr-label">QR code preview</div>
+            <canvas id="a360Qr" width="132" height="132" class="a360-qr" aria-label="VPMP verification QR preview"></canvas>
+            <div class="a360-qr-hint" id="a360QrHint">Encodes certificate verification reference.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="a360-findings-card">
+        <div class="a360-card-title">Findings, Business Impact & Fix Instructions</div>
+        <div id="a360Findings" class="a360-findings"></div>
+      </div>
+    </div>
+  </section>
+
   <!-- First-run onboarding / empty state -->
   <section class="onboarding hidden" id="onboarding" aria-labelledby="obTitle">
     <button class="ob-close" id="onboardingClose" type="button" title="Do not show this guide again" aria-label="Dismiss the getting started guide permanently">
@@ -923,25 +1030,67 @@
 
     <div class="ins-cols">
       <div class="card">
-        <div class="card-header"><div><div class="card-title">Digital Twin — fit model</div><div class="card-subtitle">Paste a Sift report JSON to derive a capacity model (estimate, not a guarantee).</div></div></div>
+        <div class="card-header"><div><div class="card-title">Digital Twin — fit model</div><div class="card-subtitle">Fit an evidence-driven capacity model from measured report data (estimate, not a guarantee).</div></div></div>
         <label class="ins-label" for="twinReportJson">Report JSON</label>
         <textarea id="twinReportJson" class="ins-textarea" spellcheck="false" placeholder='Paste report JSON (e.g. reports/*.json)'></textarea>
-        <div class="ins-row"><label class="ins-label" for="twinTargetP99">Target p99 (ms, optional)</label><input id="twinTargetP99" type="number" min="0" step="1" placeholder="0"></div>
+        <div class="ins-row"><label class="ins-label" for="twinTargetP99">Target p99 hint (ms, optional)</label><input id="twinTargetP99" type="number" min="0" step="1" placeholder="0"></div>
         <div class="ins-actions"><button class="btn btn-primary btn-sm" id="btnTwinFit" type="button">Fit model</button><button class="btn btn-ghost btn-sm" id="btnTwinLoadLatest" type="button" title="Load the latest completed run from dashboard history">Load latest run</button><button class="btn btn-ghost btn-sm" id="btnTwinUseModel" type="button">Use fitted model →</button></div>
         <div id="twinFitOut" class="ins-out"></div>
       </div>
 
       <div class="card">
-        <div class="card-header"><div><div class="card-title">Digital Twin — simulate</div><div class="card-subtitle">Run a seeded what-if scenario against a fitted model.</div></div></div>
+        <div class="card-header"><div><div class="card-title">Digital Twin — scenario simulation</div><div class="card-subtitle">Deterministic, seeded model-based simulation. All outputs are estimates derived from evidence (not direct measurements).</div></div></div>
         <label class="ins-label" for="twinModelJson">Model JSON</label>
         <textarea id="twinModelJson" class="ins-textarea" spellcheck="false" placeholder='Paste twin-model.json'></textarea>
         <div class="ins-row ins-row-3">
-          <div><label class="ins-label" for="twinScenario">Scenario</label><select id="twinScenario"><option value="likely">likely</option><option value="best">best</option><option value="worst">worst</option><option value="custom">custom</option></select></div>
+          <div><label class="ins-label" for="twinScenario">Scenario</label><select id="twinScenario"><option value="normal">normal</option><option value="peak">peak</option><option value="burst">burst</option><option value="sustained">sustained</option><option value="high-concurrency">high-concurrency</option><option value="resource-degradation">resource-degradation</option><option value="likely">likely (legacy)</option><option value="best">best (legacy)</option><option value="worst">worst (legacy)</option><option value="custom">custom</option></select></div>
           <div><label class="ins-label" for="twinRps">Target RPS</label><input id="twinRps" type="number" min="0" step="1" placeholder="auto"></div>
           <div><label class="ins-label" for="twinIters">Iterations</label><input id="twinIters" type="number" min="1" max="10000" step="1" value="200"></div>
         </div>
+        <div class="ins-row ins-row-3">
+          <div><label class="ins-label" for="twinP95Thr">SLA p95 (ms)</label><input id="twinP95Thr" type="number" min="0" step="1" placeholder="not configured"></div>
+          <div><label class="ins-label" for="twinP99Thr">SLA p99 (ms)</label><input id="twinP99Thr" type="number" min="0" step="1" placeholder="not configured"></div>
+          <div><label class="ins-label" for="twinErrThr">Max error %</label><input id="twinErrThr" type="number" min="0" step="0.1" placeholder="not configured"></div>
+        </div>
+        <div class="ins-row"><label class="ins-label" for="twinThrRps">Min throughput (RPS)</label><input id="twinThrRps" type="number" min="0" step="1" placeholder="not configured"></div>
+        <p class="ins-note">Breach probabilities require configured thresholds (per-iteration, with confidence intervals). If no thresholds are configured, status is NOT_CONFIGURED and risk is never LOW.</p>
         <div class="ins-actions"><button class="btn btn-primary btn-sm" id="btnTwinSim" type="button">Simulate</button></div>
         <div id="twinSimOut" class="ins-out"></div>
+      </div>
+    </div>
+
+    <div class="ins-cols" style="margin-top:16px;">
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">Prediction vs actual</div><div class="card-subtitle">Compare model/simulation predictions against measured report evidence (MAE/RMSE/MAPE/error%).</div></div></div>
+        <label class="ins-label" for="twinActualJson">Actual report JSON (measured)</label>
+        <textarea id="twinActualJson" class="ins-textarea" spellcheck="false" placeholder='Paste actual report JSON'></textarea>
+        <div class="ins-actions"><button class="btn btn-primary btn-sm" id="btnTwinCompare" type="button">Compare</button><button class="btn btn-ghost btn-sm" id="btnTwinLoadActualFromLatest" type="button">Load latest run</button></div>
+        <p class="ins-note">Uses the latest simulation result if available; otherwise simulates from model + selected scenario.</p>
+        <div id="twinCompareOut" class="ins-out"></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">Sensitivity analysis</div><div class="card-subtitle">Quantify impact of concurrency, request complexity, CPU/memory/network/connection proxies (model-based, seeded/deterministic).</div></div></div>
+        <p class="ins-note">Runs against the model in "Model JSON" and the selected scenario/base settings.</p>
+        <div class="ins-actions"><button class="btn btn-primary btn-sm" id="btnTwinSensitivity" type="button">Analyze sensitivity</button></div>
+        <div id="twinSensitivityOut" class="ins-out"></div>
+      </div>
+    </div>
+
+    <div class="ins-cols" style="margin-top:16px;">
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">Model validation & backtesting</div><div class="card-subtitle">Compute MAE/RMSE/MAPE/error% and detect drift/OOD from paired predicted vs actual samples. Caller must enforce train/validation split and no leakage.</div></div></div>
+        <label class="ins-label" for="twinBacktestJson">Backtest JSON</label>
+        <textarea id="twinBacktestJson" class="ins-textarea" spellcheck="false" placeholder='{"predicted":[...],"actual":[...],"model_range_low":0,"model_range_high":0,"model_version":"..."}'></textarea>
+        <div class="ins-actions"><button class="btn btn-primary btn-sm" id="btnTwinBacktest" type="button">Run backtest metrics</button></div>
+        <div id="twinBacktestOut" class="ins-out"></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div><div class="card-title">Resource monitoring evidence</div><div class="card-subtitle">CPU, memory, network, connections, server response time, memory growth. Unavailable metrics are explicitly labeled and never fabricated.</div></div></div>
+        <label class="ins-label" for="resourceAssessJson">Resource evidence JSON (optional fields)</label>
+        <textarea id="resourceAssessJson" class="ins-textarea" spellcheck="false" placeholder='{"cpu":72.5,"memory":64.0,"network":null,"connections":1200,"server_response_time":42.0,"memory_growth":3.2}'></textarea>
+        <p class="ins-note">Provide only supported/measured values. Omitted/null metrics (including memory growth, active connections, server response time when unavailable) are reported as unavailable — never fabricated.</p>
+        <div class="ins-actions"><button class="btn btn-primary btn-sm" id="btnResourceAssess" type="button">Assess availability</button></div>
+        <div id="resourceAssessOut" class="ins-out"></div>
       </div>
     </div>
 

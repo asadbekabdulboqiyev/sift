@@ -19,6 +19,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -133,31 +134,38 @@ func cmdXrayReport() {
 	fs.Usage = func() {}
 
 	input := fs.String("input", "", "path to JSONL samples from 'xray collect' (required)")
-	signals := fs.String("signals", "", "path to a Sift-like signal file (JSON/JSONL) for correlation (required)")
+	signals := fs.String("signals", "", "path to a Sift-like signal file (JSON/JSONL) for correlation (optional; required for correlation indicators)")
 	out := fs.String("out", "reports/xray-report.md", "path to write the Markdown report")
 	window := fs.Duration("window", hostxray.DefaultCorrelateWindow, "correlation lookback window (1s..5m)")
 	title := fs.String("title", "Sift Host X-Ray Report", "report title")
+	evidenceOut := fs.String("evidence-out", "", "optional path to write derived resource evidence JSON (from samples/capabilities; unavailable metrics labeled explicitly)")
 
 	if err := fs.Parse(os.Args[3:]); err != nil {
 		xrayUsage()
 		exitProcess(1)
 		return
 	}
-	if fs.NArg() > 0 || strings.TrimSpace(*input) == "" || strings.TrimSpace(*signals) == "" {
+	if fs.NArg() > 0 || strings.TrimSpace(*input) == "" {
 		xrayUsage()
 		exitProcess(1)
 		return
 	}
+	// Signals are optional: when omitted, correlation indicators are not produced,
+	// but markdown/resource evidence derived from samples+capabilities can still be generated.
+	signalsPath := strings.TrimSpace(*signals)
 
 	samples, err := hostxray.LoadJSONL(filepathClean(*input))
 	if err != nil {
 		fatal(err)
 		return
 	}
-	sigs, err := hostxray.LoadSignals(filepathClean(*signals))
-	if err != nil {
-		fatal(err)
-		return
+	var sigs []hostxray.Signal
+	if signalsPath != "" {
+		sigs, err = hostxray.LoadSignals(filepathClean(signalsPath))
+		if err != nil {
+			fatal(err)
+			return
+		}
 	}
 
 	indicators := hostxray.Correlate(samples, sigs, hostxray.CorrelateOptions{Window: *window})
@@ -182,6 +190,24 @@ func cmdXrayReport() {
 	fmt.Printf("samples:    %d\n", len(samples))
 	fmt.Printf("signals:    %d\n", len(sigs))
 	fmt.Printf("indicators: %d\n", len(indicators))
+	if strings.TrimSpace(*evidenceOut) != "" {
+		derived := hostxray.DeriveResourceEvidence(samples, caps)
+		ePath := filepathClean(*evidenceOut)
+		if err := os.MkdirAll(filepath.Dir(ePath), 0o750); err != nil {
+			fatal(fmt.Errorf("xray evidence-out: create dir: %w", err))
+			return
+		}
+		b, err := json.MarshalIndent(derived, "", "  ")
+		if err != nil {
+			fatal(fmt.Errorf("xray evidence-out: encode: %w", err))
+			return
+		}
+		if err := os.WriteFile(ePath, append(b, '\n'), 0o600); err != nil {
+			fatal(fmt.Errorf("xray evidence-out: write %s: %w", ePath, err))
+			return
+		}
+		fmt.Printf("evidence:   %s\n", ePath)
+	}
 	fmt.Println("note:       indicators are correlated evidence, not causal findings")
 }
 

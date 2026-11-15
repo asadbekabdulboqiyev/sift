@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/attest"
+	"github.com/asadbekabdulboqiyev/sift/internal/audit360"
 	"github.com/asadbekabdulboqiyev/sift/internal/demostore"
 	"github.com/gorilla/websocket"
 )
@@ -229,6 +230,9 @@ type Server struct {
 	// owaspSem serializes security scans: one at a time, so a second click
 	// gets a 409 instead of a second set of probes racing the first.
 	owaspSem chan struct{}
+
+	// audit360 manages 1-click 360-degree audits (async jobs + status/SSE).
+	audit360 *audit360.Manager
 
 	// allowedHosts holds extra Host header names accepted on top of the
 	// loopback names. It is guarded by mu and only read by hostAllowed
@@ -596,6 +600,14 @@ func (s *Server) serveApp(w http.ResponseWriter, r *http.Request) {
 		s.handleInsightsTwinFit(w, r)
 	case path == "/api/insights/twin/simulate":
 		s.handleInsightsTwinSimulate(w, r)
+	case path == "/api/insights/twin/compare":
+		s.handleInsightsTwinCompare(w, r)
+	case path == "/api/insights/twin/sensitivity":
+		s.handleInsightsTwinSensitivity(w, r)
+	case path == "/api/insights/twin/backtest":
+		s.handleInsightsTwinBacktest(w, r)
+	case path == "/api/insights/resources/assess":
+		s.handleInsightsResourceAssessment(w, r)
 	case path == "/api/insights/xray/correlate":
 		s.handleInsightsXRayCorrelate(w, r)
 	case path == "/api/insights/bounty/validate":
@@ -604,6 +616,12 @@ func (s *Server) serveApp(w http.ResponseWriter, r *http.Request) {
 		s.handleInsightsBountyVerifyUpload(w, r)
 	case path == "/api/insights/bounty/status":
 		s.handleInsightsBountyStatus(w, r)
+	case path == "/api/audit-360":
+		s.handleAudit360Start(w, r)
+	case path == "/api/audit-360/status":
+		s.handleAudit360Status(w, r)
+	case path == "/api/audit-360/stream":
+		s.handleAudit360Stream(w, r)
 	case path == "/style.css":
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")

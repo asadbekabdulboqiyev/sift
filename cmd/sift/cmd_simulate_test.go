@@ -78,7 +78,7 @@ func TestCmdSimulateFit(t *testing.T) {
 	if res.code != 0 {
 		t.Fatalf("exit = %d, stderr = %s", res.code, res.stderr)
 	}
-	for _, want := range []string{"model written", "capacity estimate", "confidence", "observed workload"} {
+	for _, want := range []string{"model written", "confidence", "observed capacity", "observed workload"} {
 		if !strings.Contains(res.stdout, want) {
 			t.Errorf("stdout missing %q:\n%s", want, res.stdout)
 		}
@@ -311,5 +311,203 @@ func TestCmdSimulateUsageErrors(t *testing.T) {
 				t.Errorf("no actionable error on stderr: %q", res.stderr)
 			}
 		})
+	}
+}
+
+func TestCmdSimulateValidateUpdatesModelAndArtifacts(t *testing.T) {
+	modelPath := fitModel(t, t.TempDir())
+	actualPath := writeSimulateReport(t) // same shape, measured report evidence
+	outDir := t.TempDir()
+
+	res := runCommandFn(t, cmdSimulate, "simulate", "validate",
+		"--model", modelPath,
+		"--actual", actualPath,
+		"--scenario", "likely",
+		"--seed", "7",
+		"--split-json", `{"strategy":"time_cutoff","train_end":"2026-01-01T00:00:00Z","validation_start":"2026-01-01T00:00:00Z"}`,
+		"--leakage-json", `{"enforced":true,"proven":true,"method":"explicit_split","checks":["no_overlap"]}`,
+		"--dataset-json", `{"kind":"report","path":"actual.json","id":"actual-1"}`,
+		"--require-no-leakage",
+		"--update-model",
+		"--out", outDir,
+	)
+	if res.code != 0 {
+		t.Fatalf("exit = %d, stderr = %s\nstdout=%s", res.code, res.stderr, res.stdout)
+	}
+	// Legacy --require-no-leakage accepts explicit caller metadata, but metadata-only
+	// claims must not be recorded as verified/proven without manifest/provenance checks.
+	if !strings.Contains(res.stdout, "leakage: enforced=true") {
+		t.Errorf("stdout missing leakage summary:\n%s", res.stdout)
+	}
+	if !strings.Contains(res.stdout, "status=unverified") || !strings.Contains(res.stdout, "verified=false") {
+		t.Errorf("stdout should mark metadata-only leakage as unverified:\n%s", res.stdout)
+	}
+
+	artPath := filepath.Join(outDir, "validation-compare.json")
+	b, err := os.ReadFile(artPath)
+	if err != nil {
+		t.Fatalf("read artifact: %v", err)
+	}
+	var art map[string]any
+	if err := json.Unmarshal(b, &art); err != nil {
+		t.Fatalf("unmarshal artifact: %v", err)
+	}
+	if _, ok := art["split"]; !ok {
+		t.Error("artifact missing split")
+	}
+	if _, ok := art["leakage"]; !ok {
+		t.Error("artifact missing leakage")
+	}
+	if _, ok := art["dataset"]; !ok {
+		t.Error("artifact missing dataset")
+	}
+	if _, ok := art["validation_record"]; !ok {
+		t.Error("artifact missing validation_record")
+	}
+	if art["verification_status"] != twin.LeakageStatusUnverified {
+		t.Errorf("verification_status=%v want %s", art["verification_status"], twin.LeakageStatusUnverified)
+	}
+	leakage, _ := art["leakage"].(map[string]any)
+	if leakage == nil || leakage["status"] != twin.LeakageStatusUnverified || leakage["verified"] == true || leakage["proven"] == true {
+		t.Errorf("metadata-only leakage must be unverified/unproven in artifact: %#v", art["leakage"])
+	}
+
+	model, err := twin.LoadModel(modelPath)
+	if err != nil {
+		t.Fatalf("LoadModel: %v", err)
+	}
+	if model.ModelInfo == nil {
+		t.Fatal("missing model_info")
+	}
+	if model.ModelInfo.BacktestStatus == "" || model.ModelInfo.BacktestStatus == "NOT_RUN" {
+		t.Errorf("expected updated backtest_status, got %q", model.ModelInfo.BacktestStatus)
+	}
+	if model.ModelInfo.DriftStatus == "" || model.ModelInfo.DriftStatus == "UNKNOWN" {
+		// OK/NONE or DETECTED depending on comparison; but should be set from validation
+	}
+	if model.ModelInfo.LastValidation == nil {
+		t.Fatal("expected last_validation")
+	}
+	if model.ModelInfo.LastValidation.Kind != "compare" {
+		t.Errorf("last_validation.kind = %q, want compare", model.ModelInfo.LastValidation.Kind)
+	}
+	if model.ModelInfo.LastValidation.Split == nil || model.ModelInfo.LastValidation.Dataset == nil || model.ModelInfo.LastValidation.Leakage == nil {
+		t.Fatal("last_validation missing split/dataset/leakage provenance")
+	}
+	if model.ModelInfo.LastValidation.Leakage.Status != twin.LeakageStatusUnverified || model.ModelInfo.LastValidation.Leakage.Verified || model.ModelInfo.LastValidation.Leakage.Proven {
+		t.Errorf("persisted metadata-only leakage must be unverified: %+v", model.ModelInfo.LastValidation.Leakage)
+	}
+	if len(model.ModelInfo.ValidationHistory) == 0 {
+		t.Fatal("expected validation_history")
+	}
+}
+
+func TestCmdSimulateValidateRequireNoLeakageFails(t *testing.T) {
+	modelPath := fitModel(t, t.TempDir())
+	actualPath := writeSimulateReport(t)
+	outDir := t.TempDir()
+
+	res := runCommandFn(t, cmdSimulate, "simulate", "validate",
+		"--model", modelPath,
+		"--actual", actualPath,
+		"--scenario", "likely",
+		"--require-no-leakage",
+		"--out", outDir,
+	)
+	if res.code != 1 {
+		t.Fatalf("exit = %d, want 1; stderr=%s stdout=%s", res.code, res.stderr, res.stdout)
+	}
+	if !strings.Contains(res.stderr, "no-leakage requirement not satisfied") {
+		t.Errorf("stderr missing no-leakage failure: %s", res.stderr)
+	}
+}
+
+func TestCmdSimulateBacktestUpdatesModelAndArtifacts(t *testing.T) {
+	modelPath := fitModel(t, t.TempDir())
+	inputPath := filepath.Join(t.TempDir(), "pairs.json")
+	input := `{
+		"predicted":[100,110,105],
+		"actual":[98,112,106],
+		"model_range_low":50,
+		"model_range_high":150,
+		"dataset":{"kind":"pairs","id":"ds1"},
+		"split":{"strategy":"explicit"},
+		"leakage":{"enforced":true,"proven":true,"method":"hash_check","checks":["disjoint"]}
+	}`
+	if err := os.WriteFile(inputPath, []byte(input), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outDir := t.TempDir()
+
+	res := runCommandFn(t, cmdSimulate, "simulate", "backtest",
+		"--input", inputPath,
+		"--model", modelPath,
+		"--require-no-leakage",
+		"--update-model",
+		"--out", outDir,
+	)
+	if res.code != 0 {
+		t.Fatalf("exit = %d, stderr=%s stdout=%s", res.code, res.stderr, res.stdout)
+	}
+
+	artPath := filepath.Join(outDir, "validation-backtest.json")
+	b, err := os.ReadFile(artPath)
+	if err != nil {
+		t.Fatalf("read artifact: %v", err)
+	}
+	var art map[string]any
+	if err := json.Unmarshal(b, &art); err != nil {
+		t.Fatalf("unmarshal artifact: %v", err)
+	}
+	if _, ok := art["dataset"]; !ok {
+		t.Error("artifact missing dataset")
+	}
+	if _, ok := art["split"]; !ok {
+		t.Error("artifact missing split")
+	}
+	if _, ok := art["leakage"]; !ok {
+		t.Error("artifact missing leakage")
+	}
+	if _, ok := art["validation_record"]; !ok {
+		t.Error("artifact missing validation_record")
+	}
+
+	model, err := twin.LoadModel(modelPath)
+	if err != nil {
+		t.Fatalf("LoadModel: %v", err)
+	}
+	if model.ModelInfo == nil || model.ModelInfo.LastValidation == nil {
+		t.Fatal("expected last_validation")
+	}
+	if model.ModelInfo.LastValidation.Kind != "backtest" {
+		t.Errorf("kind = %q, want backtest", model.ModelInfo.LastValidation.Kind)
+	}
+	if model.ModelInfo.LastValidation.Dataset == nil || model.ModelInfo.LastValidation.Split == nil || model.ModelInfo.LastValidation.Leakage == nil {
+		t.Fatal("last_validation missing provenance")
+	}
+	if len(model.ModelInfo.ValidationHistory) == 0 {
+		t.Fatal("expected validation_history")
+	}
+	if model.ModelInfo.BacktestStatus == "" || model.ModelInfo.BacktestStatus == "NOT_RUN" {
+		t.Errorf("expected updated backtest status, got %q", model.ModelInfo.BacktestStatus)
+	}
+}
+
+func TestCmdSimulateBacktestRequireNoLeakageFails(t *testing.T) {
+	inputPath := filepath.Join(t.TempDir(), "pairs.json")
+	input := `{"predicted":[1,2],"actual":[1,2]}`
+	if err := os.WriteFile(inputPath, []byte(input), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res := runCommandFn(t, cmdSimulate, "simulate", "backtest",
+		"--input", inputPath,
+		"--require-no-leakage",
+		"--out", t.TempDir(),
+	)
+	if res.code != 1 {
+		t.Fatalf("exit = %d, want 1; stderr=%s", res.code, res.stderr)
+	}
+	if !strings.Contains(res.stderr, "no-leakage requirement not satisfied") {
+		t.Errorf("stderr missing no-leakage failure: %s", res.stderr)
 	}
 }

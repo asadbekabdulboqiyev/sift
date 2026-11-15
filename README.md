@@ -86,6 +86,9 @@ Sift unifies multiple testing, assessment, and evidence workflows in one toolcha
 
 ## Key Capabilities
 
+### Sift 360° — 1-Click Security & Capacity Audit
+Unified 1-click full diagnostic: security scan (headers/TLS/OWASP), breaking-point stress test (linear-ramp from 50 VUs, stops at error rate >5% or p99 >2000ms), resilience scoring (0–100 with risk level and remediation), and VPMP v1 cryptographic attestation (Ed25519 signature over canonical report digest). Output includes `resilience_score`, `risk_level`, `breaking_point_users`, `max_safe_rps`, findings with business impact & fix instructions, `certificate_id`, `vpmp_signature`, and ISO8601 `timestamp`. Safety: `403 Forbidden` if `authorized==false` or target not in allowlist/demo-store. Real-time progress via SSE or polling. No-fabrication: unavailable metrics explicitly labeled. Modular `internal/audit360/` package, no breakage to P1–P4.
+
 ### Load & Performance
 - Protocols: HTTP/HTTPS, WebSocket (`ws`/`wss`), gRPC (`grpc`/`grpcs`), TCP, UDP
 - Profiles: `steady`, `soak`, `linear-ramp`, `spike`, `wave`, `constant-rps`
@@ -716,6 +719,9 @@ sift pentest --target https://example.com --dry-run
 ---
 
 ## Web Dashboard
+
+### Sift 360° — 1-Click Security & Capacity Audit
+The dashboard features a prominent "🛡️ Sift 360° — 1-Click Full Audit" section with a target URL input field (quick-fill: `http://127.0.0.1:8090` VoltStore demo store), a mandatory "I confirm explicit authorization to test this target" checkbox, and a "Run Sift 360° Audit" button. Upon start, a sleek animated 4-stage progress tracker completes within ~25 seconds, showing: 1. Scanning Security → 2. Testing Load Limit → 3. Calculating Resilience → 4. Sealing VPMP Certificate. The Executive Audit Scorecard displays: a circular gauge for the Resilience Score (Green/Yellow/Red), the Breaking Point in bold plain language (e.g. *"Capacity Limit Reached: System fails at 1,450 concurrent users"*), detected vulnerabilities with plain-English business impact and clear fix instructions, a "Print / Export Verified Report" button, and a verifiable VPMP badge/QR code preview. Safety: cross-origin state-changing requests rejected; only authorized demo-store targets permitted. Live progress updates via SSE (`/api/audit-360/stream?job_id=`) with polling fallback (`/api/audit-360/status?job_id=`). No-fabrication: metrics shown only when measured; unavailable checks reported explicitly.
 
 Start the dashboard:
 ```bash

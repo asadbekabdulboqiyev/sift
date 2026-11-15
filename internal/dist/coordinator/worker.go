@@ -233,13 +233,23 @@ func (w *Worker) runStream(runCtx context.Context, start *distproto.StartRun, st
 				w.cfg.Logf("progress attestation failed for %s: %v", start.RunId, err)
 				w.sendFailure(stream, start.RunId, "progress attestation: "+err.Error())
 				w.cancelRun(start.RunId)
+				// Preserve opportunity for the engine to finish with measured telemetry
+				// only if a final report can still be delivered; on attestation failure
+				// in attested mode unsigned completion would also be rejected.
 				return
 			}
 			if err := w.send(stream, &distproto.WorkerEvent{
 				Payload: &distproto.WorkerEvent_RunProgress{RunProgress: rp},
 			}); err != nil {
-				w.cfg.Logf("progress send failed for %s: %v", start.RunId, err)
+				// Stream send failure likely means the control/report stream is broken.
+				// Stop generating load but wait for engine termination so we do not
+				// discard in-flight measured work; the master will preserve partial
+				// evidence from the last accepted telemetry snapshot.
+				w.cfg.Logf("progress send failed for %s: %v (stopping load, awaiting measured result)", start.RunId, err)
 				w.cancelRun(start.RunId)
+				// Drain result so engine goroutine can exit cleanly; final report cannot
+				// be delivered on a broken stream.
+				<-resultCh
 				return
 			}
 		case <-heartbeat.C:
@@ -263,7 +273,8 @@ func (w *Worker) runStream(runCtx context.Context, start *distproto.StartRun, st
 			}
 			// A signing failure must not turn into an unsigned completion:
 			// an attested master would (correctly) reject it and lose the run,
-			// so the failure is reported explicitly instead.
+			// so the failure is reported explicitly instead. The master may still
+			// preserve partial evidence from previously accepted progress snapshots.
 			if err := w.attestCompleted(rc); err != nil {
 				w.cfg.Logf("final report attestation failed for %s: %v", start.RunId, err)
 				w.sendFailure(stream, start.RunId, "final report attestation: "+err.Error())
@@ -272,7 +283,9 @@ func (w *Worker) runStream(runCtx context.Context, start *distproto.StartRun, st
 			if err := w.send(stream, &distproto.WorkerEvent{
 				Payload: &distproto.WorkerEvent_RunCompleted{RunCompleted: rc},
 			}); err != nil {
-				w.cfg.Logf("final report send failed for %s: %v", start.RunId, err)
+				// Best effort: stream is likely unavailable; master-side partial
+				// synthesis from last accepted telemetry snapshot preserves evidence.
+				w.cfg.Logf("final report send failed for %s: %v (measured report could not be delivered)", start.RunId, err)
 			}
 			return
 		}

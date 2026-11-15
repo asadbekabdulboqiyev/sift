@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -45,45 +46,46 @@ func (s *stringListFlags) Set(v string) error {
 
 func cmdRun() {
 	var (
-		configPath    string
-		url           string
-		method        string
-		data          string
-		headers       = headerFlags{}
-		name          string
-		profile       string
-		users         int
-		duration      int
-		rampUp        int
-		spikeUsers    int
-		spikeWarmup   int
-		spikeHold     int
-		wavePeriod    int
-		rps           int
-		timeout       int
-		keepAlive     bool
-		quiet         bool
-		reportDir     string
-		showVersion   bool
-		expectP99     float64
-		expectAvg     float64
-		expectErrRate float64
-		expectMinRPS  float64
-		comparePath   string
-		regressPct    float64
-		timelineCSV   bool
-		preWarm       bool
-		preWarmConns  int
-		targetRPS     int
-		mode          string
-		dashListen    string
-		tlsFP         string
-		noHTTP2       bool
-		coordOmission bool
-		emitBundle    string
-		bundleKey     string
-		bundleWorker  string
-		authzOpts     gateOptions
+		configPath           string
+		url                  string
+		method               string
+		data                 string
+		headers              = headerFlags{}
+		name                 string
+		profile              string
+		users                int
+		duration             int
+		rampUp               int
+		spikeUsers           int
+		spikeWarmup          int
+		spikeHold            int
+		wavePeriod           int
+		rps                  int
+		timeout              int
+		keepAlive            bool
+		quiet                bool
+		reportDir            string
+		showVersion          bool
+		expectP99            float64
+		expectAvg            float64
+		expectErrRate        float64
+		expectMinRPS         float64
+		comparePath          string
+		regressPct           float64
+		timelineCSV          bool
+		preWarm              bool
+		preWarmConns         int
+		targetRPS            int
+		mode                 string
+		dashListen           string
+		tlsFP                string
+		noHTTP2              bool
+		coordOmission        bool
+		emitBundle           string
+		bundleKey            string
+		bundleWorker         string
+		resourceEvidenceFile string
+		authzOpts            gateOptions
 
 		dashAuthTokens    stringListFlags
 		dashAuthAPIKeys   stringListFlags
@@ -122,6 +124,7 @@ func cmdRun() {
 	fs.StringVar(&emitBundle, "emit-bundle", "", "write a verifiable vpmp/v1 evidence bundle (plus its .samples.jsonl sidecar) to this path")
 	fs.StringVar(&bundleKey, "bundle-key", "", "Ed25519 keypair PEM that seals the bundle (generated ephemerally when omitted)")
 	fs.StringVar(&bundleWorker, "bundle-worker", "", "worker identity recorded in the bundle (default: hostname, sanitised)")
+	fs.StringVar(&resourceEvidenceFile, "resource-evidence-file", "", "optional JSON file with resource monitoring evidence (e.g. from 'sift xray report --evidence-out'); attached to report as explicit, non-fabricated evidence")
 	fs.StringVar(&authzOpts.authorized, "authorized", "", "authorization ticket id recorded by an approver")
 	fs.BoolVar(&authzOpts.allowPrivate, "allow-private", false, "allow private/link-local targets explicitly")
 	fs.StringVar(&authzOpts.policyPath, "policy", "", "authorization policy file (default ~/.Sift/authz.json)")
@@ -353,6 +356,16 @@ func cmdRun() {
 	}
 
 	r := report.Build(telemetry, scenario)
+	if strings.TrimSpace(resourceEvidenceFile) != "" {
+		b, readErr := os.ReadFile(resourceEvidenceFile)
+		if readErr != nil {
+			fatal(fmt.Errorf("resource evidence: read %s: %w", resourceEvidenceFile, readErr))
+		}
+		if !json.Valid(b) {
+			fatal(fmt.Errorf("resource evidence: %s is not valid JSON", resourceEvidenceFile))
+		}
+		r.ResourceEvidence = json.RawMessage(b)
+	}
 	fmt.Fprintln(os.Stderr)
 	r.Render(os.Stdout)
 
@@ -382,7 +395,7 @@ func cmdRun() {
 	// The evidence is written even when the SLA gate fails: a bundle that
 	// proves the target missed its budget is exactly the bundle you want.
 	if collector != nil {
-		if err := emitEvidenceBundle(emitBundle, bundleKey, collector, scenario); err != nil {
+		if err := emitEvidenceBundle(emitBundle, bundleKey, collector, scenario, &r); err != nil {
 			fatal(err)
 		}
 	}
@@ -593,8 +606,10 @@ func bundleKeypair(path string) (*attest.Keypair, bool, error) {
 // Nothing here is copied out of the terminal report. Every sealed number is
 // recomputed from the raw records, so the bundle is an independent statement
 // about the same run: if the report and the bundle ever disagree, the report is
-// wrong — not the bundle.
-func emitEvidenceBundle(path, keyPath string, collector *evidence.Collector, scenario *config.Scenario) error {
+// wrong — not the bundle. When a completed run report is available, its actual
+// (monotonic, elapsed) duration is used; otherwise the planned profile duration
+// is used as a fallback.
+func emitEvidenceBundle(path, keyPath string, collector *evidence.Collector, scenario *config.Scenario, runReport *report.Report) error {
 	plannedMilli := evidence.PlannedRPSMilli(scenario)
 	planned, err := attest.DecimalFromMilli(plannedMilli)
 	if err != nil {
@@ -612,6 +627,10 @@ func emitEvidenceBundle(path, keyPath string, collector *evidence.Collector, sce
 	// percentiles instead of inventing a schedule to correct against.
 	co := scenario.Profile.CoordinatedOmission
 	durationNS := int64(scenario.Profile.TotalDuration()) * int64(time.Second)
+	if runReport != nil && runReport.Duration > 0 {
+		// Prefer actual measured (monotonic) run duration for integrity metadata.
+		durationNS = runReport.Duration.Nanoseconds()
+	}
 	// The correction may only be claimed when the run had a pacing schedule and
 	// kept it. When it did not — no pacing rate, a ramped run, or a client that
 	// fell behind — the same arithmetic adds queue time nobody waited for, so the

@@ -78,6 +78,15 @@ func (a *Aggregator) UpdateVerified(worker string, snap *distproto.TelemetrySnap
 	return true
 }
 
+// SnapshotOf returns the latest telemetry snapshot for worker, if present.
+// The returned message must be treated as read-only by callers.
+func (a *Aggregator) SnapshotOf(worker string) (*distproto.TelemetrySnapshot, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	snap, ok := a.latest[worker]
+	return snap, ok
+}
+
 // Forget drops a worker's telemetry (used when it disconnects mid-run).
 func (a *Aggregator) Forget(worker string) {
 	a.mu.Lock()
@@ -289,11 +298,33 @@ func MergeReports(sc *config.Scenario, reports []*report.Report) *report.Report 
 	}
 
 	merged.StartedAt = startedAt
-	merged.EndedAt = endedAt
-	if !startedAt.IsZero() && endedAt.After(startedAt) {
-		merged.Duration = endedAt.Sub(startedAt)
+	// Duration is treated as the actual elapsed timing source of truth.
+	// Prefer the maximum reported worker duration (actual measured) and fall
+	// back to wall-clock span when needed; normalize timestamps for consistency.
+	merged.Duration = durationMax
+	if !startedAt.IsZero() && !endedAt.IsZero() && endedAt.After(startedAt) {
+		span := endedAt.Sub(startedAt)
+		if merged.Duration <= 0 || span > merged.Duration {
+			merged.Duration = span
+		}
+	}
+	if merged.Duration < 0 {
+		merged.Duration = 0
+	}
+	if !startedAt.IsZero() {
+		if merged.Duration > 0 {
+			merged.EndedAt = startedAt.Add(merged.Duration)
+		} else if !endedAt.IsZero() && !endedAt.Before(startedAt) {
+			merged.EndedAt = endedAt
+		} else {
+			merged.EndedAt = startedAt
+		}
 	} else {
-		merged.Duration = durationMax
+		// Without a known start, keep end if present and infer start when possible.
+		merged.EndedAt = endedAt
+		if !endedAt.IsZero() && merged.Duration > 0 {
+			merged.StartedAt = endedAt.Add(-merged.Duration)
+		}
 	}
 	if merged.Duration > 0 {
 		merged.RPS = float64(merged.TotalRequests) / merged.Duration.Seconds()

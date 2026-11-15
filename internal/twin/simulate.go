@@ -106,6 +106,25 @@ const (
 	RiskHigh = "high"
 )
 
+// SLAThresholds configures breach evaluation (P1). Zero/unset means NOT_CONFIGURED.
+type SLAThresholds struct {
+	P95MS         float64 `json:"p95_ms,omitempty"`
+	P99MS         float64 `json:"p99_ms,omitempty"`
+	MaxErrorRate  float64 `json:"max_error_rate_pct,omitempty"`
+	MinThroughput float64 `json:"min_throughput_rps,omitempty"`
+}
+
+// BreachAssessment reports probability with confidence interval and status.
+type BreachAssessment struct {
+	Status      string   `json:"status"` // OK/NOT_CONFIGURED
+	Threshold   float64  `json:"threshold,omitempty"`
+	Probability float64  `json:"probability,omitempty"`
+	CI          Interval `json:"confidence_interval,omitempty"`
+	Breaches    int      `json:"breaches,omitempty"`
+	Trials      int      `json:"trials,omitempty"`
+	Note        string   `json:"note,omitempty"`
+}
+
 // Scenario is one what-if question. Exactly one of TargetRPS (open loop) or
 // TargetUsers (closed loop) is used, selected by Mode.
 type Scenario struct {
@@ -124,13 +143,20 @@ type Scenario struct {
 	// immediate step; saturation time is only predicted when it is positive.
 	RampSeconds float64 `json:"ramp_seconds"`
 	// SLAP99MS is the p99 latency objective in milliseconds. Zero disables the
-	// latency breach check.
+	// latency breach check (legacy; prefer Thresholds).
 	SLAP99MS float64 `json:"sla_p99_ms"`
-	// MaxErrorRatePct is the error-rate objective in percent. Zero disables
-	// the error breach check.
+	// SLAP95MS is the p95 latency objective in milliseconds (P1).
+	SLAP95MS float64 `json:"sla_p95_ms,omitempty"`
+	// MaxErrorRatePct is the error-rate objective in percent. Zero disables the
+	// error breach check.
 	MaxErrorRatePct float64 `json:"max_error_rate_pct"`
-	Iterations      int     `json:"iterations"`
-	Seed            int64   `json:"seed"`
+	// MinThroughputRPS is the minimum throughput objective (P1).
+	MinThroughputRPS float64 `json:"min_throughput_rps,omitempty"`
+	Iterations       int     `json:"iterations"`
+	Seed             int64   `json:"seed"`
+	// Optional P2 scenario classification/resource hints.
+	ScenarioType string            `json:"scenario_type,omitempty"`
+	ResourceHint map[string]string `json:"resource_hints,omitempty"`
 }
 
 // Iteration is one Monte Carlo draw. Latency values are the predicted
@@ -177,6 +203,13 @@ type Summary struct {
 	PredictedSaturationSeconds *float64 `json:"predicted_saturation_seconds,omitempty"`
 	SaturationProbability      float64  `json:"saturation_probability"`
 	RiskLevel                  string   `json:"risk_level"`
+	// P1: statistically meaningful per-threshold breach assessments.
+	BreachP95            BreachAssessment `json:"breach_p95,omitempty"`
+	BreachP99            BreachAssessment `json:"breach_p99,omitempty"`
+	BreachErrorRate      BreachAssessment `json:"breach_error_rate,omitempty"`
+	BreachThroughput     BreachAssessment `json:"breach_throughput,omitempty"`
+	ThresholdsConfigured bool             `json:"thresholds_configured"`
+	OverallBreachCI      Interval         `json:"overall_breach_confidence_interval,omitempty"`
 }
 
 // Result is the full simulation output: the scenario that was run, the
@@ -187,26 +220,25 @@ type Result struct {
 	Summary       Summary     `json:"summary"`
 	Iterations    []Iteration `json:"iterations"`
 	Notes         []string    `json:"notes"`
+	// Reproducibility/labeling metadata.
+	SimulationSeed int64  `json:"simulation_seed,omitempty"`
+	Simulated      bool   `json:"simulated"`
+	EstimateType   string `json:"estimate_type,omitempty"` // MODEL_ESTIMATE
 }
 
-// PresetNames lists the built-in scenarios in display order.
+// PresetNames lists the legacy built-in scenarios in display order (kept for
+// backward compatibility with existing CLI compare behavior).
 func PresetNames() []string {
 	return []string{"best", "likely", "worst"}
 }
 
-// Preset builds one of the three built-in scenarios from a fitted model.
-//
-// The presets are anchored to the model's uncertainty band rather than to
-// invented certainty:
-//
-//	best   - 50% of the LOW capacity bound, i.e. safe even if the fit
-//	         overestimated capacity.
-//	likely - 75% of the point estimate, the usual planning point.
-//	worst  - 110% of the HIGH capacity bound, i.e. overloaded even if the fit
-//	         underestimated capacity.
-//
-// All three use the same SLA (the fit's target p99), a 60 s horizon, a 10 s
-// ramp, 200 iterations and seed 42, so a comparison isolates the load.
+// RequiredScenarioPresetNames lists P2-required scenario types.
+func RequiredScenarioPresetNames() []string {
+	return []string{"normal", "peak", "burst", "sustained", "high-concurrency", "resource-degradation"}
+}
+
+// Preset builds a built-in scenario from a fitted model.
+// Supports legacy presets and P2-required scenario types.
 func Preset(name string, m Model) (Scenario, error) {
 	if err := m.Validate(); err != nil {
 		return Scenario{}, fmt.Errorf("twin: model is not usable: %w", err)
@@ -221,27 +253,161 @@ func Preset(name string, m Model) (Scenario, error) {
 		DurationSeconds: 60,
 		RampSeconds:     10,
 		SLAP99MS:        sla,
+		SLAP95MS:        m.Curve.Baseline.P95MS * 1.5,
+		MaxErrorRatePct: math.Max(m.Workload.ErrorRatePct*2, 1),
 		Iterations:      200,
 		Seed:            42,
+		ScenarioType:    name,
 	}
+	cap := m.Curve.CapacityRPS
+	low := m.Curve.CapacityLowRPS
+	high := m.Curve.CapacityHighRPS
+	obs := m.Workload.RPS
 	switch name {
 	case "best":
-		base.TargetRPS = math.Max(m.Curve.CapacityLowRPS*0.5, 0.1)
-	case "likely":
-		base.TargetRPS = m.Curve.CapacityRPS * 0.75
+		base.TargetRPS = math.Max(low*0.5, 0.1)
+	case "likely", "normal":
+		base.Name = name
+		base.TargetRPS = math.Max(cap*0.75, obs*0.9)
+		if name == "normal" {
+			base.DurationSeconds = 120
+			base.RampSeconds = 15
+		}
 	case "worst":
-		base.TargetRPS = m.Curve.CapacityHighRPS * 1.10
+		base.TargetRPS = high * 1.10
+	case "peak":
+		base.TargetRPS = math.Max(cap*0.95, obs*1.2)
+		base.DurationSeconds = 90
+		base.RampSeconds = 20
+	case "burst":
+		base.TargetRPS = math.Max(high*1.05, obs*1.5)
+		base.DurationSeconds = 45
+		base.RampSeconds = 2
+	case "sustained":
+		base.TargetRPS = math.Max(cap*0.85, obs)
+		base.DurationSeconds = 300
+		base.RampSeconds = 30
+	case "high-concurrency":
+		base.Mode = LoopClosed
+		base.TargetUsers = math.Max(m.Workload.Concurrency*2, 10)
+		base.DurationSeconds = 120
+		base.RampSeconds = 20
+	case "resource-degradation":
+		// Model as constrained effective capacity (resource pressure proxy).
+		base.TargetRPS = math.Max(cap*0.8, obs)
+		base.DurationSeconds = 120
+		base.RampSeconds = 20
+		base.ResourceHint = map[string]string{
+			"cpu": "degraded", "memory": "degraded", "network_latency": "elevated",
+			"assumption": "simulated as reduced headroom / higher effective utilization; collect resource metrics for stronger evidence",
+		}
 	default:
-		return Scenario{}, fmt.Errorf("twin: unknown scenario preset %q (use %s)", name, strings.Join(PresetNames(), ", "))
+		return Scenario{}, fmt.Errorf("twin: unknown scenario preset %q (supported: %s, %s)", name, strings.Join(PresetNames(), ", "), strings.Join(RequiredScenarioPresetNames(), ", "))
+	}
+	if base.TargetRPS <= 0 && base.Mode == LoopOpen {
+		base.TargetRPS = 0.1
 	}
 	return base, nil
 }
 
+// SensitivityPoint quantifies impact of one parameter change.
+type SensitivityPoint struct {
+	Parameter string  `json:"parameter"`
+	Value     float64 `json:"value"`
+	Delta     float64 `json:"delta"`
+	P99MS     float64 `json:"p99_ms_p50"`
+	Breach    float64 `json:"breach_probability"`
+	Risk      string  `json:"risk_level"`
+	Note      string  `json:"note,omitempty"`
+}
+
+// SensitivityReport quantifies impact of concurrency/complexity/resources/limits.
+type SensitivityReport struct {
+	Baseline  Scenario           `json:"baseline"`
+	Points    []SensitivityPoint `json:"points"`
+	Notes     []string           `json:"notes"`
+	Simulated bool               `json:"simulated"`
+	Seed      int64              `json:"seed"`
+}
+
+// AnalyzeSensitivity runs deterministic scenario sweeps to quantify impact.
+func AnalyzeSensitivity(m Model, base Scenario, seed int64) (SensitivityReport, error) {
+	if err := m.Validate(); err != nil {
+		return SensitivityReport{}, err
+	}
+	if err := base.validate(); err != nil {
+		// try preset baseline
+		p, perr := Preset("normal", m)
+		if perr != nil {
+			return SensitivityReport{}, err
+		}
+		base = p
+	}
+	base.Seed = seed
+	report := SensitivityReport{Baseline: base, Simulated: true, Seed: seed}
+	eval := func(label string, sc Scenario, note string) {
+		res, err := Simulate(m, sc, seed)
+		if err != nil {
+			report.Notes = append(report.Notes, fmt.Sprintf("%s: simulation failed: %v", label, err))
+			return
+		}
+		val := sc.TargetRPS
+		if sc.Mode == LoopClosed {
+			val = sc.TargetUsers
+		}
+		report.Points = append(report.Points, SensitivityPoint{
+			Parameter: label, Value: val, P99MS: res.Summary.P99MS.P50, Breach: res.Summary.SLAProbabilityBreach, Risk: res.Summary.RiskLevel, Note: note,
+		})
+	}
+	// Concurrency/load sensitivity
+	if base.Mode == LoopOpen {
+		for _, mult := range []float64{0.5, 0.75, 1.0, 1.25, 1.5} {
+			sc := base
+			sc.Name = fmt.Sprintf("concurrency-x%.2f", mult)
+			sc.TargetRPS = base.TargetRPS * mult
+			eval("concurrency_rps", sc, "load multiplier on arrival rate")
+		}
+	} else {
+		for _, mult := range []float64{0.5, 1.0, 1.5, 2.0} {
+			sc := base
+			sc.Name = fmt.Sprintf("users-x%.2f", mult)
+			sc.TargetUsers = base.TargetUsers * mult
+			eval("concurrency_users", sc, "virtual user multiplier")
+		}
+	}
+	// Request complexity proxy: increase baseline latency pressure via tighter SLA + higher effective load proxy by scenario naming/notes
+	for _, mult := range []float64{1.0, 1.25, 1.5} {
+		sc := base
+		sc.Name = fmt.Sprintf("complexity-x%.2f", mult)
+		sc.SLAP99MS = base.SLAP99MS / mult
+		if sc.SLAP99MS <= 0 {
+			sc.SLAP99MS = base.SLAP99MS
+		}
+		eval("request_complexity_sla_pressure", sc, "proxy: stricter latency budget representing higher request complexity")
+	}
+	// CPU/memory/network/connection limits proxies (model-level): run degradation/pressure scenarios
+	deg, err := Preset("resource-degradation", m)
+	if err == nil {
+		deg.SLAP99MS = base.SLAP99MS
+		deg.SLAP95MS = base.SLAP95MS
+		deg.MaxErrorRatePct = base.MaxErrorRatePct
+		eval("resource_degradation", deg, "proxy for CPU/memory/network/connection pressure (collect resource metrics for stronger evidence)")
+	}
+	hc, err := Preset("high-concurrency", m)
+	if err == nil {
+		hc.SLAP99MS = base.SLAP99MS
+		hc.MaxErrorRatePct = base.MaxErrorRatePct
+		eval("connection_high_concurrency", hc, "proxy for connection/concurrency limits")
+	}
+	report.Notes = append(report.Notes,
+		"Sensitivity analysis is model-based and uses proxies where direct resource metrics are unavailable.",
+		"CPU, memory, network latency, and connection-limit impacts should be validated with collected resource monitoring when available.",
+		"All results are deterministic for the same seed.",
+	)
+	return report, nil
+}
+
 // Simulate runs a seeded Monte Carlo over the fitted model.
-//
-// The seed argument is authoritative: it becomes Scenario.Seed in the result,
-// so the artifact records exactly the stream that produced it. Iterations above
-// MaxIterations are rejected and every input is validated before the first draw.
 func Simulate(m Model, sc Scenario, seed int64) (Result, error) {
 	if err := m.Validate(); err != nil {
 		return Result{}, fmt.Errorf("twin: model is not usable: %w", err)
@@ -255,9 +421,7 @@ func Simulate(m Model, sc Scenario, seed int64) (Result, error) {
 	ref := m.Curve.ReferenceUtilization
 	capacitySigma := math.Max(minCapacityUncertainty, m.Curve.CapacityRelativeUncertainty*capacityJitterFraction)
 
-	// #nosec G404 G115 -- deterministic Monte Carlo for capacity planning, not
-	// a security-sensitive random source; a negative seed is converted to its
-	// two's-complement uint64 deliberately so every int64 seed names a stream.
+	// #nosec G404 G115 -- deterministic Monte Carlo for capacity planning, not a security-sensitive random source.
 	rng := rand.New(rand.NewPCG(uint64(seed), 0x9E3779B97F4A7C15))
 
 	iterations := make([]Iteration, 0, sc.Iterations)
@@ -269,12 +433,13 @@ func Simulate(m Model, sc Scenario, seed int64) (Result, error) {
 	utilizations := make([]float64, 0, sc.Iterations)
 	saturationTimes := make([]float64, 0, sc.Iterations)
 
-	var p99Breaches, errBreaches, slaBreaches int
+	var p99Breaches, p95Breaches, errBreaches, thrBreaches, slaBreaches int
+	hasP95 := sc.SLAP95MS > 0
+	hasP99 := sc.SLAP99MS > 0
+	hasErr := sc.MaxErrorRatePct > 0
+	hasThr := sc.MinThroughputRPS > 0
 
 	for i := 0; i < sc.Iterations; i++ {
-		// Draw order is part of the reproducibility contract: capacity, then
-		// latency noise, then error noise. Do not reorder without a schema
-		// bump.
 		capacityFactor := 1 + truncNormal(rng, capacitySigma)
 		capacity := m.Curve.CapacityRPS * capacityFactor
 		latencyNoise := math.Exp(rng.NormFloat64() * latencyJitterSigma)
@@ -294,7 +459,6 @@ func Simulate(m Model, sc Scenario, seed int64) (Result, error) {
 		p95 := base.P95MS * amp
 		p99 := base.P99MS * amp
 
-		// Errors: measured rate carried forward, then overload penalty.
 		errorRate := m.Workload.ErrorRatePct * errorNoise
 		if rho > overloadUtilization {
 			errorRate += overloadErrorCeilingPct * (rho - overloadUtilization) / (1 - overloadUtilization)
@@ -302,15 +466,23 @@ func Simulate(m Model, sc Scenario, seed int64) (Result, error) {
 		errorRate = clamp(errorRate, 0, 100)
 
 		saturation := saturationTime(sc, capacity, ref, base.P99MS)
-		p99Breach := sc.SLAP99MS > 0 && p99 > sc.SLAP99MS
-		errorBreach := sc.MaxErrorRatePct > 0 && errorRate > sc.MaxErrorRatePct
-		slaBreach := p99Breach || errorBreach
+		p95Breach := hasP95 && p95 > sc.SLAP95MS
+		p99Breach := hasP99 && p99 > sc.SLAP99MS
+		errorBreach := hasErr && errorRate > sc.MaxErrorRatePct
+		thrBreach := hasThr && achievedRPS < sc.MinThroughputRPS
+		slaBreach := (hasP95 && p95Breach) || (hasP99 && p99Breach) || (hasErr && errorBreach) || (hasThr && thrBreach)
 
+		if p95Breach {
+			p95Breaches++
+		}
 		if p99Breach {
 			p99Breaches++
 		}
 		if errorBreach {
 			errBreaches++
+		}
+		if thrBreach {
+			thrBreaches++
 		}
 		if slaBreach {
 			slaBreaches++
@@ -341,20 +513,35 @@ func Simulate(m Model, sc Scenario, seed int64) (Result, error) {
 		}
 	}
 
-	n := float64(sc.Iterations)
+	n := sc.Iterations
+	configured := hasP95 || hasP99 || hasErr || hasThr
+	overallProb := 0.0
+	if n > 0 {
+		overallProb = float64(slaBreaches) / float64(n)
+	}
 	summary := Summary{
-		Iterations:             sc.Iterations,
+		Iterations:             n,
 		AchievedRPS:            makeBand(achieved),
 		Utilization:            makeBand(utilizations),
 		P50MS:                  makeBand(p50s),
 		P95MS:                  makeBand(p95s),
 		P99MS:                  makeBand(p99s),
 		ErrorRatePct:           makeBand(errs),
-		P99BreachProbability:   float64(p99Breaches) / n,
-		ErrorBreachProbability: float64(errBreaches) / n,
-		SLAProbabilityBreach:   float64(slaBreaches) / n,
-		SaturationProbability:  float64(len(saturationTimes)) / n,
-		RiskLevel:              riskLevel(float64(slaBreaches) / n),
+		P99BreachProbability:   breachProb(p99Breaches, n, hasP99),
+		ErrorBreachProbability: breachProb(errBreaches, n, hasErr),
+		SLAProbabilityBreach:   breachProb(slaBreaches, n, configured),
+		SaturationProbability:  float64(len(saturationTimes)) / float64(maxInt(n, 1)),
+		ThresholdsConfigured:   configured,
+		BreachP95:              breachAssessment("p95_ms", sc.SLAP95MS, p95Breaches, n, hasP95, "P95 latency must be <= threshold"),
+		BreachP99:              breachAssessment("p99_ms", sc.SLAP99MS, p99Breaches, n, hasP99, "P99 latency must be <= threshold"),
+		BreachErrorRate:        breachAssessment("error_rate_pct", sc.MaxErrorRatePct, errBreaches, n, hasErr, "Error rate must be <= threshold"),
+		BreachThroughput:       breachAssessment("min_throughput_rps", sc.MinThroughputRPS, thrBreaches, n, hasThr, "Achieved throughput must be >= threshold"),
+	}
+	if configured {
+		summary.OverallBreachCI = wilsonInterval(slaBreaches, n, 0.95)
+		summary.RiskLevel = riskLevel(overallProb)
+	} else {
+		summary.RiskLevel = "NOT_CONFIGURED"
 	}
 	if len(saturationTimes) > 0 {
 		sorted := slices.Clone(saturationTimes)
@@ -364,11 +551,14 @@ func Simulate(m Model, sc Scenario, seed int64) (Result, error) {
 	}
 
 	return Result{
-		SchemaVersion: SchemaVersion,
-		Scenario:      sc,
-		Summary:       summary,
-		Iterations:    iterations,
-		Notes:         simulationNotes(sc, summary),
+		SchemaVersion:  SchemaVersion,
+		Scenario:       sc,
+		Summary:        summary,
+		Iterations:     iterations,
+		Notes:          simulationNotes(sc, summary),
+		SimulationSeed: seed,
+		Simulated:      true,
+		EstimateType:   "MODEL_ESTIMATE",
 	}, nil
 }
 
@@ -408,8 +598,14 @@ func (s Scenario) validate() error {
 	if !finite(s.SLAP99MS) || s.SLAP99MS < 0 {
 		return fmt.Errorf("twin: scenario %q: sla p99 must be a non-negative number of milliseconds, got %v", s.Name, s.SLAP99MS)
 	}
+	if !finite(s.SLAP95MS) || s.SLAP95MS < 0 {
+		return fmt.Errorf("twin: scenario %q: sla p95 must be a non-negative number of milliseconds, got %v", s.Name, s.SLAP95MS)
+	}
 	if !finite(s.MaxErrorRatePct) || s.MaxErrorRatePct < 0 || s.MaxErrorRatePct > 100 {
 		return fmt.Errorf("twin: scenario %q: max error rate must be in [0,100]%%, got %v", s.Name, s.MaxErrorRatePct)
+	}
+	if !finite(s.MinThroughputRPS) || s.MinThroughputRPS < 0 {
+		return fmt.Errorf("twin: scenario %q: min throughput must be non-negative, got %v", s.Name, s.MinThroughputRPS)
 	}
 	if s.Iterations < 1 || s.Iterations > MaxIterations {
 		return fmt.Errorf("twin: scenario %q: iterations must be in [1,%d], got %d", s.Name, MaxIterations, s.Iterations)
@@ -546,15 +742,14 @@ func riskLevel(breach float64) string {
 	}
 }
 
-// simulationNotes returns deterministic, scenario-specific caveats. They are
-// part of the artifact so a reader who only sees the JSON still sees the
-// assumptions.
+// simulationNotes returns deterministic, scenario-specific caveats.
 func simulationNotes(sc Scenario, s Summary) []string {
 	notes := []string{
 		"results are model-based estimates, not guarantees: the twin extrapolates from one measured operating point",
+		"all simulation outputs are labeled as model estimates and include uncertainty/confidence intervals where computed",
 	}
-	if sc.SLAP99MS <= 0 && sc.MaxErrorRatePct <= 0 {
-		notes = append(notes, "no SLA thresholds were supplied; breach probabilities are zero by definition")
+	if !s.ThresholdsConfigured {
+		notes = append(notes, "no SLA thresholds configured: breach probability/risk are NOT_CONFIGURED (not computed and never reported as low risk)")
 	}
 	if s.Utilization.P95 >= 1 {
 		notes = append(notes, fmt.Sprintf("the requested load reaches or exceeds the estimated capacity in at least 5%% of draws (p95 utilisation %.2f); latency amplification is capped at %.0fx and the true latency at that load is likely worse", s.Utilization.P95, maxAmplification))
@@ -567,3 +762,48 @@ func simulationNotes(sc Scenario, s Summary) []string {
 	}
 	return notes
 }
+
+func breachProb(breaches, n int, configured bool) float64 {
+	if !configured || n <= 0 {
+		return 0
+	}
+	return float64(breaches) / float64(n)
+}
+
+func breachAssessment(metric string, threshold float64, breaches, n int, configured bool, rule string) BreachAssessment {
+	a := BreachAssessment{Trials: n}
+	if !configured {
+		a.Status = "NOT_CONFIGURED"
+		a.Note = "Threshold not configured; breach probability not computed"
+		return a
+	}
+	a.Status = "OK"
+	a.Threshold = threshold
+	a.Breaches = breaches
+	a.Probability = float64(breaches) / float64(maxInt(n, 1))
+	a.CI = wilsonInterval(breaches, n, 0.95)
+	a.Note = rule
+	_ = metric
+	return a
+}
+
+func wilsonInterval(successes, n int, level float64) Interval {
+	if n <= 0 {
+		return Interval{Low: 0, High: 1, Level: level, Method: "wilson-unavailable(n=0)"}
+	}
+	z := 1.96
+	if level <= 0.90 {
+		z = 1.645
+	} else if level >= 0.99 {
+		z = 2.576
+	}
+	phat := float64(successes) / float64(n)
+	denom := 1 + (z*z)/float64(n)
+	center := (phat + (z*z)/(2*float64(n))) / denom
+	margin := (z / denom) * math.Sqrt((phat*(1-phat))/float64(n)+(z*z)/(4*float64(n*n)))
+	low := math.Max(0, center-margin)
+	high := math.Min(1, center+margin)
+	return Interval{Low: round4(low), High: round4(high), Level: level, Method: "Wilson score interval"}
+}
+
+func round4(v float64) float64 { return math.Round(v*10000) / 10000 }
