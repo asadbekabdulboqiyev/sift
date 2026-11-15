@@ -823,7 +823,11 @@ type resourceAssessmentRequest struct {
 	MemoryGrowth       *float64               `json:"memory_growth,omitempty"`
 	Samples            []hostxray.Sample      `json:"samples,omitempty"`
 	Capabilities       *hostxray.Capabilities `json:"capabilities,omitempty"`
-	Source             string                 `json:"source,omitempty"`
+	// Derived accepts pre-derived CLI evidence (e.g. sift xray report --evidence-out,
+	// schema sift.resource-evidence/v1) and maps it to the dashboard/twin form.
+	Derived          *hostxray.DerivedResourceEvidence `json:"derived,omitempty"`
+	ResourceEvidence *hostxray.DerivedResourceEvidence `json:"resource_evidence,omitempty"`
+	Source           string                            `json:"source,omitempty"`
 }
 
 func (s *Server) handleInsightsTwinCompare(w http.ResponseWriter, r *http.Request) {
@@ -1314,6 +1318,10 @@ func (s *Server) handleInsightsResourceAssessment(w http.ResponseWriter, r *http
 		return
 	}
 	source := strings.TrimSpace(req.Source)
+	preDerived := req.Derived
+	if preDerived == nil {
+		preDerived = req.ResourceEvidence
+	}
 	if len(req.Samples) > 0 {
 		const maxResourceSamples = 50000
 		if len(req.Samples) > maxResourceSamples {
@@ -1366,6 +1374,53 @@ func (s *Server) handleInsightsResourceAssessment(w http.ResponseWriter, r *http
 			"derived_from_samples": true,
 			"sample_count":         len(req.Samples),
 			"note":                 "Resource metrics are derived from provided hostxray samples and/or explicit evidence; unavailable/insufficient metrics are labeled and never fabricated.",
+		})
+		return
+	}
+	if preDerived != nil {
+		if source == "" {
+			source = strings.TrimSpace(preDerived.Source)
+		}
+		if source == "" {
+			source = "hostxray-derived"
+		}
+		ra := resourceEvidenceToTwin(*preDerived, source)
+		if req.CPU != nil || req.Memory != nil || req.Network != nil || req.Connections != nil || req.ServerResponseTime != nil || req.MemoryGrowth != nil {
+			manual := twin.AssessResourceMonitoringExtended(req.CPU, req.Memory, req.Network, req.Connections, req.ServerResponseTime, req.MemoryGrowth)
+			for k, v := range manual.Values {
+				ra.Values[k] = v
+				if !containsStr(ra.Metrics, k) {
+					ra.Metrics = append(ra.Metrics, k)
+				}
+				ra.Missing = removeStr(ra.Missing, k)
+				ra.Available = true
+				vv := v
+				d := ra.MetricsDetail[k]
+				d.Name = k
+				d.Status = "available"
+				d.Value = &vv
+				d.Source = "manual/provided"
+				d.Reason = ""
+				if d.Unit == "" {
+					d.Unit = guessResourceUnit(k)
+				}
+				d.ObservedAt = ""
+				d.ObservedWindowStart = ""
+				d.ObservedWindowEnd = ""
+				d.ObservationSampleCount = 0
+				ra.MetricsDetail[k] = d
+			}
+			sort.Strings(ra.Metrics)
+			sort.Strings(ra.Missing)
+			ra.Notes = append([]string{"Manual/measured overrides applied for provided metrics (explicit evidence)."}, ra.Notes...)
+			ra.Source = "mixed:hostxray-derived+manual"
+		}
+		insightsJSON(w, http.StatusOK, map[string]any{
+			"ok": true, "resource_monitoring": ra,
+			"derived_from_samples":      false,
+			"derived_from_cli_evidence": true,
+			"sample_count":              preDerived.SampleCount,
+			"note":                      "Resource metrics mapped from provided derived CLI/Web evidence (sift.resource-evidence/v1); unavailable/insufficient metrics remain labeled and never fabricated.",
 		})
 		return
 	}

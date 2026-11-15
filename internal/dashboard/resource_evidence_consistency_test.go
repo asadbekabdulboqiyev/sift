@@ -122,3 +122,59 @@ func TestHandleInsightsResourceAssessment_SampleDerivedStandardized(t *testing.T
 		t.Fatalf("server response time must be unavailable with reason: %+v", srt)
 	}
 }
+
+func TestHandleInsightsResourceAssessment_PreDerivedCLIStandardized(t *testing.T) {
+	s := NewServer()
+	cpu := 55.0
+	payload := map[string]any{
+		"derived": hostxray.DerivedResourceEvidence{
+			SchemaVersion: "sift.resource-evidence/v1",
+			Source:        "hostxray-derived",
+			SampleCount:   3,
+			Metrics: map[string]hostxray.ResourceMetricEvidence{
+				"cpu_utilization_pct": {Name: "cpu_utilization_pct", Status: hostxray.ResourceStatusAvailable, Value: &cpu, Unit: "percent", Source: "hostxray.proc"},
+				"memory_growth_pct":   {Name: "memory_growth_pct", Status: hostxray.ResourceStatusUnavailable, Unit: "percent", Source: "hostxray", Reason: "insufficient samples"},
+			},
+		},
+	}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/insights/resources/assess", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Host = "127.0.0.1:8888"
+	rr := httptest.NewRecorder()
+	s.handleInsightsResourceAssessment(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		OK                     bool `json:"ok"`
+		DerivedFromSamples     bool `json:"derived_from_samples"`
+		DerivedFromCLIEvidence bool `json:"derived_from_cli_evidence"`
+		SampleCount            int  `json:"sample_count"`
+		ResourceMonitoring     struct {
+			SchemaVersion string `json:"schema_version"`
+			MetricsDetail map[string]struct {
+				Status string   `json:"status"`
+				Value  *float64 `json:"value"`
+				Reason string   `json:"reason"`
+			} `json:"metrics_detail"`
+		} `json:"resource_monitoring"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v body=%s", err, rr.Body.String())
+	}
+	if !resp.OK || resp.DerivedFromSamples || !resp.DerivedFromCLIEvidence || resp.SampleCount != 3 {
+		t.Fatalf("unexpected response: %+v", resp)
+	}
+	if resp.ResourceMonitoring.SchemaVersion == "" {
+		t.Fatalf("missing schema: %+v", resp.ResourceMonitoring)
+	}
+	cpuM := resp.ResourceMonitoring.MetricsDetail["cpu_utilization_pct"]
+	if cpuM.Status != "available" || cpuM.Value == nil || *cpuM.Value != 55.0 {
+		t.Fatalf("cpu metric mismatch: %+v", cpuM)
+	}
+	mg := resp.ResourceMonitoring.MetricsDetail["memory_growth_pct"]
+	if mg.Status != "unavailable" || mg.Reason == "" {
+		t.Fatalf("memory growth must remain unavailable with reason: %+v", mg)
+	}
+}
