@@ -221,18 +221,31 @@ func TestDistributedRunPartialTimingOnTimeoutGrace(t *testing.T) {
 	addr, _ := startWorker(t, WorkerConfig{ID: "w1", MaxUsers: 1000})
 	addr2, _ := startWorker(t, WorkerConfig{ID: "w2", MaxUsers: 1000})
 
-	master := NewMaster(MasterConfig{
+	masterCfg := MasterConfig{
 		Scenario:   tinyScenario(t, target.URL, 6, 10),
 		Workers:    []string{addr, addr2},
 		ListenAddr: "127.0.0.1:0",
 		RunTimeout: 2 * time.Second,
-	})
-	defer master.Close()
-
+	}
+	var master *Master
 	ctx := context.Background()
-	if _, err := master.Connect(ctx, master.cfg.Workers); err != nil {
+	var err error
+	for attempt := 0; attempt < 5; attempt++ {
+		if master != nil {
+			master.Close()
+		}
+		master = NewMaster(masterCfg)
+		if _, err = master.Connect(ctx, masterCfg.Workers); err == nil {
+			break
+		}
+		if attempt < 4 {
+			time.Sleep(150 * time.Millisecond)
+		}
+	}
+	if master == nil || err != nil {
 		t.Fatalf("connect: %v", err)
 	}
+	defer master.Close()
 	if err := master.StartRun(ctx, "run-partial-timeout"); err != nil {
 		t.Fatalf("start run: %v", err)
 	}

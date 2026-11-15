@@ -26,7 +26,34 @@ func startWorker(t *testing.T, cfg WorkerConfig) (string, *grpc.Server) {
 	distproto.RegisterMasterWorkerServer(srv, NewWorker(cfg))
 	go func() { _ = srv.Serve(lis) }()
 	t.Cleanup(srv.Stop)
-	return lis.Addr().String(), srv
+
+	addr := lis.Addr().String()
+	// Serve starts accepting asynchronously; wait until Ping succeeds so
+	// callers (and Connect in tests) don't race a not-yet-ready server,
+	// which can flake as "no reachable workers" under load/port churn.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		conn, err := grpc.NewClient(addr, append([]grpc.DialOption{
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		}, ClientOptions(cfg.Token)...)...)
+		if err == nil {
+			client := distproto.NewMasterWorkerClient(conn)
+			ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+			_, pingErr := client.Ping(ctx, &distproto.PingRequest{})
+			cancel()
+			_ = conn.Close()
+			if pingErr == nil {
+				break
+			}
+			err = pingErr
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("worker %s not ready: %v", addr, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	return addr, srv
 }
 
 func tinyScenario(t *testing.T, url string, users, duration int) *config.Scenario {
