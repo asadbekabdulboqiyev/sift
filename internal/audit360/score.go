@@ -157,9 +157,9 @@ func ComputeAssessment(secFindings []Finding, securityPartial bool, stress Stres
 	// Capacity/resilience/evidence components from stress outcome.
 	switch {
 	case stress.RejectedByTarget:
-		capacityScore -= 20
-		evidenceScore -= 15
-		resilienceScore -= 5
+		// Access gate refused load: capacity/breaking point is unmeasurable (not a measured capacity failure).
+		// Penalize evidence quality (we could not obtain capacity evidence) but do not score capacity as poor.
+		evidenceScore -= 20
 		findings = append(findings, Finding{
 			Title:    fmt.Sprintf("Capacity not measurable — target refused load (HTTP %d)", stress.RejectStatusCode),
 			Severity: "medium",
@@ -173,11 +173,12 @@ func ComputeAssessment(secFindings []Finding, securityPartial bool, stress Stres
 			Source: "stress_test",
 		})
 		notes = append(notes, "Observed throughput/capacity figures suppressed because the target refused load traffic (access gate, not service capacity).")
+		notes = append(notes, "Capacity and resilience-under-load were not measured due to target refusal; capacity score reflects no adverse measured capacity evidence in this run.")
 	case stress.Skipped:
-		evidenceScore -= 20
-		capacityScore -= 10
+		// Intentionally not executed (e.g. passive mode): no capacity measurement, not a failure.
+		evidenceScore -= 15
 		notes = append(notes, "Capacity/load testing skipped in passive mode (non-intrusive checks only); capacity metrics not measured.")
-		notes = append(notes, "Sustainable capacity and breaking point were not measured in Passive mode.")
+		notes = append(notes, "Sustainable capacity and breaking point were not measured in Passive mode; capacity score reflects no adverse measured capacity evidence.")
 	case !stress.Available:
 		capacityScore -= 30
 		resilienceScore -= 15
