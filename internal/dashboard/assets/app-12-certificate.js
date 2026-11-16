@@ -458,6 +458,8 @@ function wireCertificate() {
   var input = document.getElementById('certFile');
   var pick = document.getElementById('btnCertPick');
   if (!drop || !input) return;
+  if (drop.dataset.wired === '1') return;
+  drop.dataset.wired = '1';
 
   var openPicker = function(ev) {
     if (ev) { ev.preventDefault(); ev.stopPropagation(); }

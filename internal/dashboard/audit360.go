@@ -181,6 +181,10 @@ func (s *Server) handleAudit360Download(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if !sameOrigin(r) {
+		http.Error(w, "cross-origin requests are not allowed", http.StatusForbidden)
+		return
+	}
 	jobID := strings.TrimSpace(r.URL.Query().Get("job_id"))
 	if jobID == "" {
 		writeAudit360JSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "job_id is required"})

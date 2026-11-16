@@ -96,6 +96,7 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 		stress = runStressTest(stressCtx, opt.TargetURL, stressBudget)
 		stressCancel()
 		notes = append(notes, stress.Notes...)
+		stress = normalizeStressOutcome(stress)
 		if stress.RejectedByTarget {
 			emit(StageStress, StatusCompleted, fmt.Sprintf("Capacity not measurable: target refused load (%s).", rejectionLabel(stress.RejectStatusCode)), "")
 		} else if stress.Available {
@@ -788,6 +789,21 @@ func stressRunConfig(budget time.Duration) (durSec, maxUsers int) {
 		maxUsers = 1000
 	}
 	return durSec, maxUsers
+}
+
+func normalizeStressOutcome(s StressOutcome) StressOutcome {
+	s.MaxSafeRPS = nonNegFinite(s.MaxSafeRPS)
+	s.MaxObservedRPS = nonNegFinite(s.MaxObservedRPS)
+	if s.MaxObservedUsers < 0 {
+		s.MaxObservedUsers = 0
+	}
+	s.PeakErrorRatePct = nonNegFinite(s.PeakErrorRatePct)
+	s.PeakP99MS = nonNegFinite(s.PeakP99MS)
+	s.RejectSharePct = nonNegFinite(s.RejectSharePct)
+	if s.BreakingPointUsers < 0 {
+		s.BreakingPointUsers = 0
+	}
+	return s
 }
 
 var _ = url.URL{}

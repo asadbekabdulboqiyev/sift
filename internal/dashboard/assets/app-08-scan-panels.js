@@ -306,14 +306,12 @@ function owaspRun(ev) {
 }
 
 function initScanToggles(ids) {
+  // Toggle clicks are handled by delegated handler for reliability.
   ids.forEach(function(id) {
     var el = document.getElementById(id);
-    if (!el || el.tagName !== 'BUTTON') return;
-    el.addEventListener('click', function() {
-      var on = !(el.classList.contains('active') || el.getAttribute('aria-pressed') === 'true');
-      el.classList.toggle('active', on);
-      el.setAttribute('aria-pressed', on ? 'true' : 'false');
-    });
+    if (el && el.tagName === 'BUTTON' && !el.hasAttribute('aria-pressed')) {
+      el.setAttribute('aria-pressed', el.classList.contains('active') ? 'true' : 'false');
+    }
   });
 }
 initScanToggles(['owaspPassive', 'owaspIntrusive', 'owaspDryRun']);

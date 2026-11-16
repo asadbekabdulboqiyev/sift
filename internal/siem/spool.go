@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 )
 
@@ -129,7 +130,19 @@ func (n *Notifier) ReplaySpool(ctx context.Context) (int, error) {
 	remaining = append(remaining, undecodable...)
 
 	if len(remaining) == 0 {
-		if err := os.Truncate(path, 0); err != nil {
+		tf, err := os.OpenFile(path, os.O_WRONLY, 0o600)
+		if err != nil {
+			return sent, fmt.Errorf("siem: truncate spool: %w", err)
+		}
+		if err := tf.Truncate(0); err != nil {
+			_ = tf.Close()
+			return sent, fmt.Errorf("siem: truncate spool: %w", err)
+		}
+		if err := tf.Sync(); err != nil {
+			_ = tf.Close()
+			return sent, fmt.Errorf("siem: truncate spool: %w", err)
+		}
+		if err := tf.Close(); err != nil {
 			return sent, fmt.Errorf("siem: truncate spool: %w", err)
 		}
 		return sent, nil
@@ -168,6 +181,30 @@ func (n *Notifier) ReplaySpool(ctx context.Context) (int, error) {
 		_ = os.Remove(tmpName)
 		return sent, fmt.Errorf("siem: rewrite spool: %w", err)
 	}
+	if err := syncDir(filepath.Dir(path)); err != nil {
+		_ = os.Chmod(path, 0o600)
+		return sent, fmt.Errorf("siem: rewrite spool: %w", err)
+	}
 	_ = os.Chmod(path, 0o600)
 	return sent, fmt.Errorf("siem: %d spooled event(s) failed to replay", len(remaining))
+}
+
+func syncDir(dir string) error {
+	f, err := os.Open(filepath.Clean(dir))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := f.Sync(); err != nil {
+		if isIgnorableDirSyncError(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func isIgnorableDirSyncError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return errors.Is(err, os.ErrInvalid) || strings.Contains(msg, "invalid argument") || strings.Contains(msg, "not supported") || strings.Contains(msg, "inappropriate ioctl") || strings.Contains(msg, "operation not supported")
 }

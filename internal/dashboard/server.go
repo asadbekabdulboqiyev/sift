@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"bytes"
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -18,8 +19,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/asadbekabdulboqiyev/sift/internal/adminlock"
 	"github.com/asadbekabdulboqiyev/sift/internal/attest"
 	"github.com/asadbekabdulboqiyev/sift/internal/audit360"
+	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 	"github.com/asadbekabdulboqiyev/sift/internal/demostore"
 	"github.com/gorilla/websocket"
 )
@@ -520,22 +523,70 @@ func (s *Server) serveIndexHTML(w http.ResponseWriter) {
 	_, _ = w.Write([]byte(html))
 }
 
+// dashboardDevAssetsEnabled reports whether local on-disk UI assets should be
+// used instead of the embedded bundle. This is explicit opt-in for development.
+func dashboardDevAssetsEnabled() bool {
+	return os.Getenv("SIFT_DASHBOARD_DEV_ASSETS") == "1"
+}
+
+// loadDashboardAsset returns the UI asset to serve. Embedded assets are the
+// default: they ship with the binary, so a production dashboard can never pick
+// up HTML/JS from a directory next to the process (a stale or attacker-writable
+// `internal/dashboard` in the working directory would otherwise inject script
+// into the dashboard origin, which can drive every API route).
+//
+// Local UI edits are still picked up when SIFT_DASHBOARD_DEV_ASSETS=1 is set
+// explicitly, and only from the repository layout that opts in.
 func loadDashboardAsset(name string, fallback []byte) []byte {
-	// Prefer on-disk UI assets when available so local fixes apply immediately.
+	if dashboardDevAssetsEnabled() {
+		for _, p := range dashboardAssetCandidates(name) {
+			b, err := os.ReadFile(p)
+			if err == nil && len(b) > 0 {
+				return b
+			}
+		}
+	}
+	return fallback
+}
+
+func dashboardAssetCandidates(name string) []string {
 	candidates := []string{
-		filepath.Join("/Users/asadbek/sift/internal/dashboard", name),
 		filepath.Join("internal", "dashboard", name),
 	}
 	if exe, err := os.Executable(); err == nil {
 		candidates = append(candidates, filepath.Join(filepath.Dir(exe), "internal", "dashboard", name))
 	}
-	for _, p := range candidates {
-		b, err := os.ReadFile(p)
-		if err == nil && len(b) > 0 {
-			return b
+	return candidates
+}
+
+func loadDashboardJS() []byte {
+	if !dashboardDevAssetsEnabled() {
+		return dashboardJS
+	}
+	for _, dir := range dashboardAssetCandidates("assets") {
+		paths, err := filepath.Glob(filepath.Join(dir, "*.js"))
+		if err != nil || len(paths) == 0 {
+			continue
+		}
+		// filepath.Glob returns lexicographic order, matching embedded bundle order.
+		var buf bytes.Buffer
+		ok := true
+		for _, p := range paths {
+			part, err := os.ReadFile(p)
+			if err != nil {
+				ok = false
+				break
+			}
+			buf.Write(part)
+			if len(part) > 0 && part[len(part)-1] != '\n' {
+				buf.WriteByte('\n')
+			}
+		}
+		if ok && buf.Len() > 0 {
+			return buf.Bytes()
 		}
 	}
-	return fallback
+	return dashboardJS
 }
 
 // serveApp routes the UI, JSON API and WebSocket traffic.
@@ -674,7 +725,7 @@ func (s *Server) serveApp(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodHead {
 			return
 		}
-		_, _ = w.Write(dashboardJS)
+		_, _ = w.Write(loadDashboardJS())
 	case path == "/api" || strings.HasPrefix(path, "/api/"):
 		// An unknown API path must not fall through to the HTML shell. A client
 		// that mistypes an endpoint would otherwise get 200 and a page of
@@ -836,6 +887,22 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "users, duration_seconds, and rate_limit must be non-negative", http.StatusBadRequest)
 		return
 	}
+	// The browser is not a back door around the CLI's authorization layer. Every
+	// other scan endpoint on this server goes through owaspGate; this one used to
+	// hand the target to the engine unchecked, which let a dashboard client make
+	// the host send arbitrary-method/header/body requests to the cloud instance
+	// metadata service (169.254.169.254, metadata.google.internal) and read back
+	// credentials. Metadata and link-local destinations are refused here.
+	if class, host, refused := refuseRunTarget(config.TargetURL); refused {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf(
+				"refusing to send traffic to %s (%s): cloud instance metadata and link-local addresses are the credential-theft path and cannot be load-tested from the dashboard",
+				host, class),
+		})
+		return
+	}
 	s.mu.RLock()
 	running := s.runState != nil && s.runState.Status == "running"
 	s.mu.RUnlock()
@@ -856,6 +923,35 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "started"})
+}
+
+// refuseRunTarget classifies a load-test target and reports whether the
+// dashboard must refuse to send traffic to it. Instance metadata is always
+// refused (the admin unlock does not open it); link-local is refused unless an
+// operator deliberately unlocked the admin bypass, matching owaspGate.
+//
+// A resolution error is not treated as a refusal: an offline or unresolvable
+// host is reported by the engine, and failing closed on every DNS hiccup would
+// make the endpoint unusable. Literal addresses and the well-known metadata
+// hostnames classify without DNS, so the credential-theft destinations are
+// still caught.
+func refuseRunTarget(raw string) (authz.Class, string, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	tgt, err := authz.Classify(ctx, raw, nil)
+	if err != nil {
+		return authz.ClassPublic, "", false
+	}
+	switch tgt.Class() {
+	case authz.ClassMetadata:
+		return tgt.Class(), tgt.Host, true
+	case authz.ClassLinkLocal:
+		if adminlock.Active() {
+			return tgt.Class(), tgt.Host, false
+		}
+		return tgt.Class(), tgt.Host, true
+	}
+	return tgt.Class(), tgt.Host, false
 }
 
 func (s *Server) handleStopRun(w http.ResponseWriter, r *http.Request) {

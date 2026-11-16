@@ -475,10 +475,39 @@ func WritePackage(m Manifest, dir string) (string, error) {
 		_ = os.Remove(tmpName)
 		return "", fmt.Errorf("bounty: finalize %s: %w", path, err)
 	}
+	if err := syncDir(cleanDir); err != nil {
+		return "", fmt.Errorf("bounty: sync package dir %s: %w", cleanDir, err)
+	}
 	if err := os.Chmod(path, 0o600); err != nil {
 		return "", fmt.Errorf("bounty: set mode on %s: %w", path, err)
 	}
 	return path, nil
+}
+
+// syncDir fsyncs a directory so a rename or create within it is durable on
+// platforms where directory entries require an explicit sync. Errors are
+// returned so callers can fail closed on durability-sensitive writes.
+func syncDir(dir string) error {
+	f, err := os.Open(filepath.Clean(dir))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := f.Sync(); err != nil {
+		// Some platforms/filesystems do not support syncing directories.
+		// Treat those cases as non-fatal to preserve portability.
+		if isIgnorableDirSyncError(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func isIgnorableDirSyncError(err error) bool {
+	// Best-effort portability: on filesystems/platforms that reject directory
+	// fsync, durability of the directory entry cannot be strengthened here.
+	return errors.Is(err, os.ErrInvalid) || strings.Contains(err.Error(), "invalid argument") || strings.Contains(err.Error(), "not supported") || strings.Contains(err.Error(), "Inappropriate ioctl")
 }
 
 // LoadPackage reads, strictly decodes and structurally validates a manifest.

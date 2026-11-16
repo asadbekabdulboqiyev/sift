@@ -69,6 +69,7 @@ func Compare(current, baseline *Report) *CompareResult {
 	cr.RPSDiff = current.RPS - baseline.RPS
 	cr.RPSChangePct = pctChange(current.RPS, baseline.RPS)
 
+	// Stored for rendering
 	cr.baselineReq = baseline.TotalRequests
 	cr.currentReq = current.TotalRequests
 	cr.baselineAvg = baseline.Overall.Avg
@@ -87,23 +88,49 @@ func Compare(current, baseline *Report) *CompareResult {
 	baseP99 := msOf(baseline.Overall.P99)
 	baseAvg := msOf(baseline.Overall.Avg)
 	candidates := []float64{}
+	baselineMeasured := baseline.TotalRequests > 0
 	if baseP50 > 0 {
 		candidates = append(candidates, cr.P50Diff/baseP50*100)
+	} else if baselineMeasured && msOf(current.Overall.P50) > 0 {
+		candidates = append(candidates, 100)
 	}
 	if baseP95 > 0 {
 		candidates = append(candidates, cr.P95Diff/baseP95*100)
+	} else if baselineMeasured && msOf(current.Overall.P95) > 0 {
+		candidates = append(candidates, 100)
 	}
 	if baseP99 > 0 {
 		candidates = append(candidates, cr.P99Diff/baseP99*100)
+	} else if baselineMeasured && msOf(current.Overall.P99) > 0 {
+		candidates = append(candidates, 100)
 	}
 	if baseAvg > 0 {
 		candidates = append(candidates, cr.AvgDiff/baseAvg*100)
+	} else if baselineMeasured && msOf(current.Overall.Avg) > 0 {
+		candidates = append(candidates, 100)
 	}
 	if baseline.RPS > 0 {
 		candidates = append(candidates, -cr.RPSChangePct)
+	} else if current.RPS > 0 {
+		// 0 -> positive throughput is not a regression.
+		candidates = append(candidates, -100)
+	} else if baselineMeasured && baseline.RPS == 0 && current.RPS < baseline.RPS {
+		candidates = append(candidates, 100)
 	}
 	if baseline.TotalErrors > 0 {
 		candidates = append(candidates, cr.ErrorChangePct)
+	} else if baselineMeasured && current.TotalErrors > 0 {
+		// Measured clean baseline -> any errors is a regression.
+		candidates = append(candidates, 100)
+	} else if !baselineMeasured && baseline.ErrorRatePct == 0 && current.ErrorRatePct > 0 && current.TotalErrors > 0 {
+		// If both counts and baseline measurement are absent, avoid false positives.
+	} else if baselineMeasured || baseline.ErrorRatePct > 0 || current.ErrorRatePct > 0 {
+		// Fallback when counts/rates indicate change.
+		if baseline.TotalErrors == 0 && current.TotalErrors == 0 && baseline.ErrorRatePct < current.ErrorRatePct {
+			candidates = append(candidates, math.Max(cr.currentErr-cr.baselineErr, 1))
+		} else if baseline.TotalErrors == 0 && current.TotalErrors == 0 && baseline.ErrorRatePct > current.ErrorRatePct {
+			candidates = append(candidates, cr.currentErr-cr.baselineErr)
+		}
 	}
 	for _, pct := range candidates {
 		if pct > worstPct {
@@ -130,8 +157,8 @@ func (cr *CompareResult) Render() string {
 	fmt.Fprintf(&b, "  %s\n", line)
 
 	b.WriteString(cr.renderRow("Requests", formatCount(cr.baselineReq), formatCount(cr.currentReq), cr.RequestChangePct))
-	b.WriteString(cr.renderRow("Avg Latency", formatLatency(cr.baselineAvg), formatLatency(cr.currentAvg), cr.AvgDiff/max1(msOf(cr.baselineAvg), 0.001)*100))
-	b.WriteString(cr.renderRow("P99 Latency", formatLatency(cr.baselineP99), formatLatency(cr.currentP99), cr.P99Diff/max1(msOf(cr.baselineP99), 0.001)*100))
+	b.WriteString(cr.renderRow("Avg Latency", formatLatency(cr.baselineAvg), formatLatency(cr.currentAvg), latencyChangePct(cr.AvgDiff, cr.baselineAvg, cr.currentAvg)))
+	b.WriteString(cr.renderRow("P99 Latency", formatLatency(cr.baselineP99), formatLatency(cr.currentP99), latencyChangePct(cr.P99Diff, cr.baselineP99, cr.currentP99)))
 	b.WriteString(cr.renderRow("Error Rate", fmt.Sprintf("%.2f%%", cr.baselineErr), fmt.Sprintf("%.2f%%", cr.currentErr), cr.ErrorChangePct))
 	b.WriteString(cr.renderRow("RPS", formatRPS(cr.baselineRPS), formatRPS(cr.currentRPS), cr.RPSChangePct))
 
@@ -154,12 +181,29 @@ func (cr *CompareResult) Render() string {
 // more than measurement noise, so the IMPROVED verdict means something.
 func (cr *CompareResult) improved() bool {
 	const meaningfulPct = 1.0
-	avgPct := cr.AvgDiff / max1(msOf(cr.baselineAvg), 0.001) * 100
-	p99Pct := cr.P99Diff / max1(msOf(cr.baselineP99), 0.001) * 100
+	avgPct := latencyChangePct(cr.AvgDiff, cr.baselineAvg, cr.currentAvg)
+	p99Pct := latencyChangePct(cr.P99Diff, cr.baselineP99, cr.currentP99)
 	return avgPct < -meaningfulPct ||
 		p99Pct < -meaningfulPct ||
 		cr.ErrorChangePct < -meaningfulPct ||
 		cr.RPSChangePct > meaningfulPct
+}
+
+func latencyChangePct(diffMS float64, baseline, current time.Duration) float64 {
+	baseMS := msOf(baseline)
+	if baseMS > 0 {
+		return diffMS / baseMS * 100
+	}
+	switch {
+	case msOf(current) == 0:
+		return 0
+	case diffMS > 0:
+		return 100
+	case diffMS < 0:
+		return -100
+	default:
+		return 0
+	}
 }
 
 // formatLatency renders a measured latency for the comparison table.
@@ -213,9 +257,20 @@ func msOf(d time.Duration) float64 {
 	return float64(d) / float64(time.Millisecond)
 }
 
+// pctChange returns percent change from baseline to current.
+// When baseline is 0, relative percent change is undefined; return 0 for no
+// change, +100 for an increase, and -100 for a decrease so callers can still
+// distinguish direction in zero-baseline edge cases.
 func pctChange(current, baseline float64) float64 {
 	if baseline == 0 {
-		return 0
+		switch {
+		case current == 0:
+			return 0
+		case current > 0:
+			return 100
+		default:
+			return -100
+		}
 	}
 	return (current - baseline) / baseline * 100
 }

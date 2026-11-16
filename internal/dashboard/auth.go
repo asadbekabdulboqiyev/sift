@@ -349,16 +349,19 @@ func (a *Auth) rbacAllowed(subject string, roles []string, perm string) bool {
 	if !a.rbacEnabled {
 		return true
 	}
-	// Build store.Role from configured roles
-	rolePerms := map[string][]string{}
-	for sub, rs := range a.rbacRoles {
-		rolePerms[sub] = rs
-	}
-	userRoles := rolePerms[subject]
-	// Also include roles from OIDC token
+	subjectRoles := a.rbacRoles[subject]
+	userRoles := make([]string, 0, len(subjectRoles)+len(roles))
+	userRoles = append(userRoles, subjectRoles...)
 	userRoles = append(userRoles, roles...)
 	for _, rName := range userRoles {
-		r := store.Role{Name: rName, Permissions: rolePerms[rName]}
+		// RBACRoles is overloaded in existing configs: subject->roles and
+		// role-name->permissions. Prefer explicit permission entries for a role
+		// name when present; fall back to built-in defaults for standard roles.
+		perms := a.rbacRoles[rName]
+		if len(perms) == 0 {
+			perms = rbac.DefaultPermissions(rName)
+		}
+		r := store.Role{Name: rName, Permissions: perms}
 		if rbac.Has(r, perm) {
 			return true
 		}

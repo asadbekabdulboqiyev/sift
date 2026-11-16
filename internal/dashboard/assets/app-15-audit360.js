@@ -34,6 +34,7 @@
   var currentMode = 'standard';
   var lastReport = null;
   var lastStatus = null;
+  var pollFailures = 0;
 
   function getMode() { return currentMode || 'standard'; }
   function needsAuth() { return getMode() === 'standard'; }
@@ -48,6 +49,7 @@
     if (!needsAuth() && authEl) authEl.checked = false;
     setError('');
   }
+  try { window.__a360SetMode = setMode; window.__a360GetMode = getMode; } catch (_) {}
 
   function setError(msg) { if (errEl) errEl.textContent = msg || ''; }
   function show(el, on) { if (!el) return; el.classList.toggle('hidden', !on); }
@@ -148,12 +150,31 @@
     }
   }
 
+  function statusFailure(jobId, msg) {
+    // Ignore late failures for a job that already finished or was replaced.
+    if (!currentJobId || currentJobId !== jobId || lastReport) return;
+    pollFailures += 1;
+    if (pollFailures < 4) return;
+    stopTracking();
+    show(runningEl, false);
+    setBusy(false);
+    setError(msg || 'Lost contact with the audit job. It may have been cancelled, or the dashboard restarted.');
+  }
+
   function fetchStatus(jobId, terminalOnly) {
     fetch('/api/audit-360/status?job_id=' + encodeURIComponent(jobId), { headers: { 'Accept': 'application/json' } })
       .then(function (r) { return r.json().catch(function(){ return null; }).then(function(j){ return { ok: r.ok, status: r.status, json: j }; }); })
       .then(function (res) {
-        if (!res || !res.json) return;
+        if (!res) return;
+        if (!res.ok || !res.json) {
+          // A vanished or restarted job answers 404 {"ok":false,...}; stop
+          // hammering it and let the operator retry instead of staying busy.
+          var detail = (res.json && res.json.error) ? res.json.error : '';
+          statusFailure(jobId, detail);
+          return;
+        }
         var st = res.json;
+        pollFailures = 0;
         if (st && st.stages) updateStages(st);
         if (st && st.state === 'completed') {
           stopTracking();
@@ -168,7 +189,8 @@
         }
       })
       .catch(function () {
-        // transient polling error; keep trying
+        // Transient network error; counted so a dead job cannot spin forever.
+        statusFailure(jobId, '');
       });
   }
 
@@ -290,6 +312,7 @@
     }
     lastReport = report;
     lastStatus = status || null;
+    pollFailures = 0;
     [downloadJsonBtn, downloadHtmlBtn, downloadPdfBtn].forEach(function(b){ if (b) b.disabled = false; });
     setError('');
     show(progressEl, true);
@@ -397,11 +420,53 @@
         a.href = url; a.download = 'sift-audit360-signed-' + cert + '.json';
         document.body.appendChild(a); a.click();
         setTimeout(function(){ URL.revokeObjectURL(url); if (a.parentNode) a.parentNode.removeChild(a); }, 0);
+        return;
+      }
+      if (typeof toast === 'function') {
+        toast('This result has no server-side job, so no ' + String(format).toUpperCase() + ' file is available. Run the audit again to download it.', 'error');
       }
       return;
     }
+
     var u = '/api/audit-360/download?job_id=' + encodeURIComponent(jobId) + '&format=' + encodeURIComponent(format);
-    window.location.href = u;
+    var fallbackName = 'sift-audit360-' + String(format) + '-' + String(jobId).replace(/[^a-zA-Z0-9._-]/g, '_');
+    fetch(u, { method: 'GET', cache: 'no-store', credentials: 'same-origin' })
+      .then(function (r) {
+        if (!r.ok) {
+          return r.json().catch(function () { return {}; }).then(function (j) {
+            var msg = (j && (j.error || j.reason)) || ('Download failed (HTTP ' + r.status + ')');
+            throw new Error(msg);
+          });
+        }
+        var cd = r.headers.get('Content-Disposition') || '';
+        var name = fallbackName;
+        var i = cd.toLowerCase().indexOf('filename=');
+        if (i >= 0) {
+          var v = cd.slice(i + 9).trim();
+          if (v.charAt(0) === '"' || v.charAt(0) === "'") v = v.slice(1);
+          var end = v.indexOf(';');
+          if (end >= 0) v = v.slice(0, end);
+          if (v.length && (v.charAt(v.length - 1) === '"' || v.charAt(v.length - 1) === "'")) v = v.slice(0, -1);
+          v = v.trim();
+          if (v) name = v;
+        }
+        return r.blob().then(function (blob) { return { blob: blob, name: name }; });
+      })
+      .then(function (res) {
+        if (!res) return;
+        var url = URL.createObjectURL(res.blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = res.name || fallbackName;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function(){ URL.revokeObjectURL(url); if (a.parentNode) a.parentNode.removeChild(a); }, 0);
+      })
+      .catch(function (err) {
+        var msg = err && err.message ? err.message : 'Download failed.';
+        if (typeof toast === 'function') toast(msg, 'error');
+        else setError(msg);
+      });
   }
   if (downloadJsonBtn) { downloadJsonBtn.disabled = true; downloadJsonBtn.addEventListener('click', function(){ a360Download('json'); }); }
   if (downloadHtmlBtn) { downloadHtmlBtn.disabled = true; downloadHtmlBtn.addEventListener('click', function(){ a360Download('html'); }); }
@@ -420,6 +485,7 @@
     currentJobId = null;
     lastReport = null;
     lastStatus = null;
+    pollFailures = 0;
     [downloadJsonBtn, downloadHtmlBtn, downloadPdfBtn].forEach(function(b){ if (b) b.disabled = true; });
 
     var mode = getMode();

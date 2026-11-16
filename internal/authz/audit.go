@@ -74,12 +74,17 @@ func Open(path string) (*Log, error) {
 // Path returns the log file path.
 func (l *Log) Path() string { return l.path }
 
-// Close releases the file handle.
+// Close releases the file handle. It is safe to call concurrently with
+// Append; further appends will return an error.
 func (l *Log) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.f == nil {
 		return nil
 	}
-	return l.f.Close()
+	err := l.f.Close()
+	l.f = nil
+	return err
 }
 
 // Append chains and writes entry, filling in Seq, Time, PrevHash, and Hash.
@@ -87,6 +92,9 @@ func (l *Log) Close() error {
 func (l *Log) Append(e Entry) (Entry, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.f == nil {
+		return Entry{}, fmt.Errorf("append audit entry: log is closed")
+	}
 
 	prev, seq, err := l.tail()
 	if err != nil {

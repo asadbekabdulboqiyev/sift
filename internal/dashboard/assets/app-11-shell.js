@@ -90,7 +90,7 @@ function wireNav() {
   // normal typing inside the URL and token fields.
   document.addEventListener('keydown', function(ev) {
     if (!ev.altKey || ev.ctrlKey || ev.metaKey) return;
-    var map = { '1': 'viewOverview', '2': 'viewSecurity', '3': 'viewCertificate', '4': 'viewHistory', '5': 'viewInsights' };
+    var map = { '1': 'viewOverview', '2': 'viewSecurity', '3': 'viewCertificate', '4': 'viewHistory', '5': 'viewInsights', 'a': 'viewAdmin' };
     var id = map[String(ev.key).toLowerCase()];
     if (!id) return;
     ev.preventDefault();
@@ -123,4 +123,23 @@ function wireAdminReveal() {
   window.addEventListener('hashchange', function() {
     if (hashIsAdmin(location.hash)) revealAdmin(true);
   });
+
+  // The brand logo advertises a five-click reveal, so wire it up. Clicks must
+  // land within a short window to count as one gesture.
+  var brand = document.getElementById('brandLogo');
+  if (brand) {
+    var brandClicks = 0;
+    var brandLast = 0;
+    brand.addEventListener('click', function() {
+      var now = Date.now();
+      if (now - brandLast > 1200) brandClicks = 0;
+      brandLast = now;
+      brandClicks += 1;
+      if (brandClicks >= 5) {
+        brandClicks = 0;
+        revealAdmin(true);
+        if (typeof toast === 'function') toast('Admin area revealed', 'info');
+      }
+    });
+  }
 }

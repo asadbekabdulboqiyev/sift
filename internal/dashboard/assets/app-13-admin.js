@@ -16,6 +16,7 @@
 var adminStatusTimer = null;
 var adminTickTimer = null;
 var adminExpiresMs = 0;
+var adminExpiryRefetch = false;
 
 function adminSetStatus(msg, cls) {
   var el = document.getElementById('adminStatus');
@@ -38,13 +39,20 @@ function adminRenderStatus(st) {
   if (st && st.active) {
     value.textContent = 'ON — authorization bypassed';
     value.className = 'admin-state-value on';
-    adminExpiresMs = st.expires_at ? Date.parse(st.expires_at) : 0;
+    // seconds_left is authoritative; expires_at is only a fallback, and a
+    // malformed timestamp must not leak NaN into the countdown.
+    var exp = (typeof st.seconds_left === 'number' && isFinite(st.seconds_left))
+      ? Date.now() + st.seconds_left * 1000
+      : Date.parse(st.expires_at || '');
+    adminExpiresMs = isFinite(exp) && exp > 0 ? exp : 0;
+    if (adminExpiresMs > Date.now()) adminExpiryRefetch = false;
     if (countdown) countdown.classList.remove('hidden');
     adminTick();
   } else {
     value.textContent = 'OFF — authorization enforced';
     value.className = 'admin-state-value off';
     adminExpiresMs = 0;
+    adminExpiryRefetch = false;
     if (countdown) { countdown.classList.add('hidden'); countdown.textContent = ''; }
   }
 }
@@ -57,7 +65,12 @@ function adminTick() {
   if (left <= 0) {
     countdown.textContent = 'Bypass expired — authorization is enforced again.';
     countdown.classList.remove('hidden');
-    adminFetchStatus();
+    // Ask the server once, not every second, so a stale status cannot turn
+    // this into a request storm while the bypass winds down.
+    if (!adminExpiryRefetch) {
+      adminExpiryRefetch = true;
+      adminFetchStatus();
+    }
     return;
   }
   var m = Math.floor(left / 60);
@@ -88,7 +101,7 @@ function adminStop() {
 function wireAdmin() {
   var form = document.getElementById('adminForm');
   var lock = document.getElementById('btnAdminLock');
-  if (form) form.addEventListener('submit', function(ev) {
+  if (form && form.dataset.wired !== '1') { form.dataset.wired = '1'; form.addEventListener('submit', function(ev) {
     ev.preventDefault();
     var minutes = parseInt((document.getElementById('adminMinutes') || {}).value || '15', 10);
     if (!minutes || minutes < 1) minutes = 15;
@@ -122,9 +135,9 @@ function wireAdmin() {
     }).catch(function() {
       adminSetStatus('Could not reach the dashboard API.', 'bad');
     });
-  });
+  }); }
 
-  if (lock) lock.addEventListener('click', function() {
+  if (lock && lock.dataset.wired !== '1') { lock.dataset.wired = '1'; lock.addEventListener('click', function() {
     adminSetStatus('Closing the bypass window…', '');
     fetch(API + '/api/admin/lock', { method: 'POST' })
       .then(function(r) { return r.json(); })
@@ -135,7 +148,7 @@ function wireAdmin() {
         toast('Admin bypass is OFF', 'ok');
       })
       .catch(function() { adminSetStatus('Could not reach the dashboard API.', 'bad'); });
-  });
+  }); }
 }
 
 /* ---- Boot the shell ---- */

@@ -418,32 +418,35 @@ func (c *OWASPChecker) checkA02() *OWASPCategory {
 		}
 	}
 
-	// Check HSTS header
+	// Check HSTS header. HSTS is only meaningful/served in an HTTPS context;
+	// flagging it on plain-HTTP targets is misleading (browsers ignore it).
 	resp, pageBody := c.makeRequest("GET", "/", nil, nil)
 	if resp != nil {
 		hsts := resp.Header.Get("Strict-Transport-Security")
-		if hsts == "" {
-			c.addFinding(cat,
-				"HSTS header missing",
-				"Add Strict-Transport-Security header with max-age >= 31536000",
-				"high")
-		} else {
-			re := regexp.MustCompile(`max-age=(\d+)`)
-			matches := re.FindStringSubmatch(hsts)
-			if len(matches) > 1 {
-				maxAge, _ := strconv.Atoi(matches[1])
-				if maxAge < 31536000 {
-					c.addFinding(cat,
-						fmt.Sprintf("HSTS max-age too low: %d (minimum 31536000)", maxAge),
-						"Increase HSTS max-age to at least 31536000 (1 year)",
-						"medium")
+		if strings.HasPrefix(strings.ToLower(c.Target), "https://") {
+			if hsts == "" {
+				c.addFinding(cat,
+					"HSTS header missing",
+					"Add Strict-Transport-Security header with max-age >= 31536000",
+					"high")
+			} else {
+				re := regexp.MustCompile(`max-age=(\d+)`)
+				matches := re.FindStringSubmatch(hsts)
+				if len(matches) > 1 {
+					maxAge, _ := strconv.Atoi(matches[1])
+					if maxAge < 31536000 {
+						c.addFinding(cat,
+							fmt.Sprintf("HSTS max-age too low: %d (minimum 31536000)", maxAge),
+							"Increase HSTS max-age to at least 31536000 (1 year)",
+							"medium")
+					}
 				}
 			}
 		}
 
 		// Check mixed content (body already read by makeRequest). Only an
 		// HTTPS page can have mixed content.
-		if strings.HasPrefix(c.Target, "https://") {
+		if strings.HasPrefix(strings.ToLower(c.Target), "https://") {
 			httpRefs := regexp.MustCompile(`src=["']http://`).FindAllString(pageBody, -1)
 			if len(httpRefs) > 0 {
 				c.addFinding(cat,
@@ -503,11 +506,11 @@ func (c *OWASPChecker) checkA03() *OWASPCategory {
 		{"id", "1' OR '1'=",
 			"(sql syntax|mysql|ora-|postgresql|sqlite|unclosed quotation|quoted string not properly terminated)"},
 		{"search", "' UNION SELECT NULL--",
-			"(sql syntax|mysql|ora-|postgresql|sqlite|column|table)"},
+			"(sql syntax|mysql|ora-|postgresql|sqlite|unclosed quotation|quoted string not properly terminated|syntax error)"},
 		{"q", "1; SELECT 1",
 			"(sql syntax|mysql|ora-|postgresql|sqlite)"},
 		{"user", "admin'--",
-			"(sql syntax|mysql|ora-|postgresql|sqlite|welcome|dashboard)"},
+			"(sql syntax|mysql|ora-|postgresql|sqlite|unclosed quotation|quoted string not properly terminated)"},
 	}
 
 	for _, sp := range sqlPayloads {
@@ -558,9 +561,9 @@ func (c *OWASPChecker) checkA03() *OWASPCategory {
 		pattern string
 	}{
 		{"host", "127.0.0.1; ls",
-			"(root|bin|etc|usr|var)"},
+			`(uid=\d+|gid=\d+|root:[^:]*:0:0:|total \d+|/bin/(ba)?sh\b)`},
 		{"ip", "127.0.0.1|cat /etc/passwd",
-			"(root:.:0:0)"},
+			`(root:[^:]*:0:0:|uid=\d+|gid=\d+)`},
 		{"cmd", "; id",
 			"(uid=|gid=)"},
 	}
@@ -1024,7 +1027,7 @@ func (c *OWASPChecker) checkA07() *OWASPCategory {
 	// way — not a confirmed absence of protection.
 	if attemptsReached > 0 && !lockoutDetected {
 		c.addFinding(cat,
-			"No brute force protection: 20 failed login attempts with no lockout/rate limit",
+			"No brute force protection signal observed: 20 failed login attempts to /api/login with no lockout/rate limit response",
 			"Implement account lockout, rate limiting, and CAPTCHA after failed attempts",
 			"high")
 	}

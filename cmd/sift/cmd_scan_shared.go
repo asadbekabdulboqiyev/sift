@@ -267,13 +267,15 @@ func emitScanCLIErrorJSON(sf *scanFlags, err error) {
 	fmt.Println(string(data))
 }
 
+// atomicWriteFile writes data via a temp file in the destination directory,
+// fsyncs it, then renames it into place so readers never observe a partial
+// file. It deliberately does not create the destination directory: every
+// caller that wants auto-created parents does os.MkdirAll itself (authz,
+// xray, simulate, report), while command output paths must surface a typo
+// (".../missing/x.json") as a write error instead of silently creating a
+// directory tree.
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
-	if dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0o750); err != nil {
-			return err
-		}
-	}
 	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
 	if err != nil {
 		return err
@@ -302,6 +304,10 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	if err := os.Rename(tmpName, path); err != nil {
 		_ = os.Remove(tmpName)
 		return err
+	}
+	if df, err := os.Open(dir); err == nil {
+		_ = df.Sync()
+		_ = df.Close()
 	}
 	return os.Chmod(path, perm)
 }

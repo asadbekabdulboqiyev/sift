@@ -342,6 +342,9 @@ func appendEventLine(path string, e Event) error {
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("bounty: close triage log %s: %w", cleanPath, err)
 	}
+	if err := syncDir(filepath.Dir(cleanPath)); err != nil {
+		return fmt.Errorf("bounty: sync triage log dir %s: %w", filepath.Dir(cleanPath), err)
+	}
 	return nil
 }
 

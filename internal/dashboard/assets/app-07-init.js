@@ -51,6 +51,155 @@ document.addEventListener('keydown', function(e) {
 });
 
 /* ==========================================================================
+   RELIABLE TOGGLE HANDLING (delegated fallback)
+   Ensures .scan-toggle buttons always respond, even if per-module init failed.
+   ========================================================================== */
+document.addEventListener('click', function(e) {
+  var btn = e.target && e.target.closest ? e.target.closest('button.scan-toggle') : null;
+  if (!btn) return;
+  try {
+    var on = !(btn.classList.contains('active') || btn.getAttribute('aria-pressed') === 'true');
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  } catch (err) { /* ignore */ }
+}, false);
+
+/* ==========================================================================
+   RELIABLE ACTION HANDLING (capture fallback for critical controls)
+   Uses capture to provide a consistent path when module listeners are missing.
+   ========================================================================== */
+document.addEventListener('click', function(e) {
+  try {
+    var t = e.target;
+    if (!t || !t.closest) return;
+
+    var a360Mode = t.closest('.a360-mode[data-mode]');
+    if (a360Mode) {
+      var mode = a360Mode.getAttribute('data-mode') || 'standard';
+      if (typeof window.__a360SetMode === 'function') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        window.__a360SetMode(mode);
+        return;
+      }
+      // Fallback: visual + auth visibility if app-15 handler unavailable
+      try {
+        document.querySelectorAll('.a360-mode[data-mode]').forEach(function (b) {
+          var on = b.getAttribute('data-mode') === mode;
+          b.classList.toggle('active', on);
+          b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+        var authWrap = document.getElementById('a360AuthWrap');
+        if (authWrap) authWrap.classList.toggle('hidden', mode !== 'standard');
+      } catch (_) {}
+      return;
+    }
+
+    if (t.closest('button.scan-toggle')) return;
+
+    var nav = t.closest('[data-view]');
+    if (nav && typeof showView === 'function') {
+      var view = nav.getAttribute('data-view');
+      if (view) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        showView(view);
+        return;
+      }
+    }
+
+    var startBtn = t.closest('#btnStart, #btnRunAgain');
+    if (startBtn && typeof startRun === 'function') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      startRun();
+      return;
+    }
+
+    var stopBtn = t.closest('#btnStop');
+    if (stopBtn && typeof requestStop === 'function') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      requestStop();
+      return;
+    }
+
+    var demoBtn = t.closest('#btnDemoStore');
+    if (demoBtn && typeof demoStoreClick === 'function') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      demoStoreClick();
+      return;
+    }
+
+    var demoUrlBtn = t.closest('#btnLoadDemo');
+    if (demoUrlBtn && typeof loadDemoUrl === 'function') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      loadDemoUrl();
+      return;
+    }
+
+    var obClose = t.closest('#onboardingClose');
+    if (obClose && typeof dismissOnboarding === 'function') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      dismissOnboarding();
+      return;
+    }
+
+    var viewReportBtn = t.closest('#btnViewReport');
+    if (viewReportBtn && typeof viewReport === 'function') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      viewReport();
+      return;
+    }
+
+    var sumClose = t.closest('#summaryClose');
+    if (sumClose && typeof hideSummary === 'function') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      hideSummary();
+      return;
+    }
+  } catch (err) { /* ignore */ }
+}, true);
+
+document.addEventListener('submit', function(e) {
+  try {
+    var form = e.target;
+    if (!form || !form.id) return;
+    var map = {
+      controlsForm: 'startRun',
+      onboardingForm: 'obSubmit',
+      owaspForm: 'owaspRun',
+      pentestForm: 'pentestRun',
+      crawlForm: 'crawlRun',
+      fuzzForm: 'fuzzRun',
+      subdomainForm: 'subdomainRun',
+      portscanForm: 'portscanRun',
+      dirbustForm: 'dirbustRun',
+      sslscanForm: 'sslscanRun',
+      jwtForm: 'jwtRun',
+      graphqlForm: 'graphqlRun',
+      websocketForm: 'websocketRun'
+    };
+    var fnName = map[form.id];
+    if (!fnName) return;
+    var fn = (typeof window !== 'undefined' ? window[fnName] : null) || (typeof eval === 'function' ? null : null);
+    // functions declared at top level are globals; access via global scope
+    var handler = null;
+    try { handler = (new Function('return typeof ' + fnName + ' !== "undefined" ? ' + fnName + ' : null'))(); } catch (_) { handler = null; }
+    if (typeof handler === 'function') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      handler(e);
+    }
+  } catch (err) { /* ignore */ }
+}, true);
+
+/* ==========================================================================
    LOADING BARS (auto-inject into .btn.loading)
    ========================================================================== */
 function ensureLoadingBars(btn) {

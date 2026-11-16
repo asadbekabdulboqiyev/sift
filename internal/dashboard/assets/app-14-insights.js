@@ -689,23 +689,29 @@
     }
   }
 
+  function bind(id, fn) {
+    try {
+      var b = document.getElementById(id);
+      if (!b || b.dataset.insWired === '1' || typeof fn !== 'function') return;
+      b.addEventListener('click', fn);
+      b.dataset.insWired = '1';
+    } catch (_) { /* ignore */ }
+  }
+
   function wire() {
-    if (wired) return;
-    wired = true;
-    var b;
-    b = document.getElementById('btnXrayCaps'); if (b) b.addEventListener('click', loadXrayCaps);
-    b = document.getElementById('btnTwinFit'); if (b) b.addEventListener('click', doTwinFit);
-    b = document.getElementById('btnTwinLoadLatest'); if (b) b.addEventListener('click', doTwinLoadLatest);
-    b = document.getElementById('btnTwinSim'); if (b) b.addEventListener('click', doTwinSim);
-    b = document.getElementById('btnTwinCompare'); if (b) b.addEventListener('click', doTwinCompare);
-    b = document.getElementById('btnTwinSensitivity'); if (b) b.addEventListener('click', doTwinSensitivity);
-    b = document.getElementById('btnTwinBacktest'); if (b) b.addEventListener('click', doTwinBacktest);
-    b = document.getElementById('btnResourceAssess'); if (b) b.addEventListener('click', doResourceAssess);
-    b = document.getElementById('btnBountyValidate'); if (b) b.addEventListener('click', doBountyValidate);
-    b = document.getElementById('btnBountyVerifyUpload'); if (b) b.addEventListener('click', doBountyVerifyUpload);
-    b = document.getElementById('btnBountyStatus'); if (b) b.addEventListener('click', doBountyStatus);
-    b = document.getElementById('btnXrayCorrelate'); if (b) b.addEventListener('click', doXrayCorrelate);
-    b = document.getElementById('btnTwinUseModel'); if (b) b.addEventListener('click', function () {
+    bind('btnXrayCaps', loadXrayCaps);
+    bind('btnTwinFit', doTwinFit);
+    bind('btnTwinLoadLatest', doTwinLoadLatest);
+    bind('btnTwinSim', doTwinSim);
+    bind('btnTwinCompare', doTwinCompare);
+    bind('btnTwinSensitivity', doTwinSensitivity);
+    bind('btnTwinBacktest', doTwinBacktest);
+    bind('btnResourceAssess', doResourceAssess);
+    bind('btnBountyValidate', doBountyValidate);
+    bind('btnBountyVerifyUpload', doBountyVerifyUpload);
+    bind('btnBountyStatus', doBountyStatus);
+    bind('btnXrayCorrelate', doXrayCorrelate);
+    bind('btnTwinUseModel', function () {
       if (window.__twinLastModel) {
         var ta = document.getElementById('twinModelJson');
         if (ta) ta.value = JSON.stringify(window.__twinLastModel, null, 2);
@@ -714,7 +720,7 @@
         setText('twinFitOut', 'Fit a model first.', 'warn');
       }
     });
-    b = document.getElementById('btnTwinLoadActualFromLatest'); if (b) b.addEventListener('click', async function () {
+    bind('btnTwinLoadActualFromLatest', async function () {
       try {
         var d = await api('/api/history');
         var hist = Array.isArray(d) ? d : (d && d.history ? d.history : (S && S.history ? S.history : []));
@@ -725,13 +731,14 @@
         setText('twinCompareOut', 'Latest run loaded as actual report evidence.', 'ok');
       } catch (e) { if (!(e && e.message === 'locked')) setText('twinCompareOut', 'Error: ' + e.message, 'err'); }
     });
+    wired = true;
   }
 
   var wired = false;
   var capsLoaded = false;
   function onShow() {
-    if (!wired) wire();
-    if (!capsLoaded) { capsLoaded = true; loadXrayCaps(); }
+    wire();
+    if (!capsLoaded) { capsLoaded = true; try { loadXrayCaps(); } catch (_) { capsLoaded = false; } }
   }
 
   if (typeof showView === 'function') {

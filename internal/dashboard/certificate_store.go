@@ -130,6 +130,11 @@ func certStoreIssue(c certificate.Certificate) (*certificate.Certificate, string
 	if err := f.Close(); err != nil {
 		return nil, "", err
 	}
+	// Best-effort: persist directory entry updates when the store file is newly
+	// created or its metadata changes.
+	if err := certSyncDir(filepath.Dir(certStorePath)); err != nil {
+		return nil, "", err
+	}
 
 	h := sha256.Sum256(line)
 	hStr := hex.EncodeToString(h[:])
@@ -221,4 +226,20 @@ func certStoreSummaries() []CertificateSummary {
 // certTimestamp returns an RFC3339 UTC string.
 func certTimestamp() string {
 	return time.Now().UTC().Format(time.RFC3339)
+}
+
+func certSyncDir(dir string) error {
+	f, err := os.Open(filepath.Clean(dir))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := f.Sync(); err != nil {
+		msg := strings.ToLower(err.Error())
+		if strings.Contains(msg, "invalid argument") || strings.Contains(msg, "not supported") || strings.Contains(msg, "inappropriate ioctl") || strings.Contains(msg, "operation not supported") {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
