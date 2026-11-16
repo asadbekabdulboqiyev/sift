@@ -95,7 +95,7 @@ Pipeline stages: **1. Scanning Security** (headers/TLS/OWASP) → **2. Testing L
 
 Safety/behavior: same-origin checks for state-changing requests; Standard mode requires authorization confirmation; Passive performs non-intrusive checks only; unavailable metrics are explicitly labeled (no-fabrication). Backend may permit an operator **Admin** mode when allowed (not shown in the standard UI). Real-time progress via SSE or polling. Modular `internal/audit360/` package.
 
-The dashboard includes quick actions for local demos: **Use VoltStore demo** (`http://127.0.0.1:8090`) and **Test 100-point demo site** (`http://127.0.0.1:8095`, runs a standard authorized audit when the example target is running). See `examples/perfect_demo_site/` and `examples/perfect_demo_site/GUIDE.md`.
+The dashboard includes quick actions for local demos: **Use VoltStore demo** (`http://127.0.0.1:8090`) and **Test 100-point demo site** (`http://127.0.0.1:8095`, runs a standard authorized audit when the example target is running). See `examples/perfect_demo_site/`, the text guide `examples/perfect_demo_site/GUIDE.md`, and the **visual guide with real screenshots** at `http://127.0.0.1:8095/guide` (when the demo site is running).
 
 ### Load & Performance
 - Protocols: HTTP/HTTPS, WebSocket (`ws`/`wss`), gRPC (`grpc`/`grpcs`), TCP, UDP
@@ -143,7 +143,7 @@ The dashboard includes quick actions for local demos: **Use VoltStore demo** (`h
 **100-point demo target, visual guide, and dashboard audit flow**
 
 - **100-point demo site example (`examples/perfect_demo_site/`):** local, authorized Sift 360° target with recommended security headers and stable endpoints (`/`, `/health`), polished UI, and English documentation (`README.md`, `GUIDE.md`).
-- **Visual guide with real screenshots (`/guide`):** served by the demo site (`examples/perfect_demo_site/guide.html`, `guide-assets/`), captured via **ego-browser** from real local/authorized runs. Shows the exact audit flow (Dashboard → Sift 360° → **Test 100-point demo site** → progress → 100/100 scorecard) and where/what to change (security headers/CSP and code locations, endpoint stability, Standard-mode measurable load/evidence) with a checklist.
+- **Visual guide with real screenshots (`/guide`):** served by the demo site at `http://127.0.0.1:8095/guide` (`examples/perfect_demo_site/guide.html`, `guide-assets/`), captured via **ego-browser** from real local/authorized runs. Shows the exact audit flow (Dashboard → Sift 360° → **Test 100-point demo site** → progress → 100/100 scorecard) and where/what to change (security headers/CSP and code locations, endpoint stability, Standard-mode measurable load/evidence) with a checklist.
 - **Dashboard quick action:** **`Test 100-point demo site`** prefills `http://127.0.0.1:8095`, sets Standard mode with authorization, performs a reachability preflight (actionable warning if unreachable; proceeds so the run is not blocked by browser preflight restrictions), and starts the audit.
 - **Audit360 reports:** deterministic, prioritized recommended action notes are generated and sealed into reports (additive), alongside existing no-fabrication/measured-evidence behavior.
 
@@ -152,7 +152,7 @@ The dashboard includes quick actions for local demos: **Use VoltStore demo** (`h
 - Dashboard/audit360 helper and API guard coverage added; JS/asset and flow fixes maintained. Pentest report/output error handling and run-start refusal/guard behavior hardened in prior staged commits on this line.
 - **Verification (measured):** `gofmt` clean, `go vet ./...` OK, `go build ./...` OK; package tests and targeted `-race` runs pass in controlled environments (see commit/test evidence). In a local authorized Standard audit with the demo target reachable, the example target measured **100/100** (security/resilience/capacity/evidence 100, 0 findings, Low Risk, sealed report).
 
-**Included from 0.16.5**
+**Included from 0.16.4**
 - **Reliability & correctness hardening:** Audit360 SSE/subscriber publish-close race fix and stress-test cancellation/drain hardening; Host X-Ray artifact persistence integrity (atomic temp-write/sync/rename, mode enforcement); accumulated staged bounty-hunt hardening across Audit360/scoring/seal, dashboard/report/certificate/insights, scanners/OWASP, host X-Ray/twin/bounty/report paths and tests.
 - **Honest scoring when capacity is unmeasurable:** blocked/refused-load and intentionally skipped passive-mode load tests do not penalize capacity/resilience as measured failures; capacity remains unclaimed/unmeasured and evidence quality reflects missing capacity evidence.
 - **Certificate QR reliability:** QR preview encodes a compact, scannable verification reference.
@@ -754,7 +754,7 @@ The dashboard features **Sift 360° — 1-Click Full Audit** with a large target
 
 On start, an animated 4-stage progress tracker runs: **1. Scanning Security → 2. Testing Load Limit → 3. Calculating Resilience → 4. Sealing VPMP Certificate** (load stage is skipped in Passive). The Executive Audit Scorecard shows a resilience gauge (Green/Yellow/Red), breaking point/capacity in plain language (when measured), vulnerabilities with business impact and fix instructions, **prioritized recommended action notes** (included in sealed reports), **Print / Export Verified Report**, and a verifiable VPMP badge/QR preview.
 
-Quick actions: **Use VoltStore demo** (`http://127.0.0.1:8090`) and **Test 100-point demo site** (`http://127.0.0.1:8095`) to prefill/run a standard authorized audit against the local 100-point example target (start it first; see `examples/perfect_demo_site/`).
+Quick actions: **Use VoltStore demo** (`http://127.0.0.1:8090`) and **Test 100-point demo site** (`http://127.0.0.1:8095`) to prefill/run a standard authorized audit against the local 100-point example target (start it first; see `examples/perfect_demo_site/`). Visual step-by-step guide (real screenshots): `http://127.0.0.1:8095/guide`.
 
 Live progress: SSE (`/api/audit-360/stream?job_id=`) with polling fallback (`/api/audit-360/status?job_id=`). Safety/no-fabrication: cross-origin state-changing requests rejected, Standard requires authorization, unavailable metrics explicitly labeled. If a target refuses load traffic, capacity is reported as not measurable (see below).
 
@@ -1036,10 +1036,11 @@ A minimal, clean example target for Sift 360° audits is included at `examples/p
 go run ./examples/perfect_demo_site -addr 127.0.0.1:8095
 ```
 
-- Serves recommended security headers and simple endpoints (`/`, `/health`)
+- Serves recommended security headers and simple endpoints (`/`, `/health`, `/guide`)
 - Designed for authorized local/controlled verification (no fabricated behavior)
 - Dashboard shortcut: **Test 100-point demo site** (prefills `http://127.0.0.1:8095` and runs a standard authorized audit when the target is running)
-- Guide: `examples/perfect_demo_site/GUIDE.md` (English) — achieving and interpreting a full 100/100 Sift 360° result with measured evidence
+- **Visual guide (real screenshots, ego-browser):** [http://127.0.0.1:8095/guide](http://127.0.0.1:8095/guide) — step-by-step flow and exact where/what to change for a legitimate 100/100 result
+- Text guide: `examples/perfect_demo_site/GUIDE.md` (English) — achieving and interpreting a full 100/100 Sift 360° result with measured evidence
 
 Useful references:
 - `docs/VERIGATE.md`
@@ -1199,7 +1200,8 @@ See `docs/DEPLOYMENT-HARDENING.md` for detailed checklists and examples.
 
 ### Additional Docs
 - `docs/COMPLIANCE.md`, `docs/SECRETS-OBSERVABILITY.md`, `docs/POWER-FEATURES.md`, `docs/STUDY-GUIDE.md`, `docs/ROADMAP.md`, and others in `docs/`
-- `examples/perfect_demo_site/GUIDE.md` — English guide for preparing and interpreting a full 100/100 Sift 360° audit with measured evidence (authorized use)
+- `examples/perfect_demo_site/GUIDE.md` — English text guide for preparing and interpreting a full 100/100 Sift 360° audit with measured evidence (authorized use)
+- `examples/perfect_demo_site/guide.html` (`/guide`, visual guide with real screenshots) — step-by-step audit flow and exact where/what configuration/code changes to make
 
 ### Repository Policies
 - `SECURITY.md` — Security reporting and policy
