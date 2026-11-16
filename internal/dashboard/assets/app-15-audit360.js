@@ -203,6 +203,7 @@
     if (targetEl) targetEl.disabled = !!busy;
     if (authEl) authEl.disabled = !!busy;
     if (fillDemoBtn) fillDemoBtn.disabled = !!busy;
+    if (runPerfectDemoBtn) runPerfectDemoBtn.disabled = !!busy;
     modeBtns.forEach(function (b) { b.disabled = !!busy; });
   }
 
@@ -409,12 +410,54 @@
 
   if (runPerfectDemoBtn) {
     runPerfectDemoBtn.addEventListener('click', function () {
+      if (startBtn && startBtn.disabled) return;
       if (targetEl) targetEl.value = 'http://127.0.0.1:8095';
       setMode('standard');
       if (authEl) authEl.checked = true;
       setError('');
-      if (typeof form.requestSubmit === 'function') form.requestSubmit();
-      else form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+      var prevText = runPerfectDemoBtn.textContent;
+      runPerfectDemoBtn.disabled = true;
+      runPerfectDemoBtn.textContent = 'Checking demo site…';
+
+      function submitAudit() {
+        runPerfectDemoBtn.disabled = false;
+        runPerfectDemoBtn.textContent = prevText;
+        if (typeof form.requestSubmit === 'function') form.requestSubmit();
+        else form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+      }
+      function failCheck() {
+        runPerfectDemoBtn.disabled = false;
+        runPerfectDemoBtn.textContent = prevText;
+        setError('Perfect demo site is not reachable at http://127.0.0.1:8095. Start it first: go run ./examples/perfect_demo_site -addr 127.0.0.1:8095 (then open / and /health), then click "Test 100-point demo site" again.');
+        if (targetEl) targetEl.focus();
+      }
+
+      var done = false;
+      var timer = setTimeout(function () {
+        if (done) return;
+        done = true;
+        failCheck();
+      }, 2500);
+      try {
+        fetch('http://127.0.0.1:8095/health', { method: 'GET', mode: 'no-cors', cache: 'no-store' })
+          .then(function () {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            submitAudit();
+          })
+          .catch(function () {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            failCheck();
+          });
+      } catch (_) {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        failCheck();
+      }
     });
   }
 

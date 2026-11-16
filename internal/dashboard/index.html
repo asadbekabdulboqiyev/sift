@@ -93,7 +93,7 @@
           <div class="a360-input-wrap">
             <input id="a360Target" class="form-input form-input-lg a360-target-input" type="text" inputmode="url" spellcheck="false" autocomplete="off" placeholder="https://example.com" aria-describedby="a360TargetHelp a360Error">
             <button type="button" class="btn btn-ghost btn-sm tip tp-58" id="a360FillDemo" title="Quick-fill local VoltStore demo server URL" data-tip="Use local VoltStore demo target">Use VoltStore demo</button>
-            <button type="button" class="btn btn-ghost btn-sm tip tp-58" id="a360RunPerfectDemo" title="Run a standard Sift 360° audit against the local 100-point demo site (127.0.0.1:8095)" data-tip="Test the local 100-point demo site">Test 100-point demo site</button>
+            <button type="button" class="btn btn-ghost btn-sm tip tp-58" id="a360RunPerfectDemo" title="Check and run a standard Sift 360° audit against the local 100-point demo site (127.0.0.1:8095). Start it first if needed: go run ./examples/perfect_demo_site -addr 127.0.0.1:8095" data-tip="Test the local 100-point demo site (must be running on 127.0.0.1:8095)">Test 100-point demo site</button>
           </div>
           <div class="form-help" id="a360TargetHelp">Enter any <code>http(s)</code> URL you are authorized to test. <strong>Passive</strong>: non-intrusive checks only (no active load). <strong>Standard</strong>: requires authorization confirmation and may run an active load/breaking-point test.</div>
         </div>
