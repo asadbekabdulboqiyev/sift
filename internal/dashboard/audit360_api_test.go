@@ -161,3 +161,22 @@ func TestAudit360DownloadGuards(t *testing.T) {
 		t.Fatalf("missing job download = %d, want %d", w.Code, http.StatusNotFound)
 	}
 }
+
+func TestAudit360Helpers(t *testing.T) {
+	s := NewServer()
+	if got := s.demoStoreTargetURL(); got == "" {
+		t.Fatal("demoStoreTargetURL returned empty string")
+	}
+
+	s.SetVersion("1.2.3")
+	if got := s.versionOrDefault(); got != "1.2.3" {
+		t.Fatalf("versionOrDefault() = %q, want 1.2.3", got)
+	}
+
+	if got := sanitizeAudit360DownloadID(""); got != "report" {
+		t.Fatalf("sanitizeAudit360DownloadID(empty) = %q, want report", got)
+	}
+	if got := sanitizeAudit360DownloadID("sift360/abc:def"); got != "sift360_abc_def" {
+		t.Fatalf("sanitizeAudit360DownloadID = %q, want sift360_abc_def", got)
+	}
+}
