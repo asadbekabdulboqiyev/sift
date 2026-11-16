@@ -14,6 +14,7 @@
   var authEl = document.getElementById('a360Authorized');
   var authWrap = document.getElementById('a360AuthWrap');
   var fillDemoBtn = document.getElementById('a360FillDemo');
+  var runPerfectDemoBtn = document.getElementById('a360RunPerfectDemo');
   var startBtn = document.getElementById('a360StartBtn');
   var errEl = document.getElementById('a360Error');
   var progressEl = document.getElementById('audit360Progress');
@@ -403,6 +404,17 @@
     fillDemoBtn.addEventListener('click', function () {
       if (targetEl) targetEl.value = 'http://127.0.0.1:8090';
       setError('');
+    });
+  }
+
+  if (runPerfectDemoBtn) {
+    runPerfectDemoBtn.addEventListener('click', function () {
+      if (targetEl) targetEl.value = 'http://127.0.0.1:8095';
+      setMode('standard');
+      if (authEl) authEl.checked = true;
+      setError('');
+      if (typeof form.requestSubmit === 'function') form.requestSubmit();
+      else form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
     });
   }
 
