@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -306,23 +305,22 @@ Examples:
 	// Export JSON
 	if *outputJSON != "" {
 		if err := os.MkdirAll(*reportDir, 0o750); err != nil {
-			log.Printf("Failed to create report directory: %v", err)
+			fatalf("Failed to create report directory: %v", err)
 		}
 		jsonPath := *outputJSON
 		if !strings.Contains(jsonPath, "/") {
 			jsonPath = filepath.Join(*reportDir, jsonPath)
 		}
 		if err := result.ExportJSONToFile(jsonPath); err != nil {
-			log.Printf("Failed to export JSON: %v", err)
-		} else {
-			fmt.Printf("\n  JSON report: %s\n", jsonPath)
+			fatalf("Failed to export JSON: %v", err)
 		}
+		fmt.Printf("\n  JSON report: %s\n", jsonPath)
 	}
 
 	// Export CSV
 	if *outputCSV != "" {
 		if err := os.MkdirAll(*reportDir, 0o750); err != nil {
-			log.Printf("Failed to create report directory: %v", err)
+			fatalf("Failed to create report directory: %v", err)
 		}
 		csvPath := *outputCSV
 		if !strings.Contains(csvPath, "/") {
@@ -330,15 +328,22 @@ Examples:
 		}
 		f, err := os.Create(filepath.Clean(csvPath)) // #nosec G304 -- path is an operator-selected output file
 		if err != nil {
-			log.Printf("Failed to create CSV: %v", err)
-		} else {
-			defer func() { _ = f.Close() }()
-			_, _ = f.WriteString("index,latency_ms,status\n")
-			for i, lat := range result.Latencies {
-				_, _ = f.WriteString(fmt.Sprintf("%d,%.2f,ok\n", i+1, float64(lat.Microseconds())/1000.0))
-			}
-			fmt.Printf("  CSV report: %s\n", csvPath)
+			fatalf("Failed to create CSV: %v", err)
 		}
+		if _, err := f.WriteString("index,latency_ms,status\n"); err != nil {
+			_ = f.Close()
+			fatalf("Failed to write CSV header: %v", err)
+		}
+		for i, lat := range result.Latencies {
+			if _, err := fmt.Fprintf(f, "%d,%.2f,ok\n", i+1, float64(lat.Microseconds())/1000.0); err != nil {
+				_ = f.Close()
+				fatalf("Failed to write CSV row: %v", err)
+			}
+		}
+		if err := f.Close(); err != nil {
+			fatalf("Failed to close CSV: %v", err)
+		}
+		fmt.Printf("  CSV report: %s\n", csvPath)
 	}
 }
 

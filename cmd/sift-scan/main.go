@@ -463,22 +463,27 @@ Examples:
 	if *outputJSON != "" {
 		f, err := os.Create(*outputJSON)
 		if err != nil {
-			fmt.Printf("  ⚠ Failed to create JSON: %v\n", err)
-		} else {
-			defer f.Close()
-			export := &scanExport{
-				ScanResult: result,
-				OWASP:      owaspResults,
-				Passive:    passiveFindings,
-				Intrusive:  intrusiveFindings,
-			}
-			enc := json.NewEncoder(f)
-			enc.SetIndent("", "  ")
-			if err := enc.Encode(export); err != nil {
-				fmt.Printf("  ⚠ Failed to write JSON report: %v\n", err)
-			}
-			fmt.Printf("\n  JSON report: %s\n", *outputJSON)
+			fmt.Fprintf(os.Stderr, "  ⚠ Failed to create JSON: %v\n", err)
+			os.Exit(1)
 		}
+		export := &scanExport{
+			ScanResult: result,
+			OWASP:      owaspResults,
+			Passive:    passiveFindings,
+			Intrusive:  intrusiveFindings,
+		}
+		enc := json.NewEncoder(f)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(export); err != nil {
+			_ = f.Close()
+			fmt.Fprintf(os.Stderr, "  ⚠ Failed to write JSON report: %v\n", err)
+			os.Exit(1)
+		}
+		if err := f.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "  ⚠ Failed to close JSON report: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("\n  JSON report: %s\n", *outputJSON)
 	}
 }
 

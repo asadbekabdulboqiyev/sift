@@ -250,6 +250,11 @@ func (pt *ProgressTracker) renderFinal() {
 
 	c := pt.isTerminal
 
+	if !pt.first {
+		fmt.Fprintf(pt.out, "\r\x1b[%dA\x1b[J", progressBoxLines)
+	}
+	pt.first = false
+
 	fmt.Fprintln(pt.out, boxTop())
 
 	barStr := ptBar(100, c)

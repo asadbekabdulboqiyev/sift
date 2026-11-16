@@ -478,8 +478,14 @@ func saveReports(r *report.Report, name string) {
 		log.Printf("Failed to create reports dir: %v", err)
 		return
 	}
-	jsonPath, _ := r.SaveJSON(dir)
-	txtPath, _ := r.SaveTXT(dir)
+	jsonPath, err := r.SaveJSON(dir)
+	if err != nil {
+		fatalf("Failed to save JSON report: %v", err)
+	}
+	txtPath, err := r.SaveTXT(dir)
+	if err != nil {
+		fatalf("Failed to save TXT report: %v", err)
+	}
 	fmt.Printf("\nReports written:\n  %s\n  %s\n", jsonPath, txtPath)
 }
 

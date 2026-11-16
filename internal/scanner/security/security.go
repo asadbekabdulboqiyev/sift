@@ -9,22 +9,6 @@ import (
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
 )
 
-// SecurityInfo contains the results of a security-header scan.
-type SecurityInfo struct {
-	Headers        map[string]string `json:"headers"`
-	MissingHeaders []string          `json:"missing_headers"`
-	Score          int               `json:"score"` // 0-100
-	Details        []SecurityDetail  `json:"details"`
-}
-
-// SecurityDetail describes a single security-header check result.
-type SecurityDetail struct {
-	Header  string `json:"header"`
-	Value   string `json:"value"`
-	Status  string `json:"status"` // present, missing, weak, strong
-	Message string `json:"message"`
-}
-
 var SecurityHeaders = []struct {
 	Name     string
 	Required bool

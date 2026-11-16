@@ -23,6 +23,7 @@ import (
 	"github.com/asadbekabdulboqiyev/sift/internal/attest"
 	"github.com/asadbekabdulboqiyev/sift/internal/audit360"
 	"github.com/asadbekabdulboqiyev/sift/internal/authz"
+	"github.com/asadbekabdulboqiyev/sift/internal/config"
 	"github.com/asadbekabdulboqiyev/sift/internal/demostore"
 	"github.com/gorilla/websocket"
 )
@@ -868,23 +869,27 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxAPIRequestBody)
-	var config RunConfig
-	if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+	var runCfg RunConfig
+	if err := json.NewDecoder(r.Body).Decode(&runCfg); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	// Server-side validation (not just frontend): an empty/invalid target
 	// must never silently start a run against a default URL.
-	if strings.TrimSpace(config.TargetURL) == "" {
+	if strings.TrimSpace(runCfg.TargetURL) == "" {
 		http.Error(w, "target_url is required", http.StatusBadRequest)
 		return
 	}
-	if u, err := url.Parse(config.TargetURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+	if u, err := url.Parse(runCfg.TargetURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") {
 		http.Error(w, "target_url must be an http(s) URL", http.StatusBadRequest)
 		return
 	}
-	if config.Users < 0 || config.DurationSeconds < 0 || config.RateLimit < 0 {
+	if runCfg.Users < 0 || runCfg.DurationSeconds < 0 || runCfg.RateLimit < 0 {
 		http.Error(w, "users, duration_seconds, and rate_limit must be non-negative", http.StatusBadRequest)
+		return
+	}
+	if runCfg.Users > config.MaxUsers || runCfg.DurationSeconds > config.MaxDurationSeconds || runCfg.RateLimit > config.MaxRPS {
+		http.Error(w, "users, duration_seconds, or rate_limit exceeds allowed maximum", http.StatusBadRequest)
 		return
 	}
 	// The browser is not a back door around the CLI's authorization layer. Every
@@ -893,7 +898,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	// the host send arbitrary-method/header/body requests to the cloud instance
 	// metadata service (169.254.169.254, metadata.google.internal) and read back
 	// credentials. Metadata and link-local destinations are refused here.
-	if class, host, refused := refuseRunTarget(config.TargetURL); refused {
+	if class, host, refused := refuseRunTarget(runCfg.TargetURL); refused {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		_ = json.NewEncoder(w).Encode(map[string]string{
@@ -916,7 +921,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		// The bridge decodes the config as a JSON object (map), not as a typed
 		// struct. Round-trip through JSON so browser overrides (target url,
 		// users, duration, method) survive the hand-off to the engine bridge.
-		raw, _ := json.Marshal(config)
+		raw, _ := json.Marshal(runCfg)
 		asMap := map[string]interface{}{}
 		_ = json.Unmarshal(raw, &asMap)
 		s.onCommand("start", map[string]interface{}{"config": asMap})

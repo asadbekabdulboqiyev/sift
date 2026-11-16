@@ -298,11 +298,11 @@ func TestCLIOWASPOutputJSONUnwritable(t *testing.T) {
 
 	res := runScan(t, nil, "-target", "127.0.0.1", "-port", port, "-owasp", "-rate", "200", "-budget", "800",
 		"-output-json", "/dev/null/dir/scan.json")
-	if res.code != 0 {
-		t.Fatalf("exit = %d (stderr %q)", res.code, res.stderr)
+	if res.code == 0 {
+		t.Fatalf("exit = %d, want non-zero (stderr %q stdout %q)", res.code, res.stderr, res.stdout)
 	}
-	if !strings.Contains(res.stdout, "Failed to create JSON") {
-		t.Errorf("stdout missing create failure warning: %q", res.stdout)
+	if !strings.Contains(res.stderr, "Failed to create JSON") {
+		t.Errorf("stderr missing create failure: %q", res.stderr)
 	}
 }
 

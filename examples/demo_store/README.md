@@ -2,7 +2,7 @@
 
 VoltStore is a complete, production-shaped e-commerce storefront that exists
 for one reason: to be **attacked**. It is the reference demo for the
-[VeriGate](docs/VERIGATE.md) protection system — flip protection on and hit
+[VeriGate](../../docs/VERIGATE.md) protection system — flip protection on and hit
 it with Sift; flip it off and watch it take the full storm.
 
 ## Run

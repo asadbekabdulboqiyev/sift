@@ -428,10 +428,8 @@
       function failCheck() {
         runPerfectDemoBtn.disabled = false;
         runPerfectDemoBtn.textContent = prevText;
-        setError('Could not confirm http://127.0.0.1:8095 is reachable from the browser. Starting audit anyway — if the demo site is not running, start it with: go run ./examples/perfect_demo_site -addr 127.0.0.1:8095');
-        // Proceed so the audit still runs in environments where browser preflight is blocked.
-        if (typeof form.requestSubmit === 'function') form.requestSubmit();
-        else form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+        setError('Perfect demo site is not reachable at http://127.0.0.1:8095. Start it first: go run ./examples/perfect_demo_site -addr 127.0.0.1:8095 (then open / and /health), then click "Test 100-point demo site" again.');
+        if (targetEl) targetEl.focus();
       }
 
       var done = false;

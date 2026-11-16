@@ -515,11 +515,35 @@ func writeArtifact(path string, data []byte) error {
 		_ = os.Remove(tmpName)
 		return fmt.Errorf("host xray: replace %s: %w", clean, err)
 	}
+	syncDir := dir
+	if syncDir == "" {
+		syncDir = "."
+	}
+	df, err := os.Open(filepath.Clean(syncDir))
+	if err != nil {
+		return fmt.Errorf("host xray: sync artifact directory %s: %w", syncDir, err)
+	}
+	syncErr := df.Sync()
+	closeErr := df.Close()
+	if syncErr != nil && !isIgnorableDirSyncError(syncErr) {
+		return fmt.Errorf("host xray: sync artifact directory %s: %w", syncDir, syncErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("host xray: close artifact directory %s: %w", syncDir, closeErr)
+	}
 	// Enforce 0600 after rename in case platform/filesystem semantics differ.
 	if err := os.Chmod(clean, 0o600); err != nil {
 		return fmt.Errorf("host xray: restrict permissions on %s: %w", clean, err)
 	}
 	return nil
+}
+
+func isIgnorableDirSyncError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return errors.Is(err, os.ErrInvalid) || strings.Contains(msg, "invalid argument") || strings.Contains(msg, "not supported") || strings.Contains(msg, "inappropriate ioctl") || strings.Contains(msg, "operation not supported")
 }
 
 // rawSignal is the on-disk shape. Pointers distinguish "absent" from "zero" so

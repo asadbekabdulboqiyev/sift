@@ -76,17 +76,22 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 	}
 	keepAlive := cfg.KeepAlive
 
+	prof := config.Profile{
+		Type:           profile,
+		Users:          users,
+		Duration:       duration,
+		RPS:            cfg.RPS,
+		Timeout:        timeout,
+		KeepAlive:      &keepAlive,
+		TLSFingerprint: cfg.TLSFingerprint,
+	}
+	if profile == config.ProfileConstantRPS && cfg.RPS > 0 {
+		prof.TargetRPS = cfg.RPS
+	}
+
 	sc := &config.Scenario{
-		Name: "api-run",
-		Profile: config.Profile{
-			Type:           profile,
-			Users:          users,
-			Duration:       duration,
-			RPS:            cfg.RPS,
-			Timeout:        timeout,
-			KeepAlive:      &keepAlive,
-			TLSFingerprint: cfg.TLSFingerprint,
-		},
+		Name:    "api-run",
+		Profile: prof,
 		Steps: []config.Step{
 			{Name: "request", Method: method, URL: cfg.URL, Headers: cfg.Headers},
 		},

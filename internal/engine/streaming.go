@@ -156,18 +156,21 @@ func (sr *StreamingResponse) ReadAll() ([]byte, error) {
 	// Read until EOF, growing as needed.
 	var total []byte
 	for {
-		remaining := cap(buf.buf) - len(buf.buf)
-		if remaining == 0 {
+		if len(buf.buf) == cap(buf.buf) {
 			total = append(total, buf.buf...)
 			buf.Reset()
-			buf.buf = make([]byte, 0, streamChunkSize)
-			remaining = cap(buf.buf)
+			if cap(buf.buf) < streamChunkSize {
+				buf.buf = make([]byte, 0, streamChunkSize)
+			}
 		}
-		buf.buf = buf.buf[:remaining]
-		n, readErr := sr.body.Read(buf.buf)
+		start := len(buf.buf)
+		buf.buf = buf.buf[:cap(buf.buf)]
+		n, readErr := sr.body.Read(buf.buf[start:])
 		if n > 0 {
 			atomic.AddInt64(&sr.bytesRead, int64(n))
-			buf.buf = buf.buf[:n]
+			buf.buf = buf.buf[:start+n]
+		} else {
+			buf.buf = buf.buf[:start]
 		}
 		if readErr != nil {
 			if readErr == io.EOF {

@@ -10,6 +10,7 @@ package twin
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -73,11 +74,27 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 		_ = os.Remove(tmpName)
 		return err
 	}
-	if df, err := os.Open(dir); err == nil {
-		_ = df.Sync()
-		_ = df.Close()
+	if df, err := os.Open(filepath.Clean(dir)); err == nil {
+		if syncErr := df.Sync(); syncErr != nil {
+			_ = df.Close()
+			if !isIgnorableDirSyncError(syncErr) {
+				return syncErr
+			}
+		} else {
+			_ = df.Close()
+		}
+	} else {
+		return err
 	}
 	return os.Chmod(path, perm)
+}
+
+func isIgnorableDirSyncError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return errors.Is(err, os.ErrInvalid) || strings.Contains(msg, "invalid argument") || strings.Contains(msg, "not supported") || strings.Contains(msg, "inappropriate ioctl") || strings.Contains(msg, "operation not supported")
 }
 
 // WriteModel writes only twin-model.json in dir. It normalizes/validates the

@@ -127,14 +127,18 @@ func ScanTLS(host string, port int) (*core.TLSInfo, error) {
 		_ = conn.Close()
 	}
 
-	// Session resumption check
-	config := &tls.Config{InsecureSkipVerify: true} // #nosec G402 -- authorized pentest targets may use self-signed certificates
-	conn1, err := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", addr, config)
+	// Session resumption check: only report true when the handshake actually
+	// resumed a previous session/ticket, not merely when a second connect succeeds.
+	resumeCfg := &tls.Config{
+		InsecureSkipVerify: true, // #nosec G402 -- authorized pentest targets may use self-signed certificates
+		ClientSessionCache: tls.NewLRUClientSessionCache(1),
+	}
+	conn1, err := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", addr, resumeCfg)
 	if err == nil {
 		_ = conn1.Close()
-		conn2, err := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", addr, config)
+		conn2, err := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", addr, resumeCfg)
 		if err == nil {
-			info.SessionResumption = true
+			info.SessionResumption = conn2.ConnectionState().DidResume
 			_ = conn2.Close()
 		}
 	}

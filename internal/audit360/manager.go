@@ -54,12 +54,40 @@ func (m *Manager) Start(ctx context.Context, target string, maxDur time.Duration
 		mode:      mode,
 	}
 	m.mu.Lock()
-	// simple retention: keep last 20 jobs
-	if len(m.jobs) > 20 {
-		for k := range m.jobs {
-			delete(m.jobs, k)
-			break
+	// Simple retention: keep at most 20 jobs, preferring to evict completed/failed
+	// jobs and avoiding eviction of running/queued jobs when possible.
+	for len(m.jobs) >= 20 {
+		evict := ""
+		var evictAt time.Time
+		for k, v := range m.jobs {
+			st := v.snapshot()
+			if st == nil {
+				evict = k
+				break
+			}
+			if st.State == "running" || st.State == "queued" {
+				continue
+			}
+			finished := st.FinishedAt
+			if finished.IsZero() {
+				finished = st.UpdatedAt
+			}
+			if finished.IsZero() {
+				finished = st.StartedAt
+			}
+			if evict == "" || finished.Before(evictAt) || evictAt.IsZero() {
+				evict = k
+				evictAt = finished
+			}
 		}
+		if evict == "" {
+			// All jobs appear active; evict one arbitrary entry as last resort.
+			for k := range m.jobs {
+				evict = k
+				break
+			}
+		}
+		delete(m.jobs, evict)
 	}
 	m.jobs[id] = j
 	m.mu.Unlock()

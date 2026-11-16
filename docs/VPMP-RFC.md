@@ -50,7 +50,7 @@ gRPC reference implementation.
 
 ## 3. Wire Protocol (protobuf)
 
-The canonical definition lives in `internal/dist/proto/coordinator.proto`.
+The canonical definition lives in [`../internal/dist/proto/coordinator.proto`](../internal/dist/proto/coordinator.proto).
 
 ### 3.1 Messages
 
@@ -110,8 +110,8 @@ the worker's registered public key. Verification failure → worker marked
 
 | Component | Location | Status |
 |-----------|----------|--------|
-| Proto definition | `internal/dist/proto/coordinator.proto` | Implemented |
-| Attestation core | `internal/dist/coordinator/attest.go` | Implemented |
+| Proto definition | [`../internal/dist/proto/coordinator.proto`](../internal/dist/proto/coordinator.proto) | Implemented |
+| Attestation core | [`../internal/dist/coordinator/attest.go`](../internal/dist/coordinator/attest.go) | Implemented |
 | Worker signing | `internal/dist/coordinator/worker.go` | Implemented |
 | Master verification | `internal/dist/coordinator/master.go` | Implemented |
 | Aggregator storage | `internal/dist/coordinator/aggregator.go` | Implemented |
@@ -131,6 +131,6 @@ the worker's registered public key. Verification failure → worker marked
 ## 8. References
 
 - [Sift repository](https://github.com/asadbekabdulboqiyev/sift)
-- [coordinator.proto](internal/dist/proto/coordinator.proto)
-- [attest.go](internal/dist/coordinator/attest.go)
-- [DISTRIBUTED.md](docs/DISTRIBUTED.md)
+- [coordinator.proto](../internal/dist/proto/coordinator.proto)
+- [attest.go](../internal/dist/coordinator/attest.go)
+- [DISTRIBUTED.md](DISTRIBUTED.md)

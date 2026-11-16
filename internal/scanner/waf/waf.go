@@ -9,17 +9,6 @@ import (
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
 )
 
-// WAFInfo contains the results of a WAF detection scan.
-type WAFInfo struct {
-	Detected   bool              `json:"detected"`
-	Name       string            `json:"name"`
-	Vendor     string            `json:"vendor"`
-	Version    string            `json:"version"`
-	Confidence int               `json:"confidence"` // 0-100
-	Headers    map[string]string `json:"headers"`
-	Indicators []string          `json:"indicators"`
-}
-
 // WAFSignature describes a WAF detection signature.
 type WAFSignature struct {
 	Name        string
@@ -122,12 +111,13 @@ func ScanWAF(target string) (*core.WAFInfo, error) {
 	bestMatch := 0
 	for _, sig := range WAFSignatures {
 		confidence := 0
+		indicators := make([]string, 0)
 
 		for _, h := range sig.Headers {
 			for k, v := range allHeaders {
 				if strings.Contains(k, strings.ToLower(h)) {
 					confidence += 30
-					waf.Indicators = append(waf.Indicators, fmt.Sprintf("header:%s=%s", k, v))
+					indicators = append(indicators, fmt.Sprintf("header:%s=%s", k, v))
 				}
 			}
 		}
@@ -135,7 +125,7 @@ func ScanWAF(target string) (*core.WAFInfo, error) {
 		for _, b := range sig.Body {
 			if strings.Contains(bodyStr, b) {
 				confidence += 25
-				waf.Indicators = append(waf.Indicators, fmt.Sprintf("body:%s", b))
+				indicators = append(indicators, fmt.Sprintf("body:%s", b))
 			}
 		}
 
@@ -143,7 +133,7 @@ func ScanWAF(target string) (*core.WAFInfo, error) {
 			for _, cookie := range resp.Cookies() {
 				if strings.Contains(cookie.Name, c) {
 					confidence += 20
-					waf.Indicators = append(waf.Indicators, fmt.Sprintf("cookie:%s", cookie.Name))
+					indicators = append(indicators, fmt.Sprintf("cookie:%s", cookie.Name))
 				}
 			}
 		}
@@ -160,6 +150,7 @@ func ScanWAF(target string) (*core.WAFInfo, error) {
 			waf.Name = sig.Name
 			waf.Vendor = sig.Vendor
 			waf.Confidence = float64(confidence)
+			waf.Indicators = indicators
 		}
 	}
 

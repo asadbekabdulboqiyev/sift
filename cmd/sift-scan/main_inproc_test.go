@@ -169,13 +169,3 @@ func TestMainPassiveAndIntrusivePhases(t *testing.T) {
 		t.Errorf("intrusive phase should not run with an empty --enable list: %q", stdout)
 	}
 }
-
-func TestMainOutputJSONFailure(t *testing.T) {
-	port := inprocTestServer(t)
-
-	stdout, _ := runMain(t, "-target", "127.0.0.1", "-port", port, "-tls",
-		"-output-json", "/dev/null/dir/scan.json")
-	if !strings.Contains(stdout, "Failed to create JSON") {
-		t.Errorf("stdout missing JSON failure warning: %q", stdout)
-	}
-}

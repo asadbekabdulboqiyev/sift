@@ -152,22 +152,22 @@ func TestLoadJSON(t *testing.T) {
 
 func TestNormalizeResourceLimits(t *testing.T) {
 	// duration must be capped (7 days).
-	sc := &Scenario{Profile: Profile{Users: 10, Duration: maxDuration + 1}, Steps: []Step{{URL: "/x"}}}
+	sc := &Scenario{Profile: Profile{Users: 10, Duration: MaxDurationSeconds + 1}, Steps: []Step{{URL: "/x"}}}
 	if err := sc.Normalize(); err == nil {
 		t.Error("expected error for duration above cap")
 	}
 	// timeout must be capped (5 minutes).
-	sc = &Scenario{Profile: Profile{Users: 10, Timeout: maxTimeout + 1}, Steps: []Step{{URL: "/x"}}}
+	sc = &Scenario{Profile: Profile{Users: 10, Timeout: MaxTimeoutSeconds + 1}, Steps: []Step{{URL: "/x"}}}
 	if err := sc.Normalize(); err == nil {
 		t.Error("expected error for timeout above cap")
 	}
 	// per-step timeout must be capped too.
-	sc = &Scenario{Profile: Profile{Users: 10}, Steps: []Step{{URL: "/x", Timeout: maxTimeout + 1}}}
+	sc = &Scenario{Profile: Profile{Users: 10}, Steps: []Step{{URL: "/x", Timeout: MaxTimeoutSeconds + 1}}}
 	if err := sc.Normalize(); err == nil {
 		t.Error("expected error for step timeout above cap")
 	}
 	// spike total duration (warmup + hold) must be capped.
-	sc = &Scenario{Profile: Profile{Type: ProfileSpike, Users: 10, SpikeUsers: 20, SpikeWarmup: maxDuration, SpikeHold: 1}, Steps: []Step{{URL: "/x"}}}
+	sc = &Scenario{Profile: Profile{Type: ProfileSpike, Users: 10, SpikeUsers: 20, SpikeWarmup: MaxDurationSeconds, SpikeHold: 1}, Steps: []Step{{URL: "/x"}}}
 	if err := sc.Normalize(); err == nil {
 		t.Error("expected error for spike total duration above cap")
 	}
@@ -281,7 +281,7 @@ func TestNormalizeConstantRPS(t *testing.T) {
 
 	// target_rps exceeds max.
 	sc = &Scenario{
-		Profile: Profile{Type: ProfileConstantRPS, TargetRPS: maxRPS + 1},
+		Profile: Profile{Type: ProfileConstantRPS, TargetRPS: MaxRPS + 1},
 		Steps:   []Step{{URL: "/x"}},
 	}
 	if err := sc.Normalize(); err == nil {

@@ -235,14 +235,25 @@ func stripSeal(html string) string {
 		return html
 	}
 	rest := html[start:]
-	// The seal is the final block and contains nested </div> tags, so use the
-	// last </div> to locate its true end; otherwise the seal content (signature
-	// value, public key) would leak into the hashed document body.
-	end := strings.LastIndex(rest, close)
-	if end < 0 {
-		return html[:start]
+	// The seal block contains nested <div> elements. Find the matching closing
+	// tag for the seal container itself so the surrounding document remains in
+	// the cryptographic boundary.
+	depth := 0
+	for i := 0; i < len(rest); i++ {
+		switch {
+		case strings.HasPrefix(rest[i:], "<div"):
+			depth++
+		case strings.HasPrefix(rest[i:], close):
+			depth--
+			if depth == 0 {
+				return html[:start] + rest[i+len(close):]
+			}
+			if depth < 0 {
+				return html[:start]
+			}
+		}
 	}
-	return html[:start] + rest[end+len(close):]
+	return html[:start]
 }
 
 // documentSHA returns the SHA-256 hex of the rendered document body, with the

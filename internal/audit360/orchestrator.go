@@ -207,7 +207,27 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 	// without drift, generate/sign in-place so the noted public key matches the
 	// signing key.
 	var sealErr error
-	if kp, kerr := attest.GenerateKeypair(); kerr == nil && kp != nil && len(kp.Private) == ed25519.PrivateKeySize {
+	kp, kerr := attest.GenerateKeypair()
+	if kerr != nil || kp == nil || len(kp.Private) != ed25519.PrivateKeySize {
+		// Best-effort fallback: preserve a deterministic certificate id bound to
+		// the final payload without claiming a cryptographic signature.
+		if kerr != nil {
+			sealErr = kerr
+			rep.Notes = append(rep.Notes, "Attestation sealing warning: "+kerr.Error())
+		}
+		if payload, perr := canonicalSealPayload(rep); perr != nil {
+			rep.CertificateID = "unavailable"
+			rep.VPMPSignature = ""
+			rep.Notes = append(rep.Notes, "Attestation sealing warning: "+perr.Error())
+			if sealErr == nil {
+				sealErr = perr
+			}
+		} else {
+			digest := sha256.Sum256(payload)
+			rep.CertificateID = hex.EncodeToString(digest[:16])
+			rep.VPMPSignature = ""
+		}
+	} else {
 		pubHex := attest.PublicKeyHex(kp.Public)
 		rep.Notes = append(rep.Notes, "VPMP signer public key (hex): "+pubHex)
 		payload, perr := canonicalSealPayload(rep)
@@ -227,19 +247,6 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 				rep.VPMPSignature = hex.EncodeToString(sigb)
 			}
 		}
-	} else {
-		// Fallback: preserve best-effort certificate id without claiming a signature.
-		certID, sig, pubHex, serr := Seal(rep)
-		sealErr = serr
-		if serr != nil {
-			rep.Notes = append(rep.Notes, "Attestation sealing warning: "+serr.Error())
-		}
-		if certID == "" {
-			certID = "unavailable"
-		}
-		rep.CertificateID = certID
-		rep.VPMPSignature = sig
-		_ = pubHex
 	}
 
 	if sealErr != nil && rep.VPMPSignature == "" {

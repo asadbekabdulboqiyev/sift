@@ -23,10 +23,15 @@ const (
 	ProfileWave        = "wave"
 	ProfileConstantRPS = "constant-rps"
 	ProfileBurst       = "burst"
-	maxUsers           = 100_000
-	maxRPS             = 1_000_000
-	maxDuration        = 7 * 24 * 60 * 60 // 7 days, in seconds
-	maxTimeout         = 5 * 60           // 5 minutes, in seconds
+
+	// MaxUsers caps virtual users accepted by Normalize and public APIs.
+	MaxUsers = 100_000
+	// MaxRPS caps RPS/target-rps values accepted by Normalize and public APIs.
+	MaxRPS = 1_000_000
+	// MaxDurationSeconds caps test durations accepted by Normalize and public APIs.
+	MaxDurationSeconds = 7 * 24 * 60 * 60 // 7 days
+	// MaxTimeoutSeconds caps per-request/per-step timeouts accepted by Normalize and public APIs.
+	MaxTimeoutSeconds = 5 * 60 // 5 minutes
 )
 
 type Profile struct {
@@ -312,22 +317,22 @@ func (p *Profile) Normalize() error {
 		if p.TargetRPS <= 0 {
 			return fmt.Errorf("constant-rps profile requires target_rps > 0")
 		}
-		if p.TargetRPS > maxRPS {
-			return fmt.Errorf("target_rps (%d) exceeds maximum of %d", p.TargetRPS, maxRPS)
+		if p.TargetRPS > MaxRPS {
+			return fmt.Errorf("target_rps (%d) exceeds maximum of %d", p.TargetRPS, MaxRPS)
 		}
 	} else {
 		if p.Users < 1 {
 			p.Users = 10
 		}
-		if p.Users > maxUsers {
-			return fmt.Errorf("users (%d) exceeds maximum of %d", p.Users, maxUsers)
+		if p.Users > MaxUsers {
+			return fmt.Errorf("users (%d) exceeds maximum of %d", p.Users, MaxUsers)
 		}
 	}
 	if p.Duration <= 0 {
 		p.Duration = 30
 	}
-	if p.Duration > maxDuration {
-		return fmt.Errorf("duration (%d) exceeds maximum of %d seconds (%d days)", p.Duration, maxDuration, maxDuration/(24*60*60))
+	if p.Duration > MaxDurationSeconds {
+		return fmt.Errorf("duration (%d) exceeds maximum of %d seconds (%d days)", p.Duration, MaxDurationSeconds, MaxDurationSeconds/(24*60*60))
 	}
 	if p.Warmup < 0 {
 		p.Warmup = 0
@@ -344,11 +349,17 @@ func (p *Profile) Normalize() error {
 			p.RampUp = 1
 		}
 	}
+	if p.RPS < 0 {
+		return fmt.Errorf("rps (%d) must be non-negative", p.RPS)
+	}
+	if p.RPS > MaxRPS {
+		return fmt.Errorf("rps (%d) exceeds maximum of %d", p.RPS, MaxRPS)
+	}
 	if p.Timeout <= 0 {
 		p.Timeout = 5
 	}
-	if p.Timeout > maxTimeout {
-		return fmt.Errorf("timeout (%d) exceeds maximum of %d seconds (%d minutes)", p.Timeout, maxTimeout, maxTimeout/60)
+	if p.Timeout > MaxTimeoutSeconds {
+		return fmt.Errorf("timeout (%d) exceeds maximum of %d seconds (%d minutes)", p.Timeout, MaxTimeoutSeconds, MaxTimeoutSeconds/60)
 	}
 	if p.Type == ProfileWave {
 		if p.WavePeriod <= 0 {
@@ -362,23 +373,23 @@ func (p *Profile) Normalize() error {
 		if p.SpikeUsers <= 0 {
 			p.SpikeUsers = p.Users * 10
 		}
-		if p.SpikeUsers > maxUsers {
-			return fmt.Errorf("spike_users (%d) exceeds maximum of %d", p.SpikeUsers, maxUsers)
+		if p.SpikeUsers > MaxUsers {
+			return fmt.Errorf("spike_users (%d) exceeds maximum of %d", p.SpikeUsers, MaxUsers)
 		}
 		if p.SpikeWarmup < 0 {
 			p.SpikeWarmup = 0
 		}
-		if p.SpikeWarmup > maxDuration {
-			return fmt.Errorf("spike_warmup (%d) exceeds maximum of %d seconds", p.SpikeWarmup, maxDuration)
+		if p.SpikeWarmup > MaxDurationSeconds {
+			return fmt.Errorf("spike_warmup (%d) exceeds maximum of %d seconds", p.SpikeWarmup, MaxDurationSeconds)
 		}
 		if p.SpikeHold <= 0 {
 			p.SpikeHold = p.Duration
 		}
-		if p.SpikeHold > maxDuration {
-			return fmt.Errorf("spike_hold (%d) exceeds maximum of %d seconds", p.SpikeHold, maxDuration)
+		if p.SpikeHold > MaxDurationSeconds {
+			return fmt.Errorf("spike_hold (%d) exceeds maximum of %d seconds", p.SpikeHold, MaxDurationSeconds)
 		}
-		if p.SpikeWarmup+p.SpikeHold > maxDuration {
-			return fmt.Errorf("spike total duration (warmup+hold = %d) exceeds maximum of %d seconds", p.SpikeWarmup+p.SpikeHold, maxDuration)
+		if p.SpikeWarmup+p.SpikeHold > MaxDurationSeconds {
+			return fmt.Errorf("spike total duration (warmup+hold = %d) exceeds maximum of %d seconds", p.SpikeWarmup+p.SpikeHold, MaxDurationSeconds)
 		}
 	}
 	if !fingerprint.Profile(p.TLSFingerprint).Valid() {
@@ -481,8 +492,8 @@ func normalizeStep(st *Step, depth int) error {
 	if st.Type == "http" && !strings.Contains(st.URL, "://") && !strings.HasPrefix(st.URL, "/") {
 		st.URL = "http://" + st.URL
 	}
-	if st.Timeout > maxTimeout {
-		return fmt.Errorf("step %q: timeout (%d) exceeds maximum of %d seconds (%d minutes)", st.Name, st.Timeout, maxTimeout, maxTimeout/60)
+	if st.Timeout > MaxTimeoutSeconds {
+		return fmt.Errorf("step %q: timeout (%d) exceeds maximum of %d seconds (%d minutes)", st.Name, st.Timeout, MaxTimeoutSeconds, MaxTimeoutSeconds/60)
 	}
 	if err := normalizeControlFlow(st); err != nil {
 		return err
