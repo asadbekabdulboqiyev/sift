@@ -1,12 +1,18 @@
 package main
 
 import (
+	"embed"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
+
+//go:embed guide.html guide-assets/*
+var guideContent embed.FS
 
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -154,7 +160,7 @@ func main() {
         <p class="lead">A polished, production-style demo surface designed for Sift 360° audits. It serves fast, consistent responses with recommended security headers and transparent, measurable behavior — no fabricated claims.</p>
         <div class="actions">
           <span class="btn btn-primary">Ready for Standard Audit</span>
-          <span class="btn btn-secondary">Endpoint: <code>/</code> · <code>/health</code></span>
+          <a class="btn btn-secondary" href="/guide">How to reach 100/100 (visual guide)</a>
         </div>
       </div>
 
@@ -200,7 +206,7 @@ func main() {
 
     <div class="footer">
       <span>100-Point Demo Site · Sift 360° compatible local target</span>
-      <span>Health check: <code>/health</code></span>
+      <span>Guide: <a href="/guide" style="color:#9fdcff">/guide</a> · Health: <code>/health</code></span>
     </div>
   </div>
 </body>
@@ -210,6 +216,34 @@ func main() {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_, _ = w.Write([]byte(`{"status":"ok","service":"perfect-demo-site"}`))
+	})
+
+	assetsFS, err := fs.Sub(guideContent, "guide-assets")
+	if err == nil {
+		assetsHandler := http.StripPrefix("/guide-assets/", http.FileServer(http.FS(assetsFS)))
+		mux.HandleFunc("/guide-assets/", func(w http.ResponseWriter, r *http.Request) {
+			if strings.Contains(r.URL.Path, "..") {
+				http.NotFound(w, r)
+				return
+			}
+			assetsHandler.ServeHTTP(w, r)
+		})
+	}
+	mux.HandleFunc("/guide", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/guide" && r.URL.Path != "/guide/" {
+			http.NotFound(w, r)
+			return
+		}
+		b, readErr := guideContent.ReadFile("guide.html")
+		if readErr != nil {
+			http.Error(w, "guide unavailable", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(b)
+	})
+	mux.HandleFunc("/guide.html", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/guide", http.StatusFound)
 	})
 
 	srv := &http.Server{

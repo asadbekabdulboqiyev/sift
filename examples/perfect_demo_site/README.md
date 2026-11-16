@@ -9,8 +9,19 @@ go run ./examples/perfect_demo_site -addr 127.0.0.1:8095
 ```
 
 Endpoints:
-- `/` — HTML page
+- `/` — HTML demo page
 - `/health` — JSON health response
+- `/guide` — visual guide (real screenshots) explaining how to achieve a full 100/100 in Sift 360° and where to make changes
+
+## Visual guide
+
+Open [http://127.0.0.1:8095/guide](http://127.0.0.1:8095/guide) while the demo site is running. It includes:
+- real dashboard/demo screenshots (captured via ego-browser),
+- the exact audit flow (`Test 100-point demo site`),
+- where and what to change (security headers, endpoints, capacity/evidence requirements),
+- interpretation/checklist (measured, authorized, no fabrication).
+
+See also: `GUIDE.md` (English text guide).
 
 ## Example audit (dashboard API)
 

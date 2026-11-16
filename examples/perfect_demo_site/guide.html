@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>How to Achieve a Full 100/100 in Sift 360°</title>
+  <style>
+    :root{
+      --bg:#070b18; --bg2:#0d1428; --surface:#101938; --surface2:#141f43;
+      --text:#eaf0ff; --muted:#a9b7d9; --line:rgba(255,255,255,.10);
+      --brand:#6ee7ff; --brand2:#8b7cff; --ok:#34d399; --warn:#f59e0b; --bad:#ef4444;
+      --shadow:0 20px 60px rgba(0,0,0,.35); --radius:18px;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--text);background:radial-gradient(1200px 600px at 10% -10%, rgba(110,231,255,.14), transparent 60%),radial-gradient(900px 500px at 100% 0%, rgba(139,124,255,.14), transparent 55%),linear-gradient(180deg,var(--bg),var(--bg2));line-height:1.65}
+    a{color:var(--brand)}
+    .container{max-width:1100px;margin:0 auto;padding:28px 20px 72px}
+    .nav{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
+    .brand{display:flex;align-items:center;gap:12px;font-weight:700}
+    .logo{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--brand),var(--brand2));display:grid;place-items:center;color:#08101f;font-weight:800}
+    .pill{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border:1px solid rgba(52,211,153,.35);background:rgba(52,211,153,.12);color:#bff7df;border-radius:999px;font-size:.92rem;font-weight:600}
+    .hero{padding:28px 28px 10px;background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.02));border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+    .kicker{color:var(--brand);font-weight:700;letter-spacing:.12em;text-transform:uppercase;font-size:.78rem}
+    h1{font-size:clamp(1.9rem,4vw,3rem);line-height:1.1;margin:10px 0 12px}
+    .lead{color:var(--muted);font-size:1.06rem;max-width:75ch;margin:0 0 10px}
+    .notice{margin:16px 0 0;padding:14px 16px;border:1px solid rgba(245,158,11,.35);background:rgba(245,158,11,.10);border-radius:14px;color:#ffe7b0}
+    .notice strong{color:#fff}
+    section{margin-top:22px}
+    .card{background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.02));border:1px solid var(--line);border-radius:var(--radius);padding:22px;box-shadow:var(--shadow)}
+    h2{margin:0 0 10px;font-size:1.35rem}
+    h3{margin:18px 0 8px;font-size:1.08rem}
+    p{margin:8px 0;color:var(--muted)}
+    ul,ol{margin:8px 0 8px 22px;color:var(--muted)}
+    li{margin:6px 0}
+    .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+    .grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+    .metric{background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:14px;padding:14px}
+    .metric b{display:block;font-size:1.15rem;color:#fff}
+    .metric span{color:var(--muted);font-size:.95rem}
+    .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.78rem;font-weight:700;border:1px solid var(--line);background:rgba(255,255,255,.04);color:#dce8ff}
+    .tag.ok{border-color:rgba(52,211,153,.35);background:rgba(52,211,153,.12);color:#bff7df}
+    pre{margin:10px 0;padding:14px 16px;background:#0b1228;border:1px solid var(--line);border-radius:14px;overflow:auto;color:#dce8ff;font-size:.92rem;line-height:1.55}
+    code{background:#0b1228;border:1px solid var(--line);border-radius:8px;padding:2px 7px;color:#dce8ff}
+    pre code{background:none;border:0;padding:0}
+    figure{margin:14px 0 6px}
+    figure img{width:100%;height:auto;border-radius:14px;border:1px solid var(--line);box-shadow:0 12px 40px rgba(0,0,0,.35);background:#0b1228}
+    figcaption{color:#c8d4f0;font-size:.93rem;margin-top:8px}
+    .step{display:grid;grid-template-columns:44px 1fr;gap:14px;align-items:start;padding:14px 0;border-top:1px solid var(--line)}
+    .step:first-of-type{border-top:0;padding-top:4px}
+    .num{width:36px;height:36px;border-radius:10px;background:rgba(110,231,255,.14);color:var(--brand);display:grid;place-items:center;font-weight:800}
+    .where{padding:12px 14px;border:1px dashed rgba(110,231,255,.35);background:rgba(110,231,255,.06);border-radius:12px;color:#dce8ff;margin:10px 0}
+    table{width:100%;border-collapse:collapse;margin:10px 0;font-size:.95rem}
+    th,td{border:1px solid var(--line);padding:10px 12px;vertical-align:top}
+    th{background:rgba(255,255,255,.04);color:#fff;text-align:left}
+    td{color:var(--muted)}
+    .two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .footer{margin-top:26px;color:var(--muted);font-size:.93rem}
+    @media (max-width:900px){.grid,.grid-4,.two{grid-template-columns:1fr}.step{grid-template-columns:36px 1fr}}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="nav">
+      <div class="brand"><div class="logo">S</div><span>Sift 100-Point Guide</span></div>
+      <span class="pill">Evidence-based · No fabrication</span>
+    </div>
+
+    <header class="hero">
+      <div class="kicker">Sift 360° · Full audit</div>
+      <h1>How a Site Reaches a Full 100/100</h1>
+      <p class="lead">A practical, visual guide showing exactly where to run the audit, what each score means, and which configuration changes (with code locations) produce a legitimate <strong>100/100</strong> result when measured evidence supports it.</p>
+      <div class="notice"><strong>Important:</strong> 100/100 is an outcome of real measurements (security checks, measurable load/resilience, complete evidence) under the selected mode and window — not a value to force. Only test systems you own or have explicit written permission to test. Nothing here authorizes unauthorized testing.</div>
+    </header>
+
+    <section class="card">
+      <h2>1) What the 100/100 Score Means</h2>
+      <p>In a completed Standard Sift 360° audit, the scorecard reports component scores and an overall result. A full score requires all components to be supported by evidence.</p>
+      <div class="grid-4" style="margin-top:12px">
+        <div class="metric"><b>Security · 100</b><span>No security findings from executed checks (headers/TLS/misconfiguration/lightweight OWASP surface).</span></div>
+        <div class="metric"><b>Resilience · 100</b><span>No failure-threshold breach under measured load (e.g. error/latency within thresholds in the test window).</span></div>
+        <div class="metric"><b>Capacity · 100</b><span>Capacity is measurable with no adverse/breach evidence; load is not blocked/unmeasurable.</span></div>
+        <div class="metric"><b>Evidence · 100</b><span>Required stages complete with usable evidence (scan not partial, active load measured when required).</span></div>
+      </div>
+      <figure>
+        <img src="/guide-assets/06-score-grid.png" alt="Sift 360° result showing overall 100/100 and component scores 100/100">
+        <figcaption>Real audit result (local, authorized demo target): overall <strong>100/100</strong>, all components <strong>100</strong>, 0 findings, Low Risk, sealed VPMP attestation.</figcaption>
+      </figure>
+    </section>
+
+    <section class="card">
+      <h2>2) Where to Run It (Dashboard) and the Exact Flow</h2>
+      <div class="step">
+        <div class="num">1</div>
+        <div>
+          <h3>Start the target and the dashboard</h3>
+          <p>Run the 100-point demo site (or your own authorized target) and open Sift dashboard.</p>
+<pre><code># Terminal 1 — 100-point demo target
+go run ./examples/perfect_demo_site -addr 127.0.0.1:8095
+
+# Terminal 2 — dashboard
+Sift dashboard
+# open: http://127.0.0.1:8888</code></pre>
+          <figure>
+            <img src="/guide-assets/01-demo-site.png" alt="100-point demo site homepage">
+            <figcaption>The demo target UI (served at <code>http://127.0.0.1:8095</code>) with recommended security headers and stable endpoints.</figcaption>
+          </figure>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num">2</div>
+        <div>
+          <h3>Open “Sift 360° — 1-Click Full Audit” and click “Test 100-point demo site”</h3>
+          <div class="where"><strong>Where:</strong> Dashboard → <em>Overview</em> → section <strong>Sift 360° — 1-Click Full Audit</strong>.<br>
+          <strong>Button:</strong> <code>Test 100-point demo site</code> (prefills <code>http://127.0.0.1:8095</code>, sets <strong>Standard</strong>, checks authorization, verifies reachability, then starts the audit).</div>
+          <figure>
+            <img src="/guide-assets/02-dashboard-360-section.png" alt="Dashboard Sift 360° section with Test 100-point demo site button">
+            <figcaption>Dashboard 360° section: target input, mode (Passive/Standard), authorization checkbox, and the <strong>Test 100-point demo site</strong> action.</figcaption>
+          </figure>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num">3</div>
+        <div>
+          <h3>Watch the 4 measured stages complete</h3>
+          <p>Stages: <strong>1. Scanning Security</strong> → <strong>2. Testing Load Limit</strong> → <strong>3. Calculating Resilience</strong> → <strong>4. Sealing VPMP Certificate</strong>. In Passive mode, active load is skipped by design.</p>
+          <figure>
+            <img src="/guide-assets/03-audit-progress.png" alt="Audit progress showing running stages">
+            <figcaption>Live progress (SSE/polling) while checks and load telemetry are measured — no fabricated values.</figcaption>
+          </figure>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num">4</div>
+        <div>
+          <h3>Review the sealed scorecard (100/100 when evidence supports it)</h3>
+          <figure>
+            <img src="/guide-assets/04-audit-result-scorecard.png" alt="Completed Sift 360° scorecard with 100/100">
+            <figcaption>Executive Audit Scorecard: resilience gauge, capacity summary, VPMP attestation, and findings/notes.</figcaption>
+          </figure>
+          <figure>
+            <img src="/guide-assets/05-audit-findings-vpmp.png" alt="Findings, notes and VPMP attestation details">
+            <figcaption>Findings/business impact/fixes, recommended action notes, and verifiable VPMP details (certificate/signature/hash as available).</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>3) Where and What to Change (Exact Code/Config)</h2>
+      <p>To remove security findings and produce stable, measurable behavior, apply recommended protections consistently to audited endpoints. Below are the concrete changes used by the 100-point demo target.</p>
+
+      <h3>3.1 Security headers — remove header/misconfiguration findings <span class="tag ok">Security 100</span></h3>
+      <div class="where"><strong>Where to change:</strong> your HTTP middleware/response headers (reverse proxy or app).<br>
+      <strong>Demo implementation:</strong> <code>examples/perfect_demo_site/main.go</code> → <code>securityHeaders(next http.Handler)</code>.</div>
+      <p>Set the following headers on responses (tune CSP to your real asset/script needs; keep it as strict as possible):</p>
+<pre><code>func securityHeaders(next http.Handler) http.Handler {
+  return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    w.Header().Set("X-Content-Type-Options", "nosniff")
+    w.Header().Set("X-Frame-Options", "DENY")
+    w.Header().Set("Referrer-Policy", "no-referrer")
+    w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+    w.Header().Set("Content-Security-Policy",
+      "default-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+    w.Header().Set("Cache-Control", "no-store")
+    next.ServeHTTP(w, r)
+  })
+}</code></pre>
+      <table>
+        <tr><th>Header</th><th>Why it matters</th><th>What to set/change</th></tr>
+        <tr><td><code>Content-Security-Policy</code></td><td>Mitigates XSS/content injection classes surfaced by checks</td><td>Strict policy for your app; avoid overly permissive sources; include <code>frame-ancestors 'none'</code> (or use XFO consistently)</td></tr>
+        <tr><td><code>X-Content-Type-Options</code></td><td>Prevents MIME sniffing</td><td><code>nosniff</code></td></tr>
+        <tr><td><code>X-Frame-Options</code></td><td>Clickjacking protection</td><td><code>DENY</code> or <code>SAMEORIGIN</code> as appropriate</td></tr>
+        <tr><td><code>Referrer-Policy</code></td><td>Limits referrer leakage</td><td><code>no-referrer</code> (or a strict policy that fits your needs)</td></tr>
+        <tr><td><code>Permissions-Policy</code></td><td>Disables unused powerful features</td><td>Disable features you don’t need (camera/mic/geo etc.)</td></tr>
+        <tr><td><code>Cache-Control</code></td><td>Avoids unintended caching of sensitive responses</td><td><code>no-store</code> for sensitive/dynamic responses (adjust for static assets as needed)</td></tr>
+        <tr><td><code>Strict-Transport-Security</code> (HTTPS)</td><td>Enforces HTTPS</td><td>Enable HSTS on HTTPS deployments with a safe rollout (<code>max-age</code>, consider preload only when ready)</td></tr>
+      </table>
+
+      <h3>3.2 Stable, correct endpoints — complete evidence <span class="tag ok">Evidence 100</span></h3>
+      <div class="where"><strong>Where to change:</strong> your routing/handlers.<br>
+      <strong>Demo implementation:</strong> <code>examples/perfect_demo_site/main.go</code> → handlers for <code>/</code> and <code>/health</code>.</div>
+      <ul>
+        <li>Ensure the audited URL is reachable and returns consistent, valid responses during the run.</li>
+        <li>Provide a lightweight health/content endpoint; avoid intermittent 5xx/timeouts.</li>
+        <li>Apply the same security headers to audited endpoints (not only the homepage).</li>
+      </ul>
+<pre><code>mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+  w.Header().Set("Content-Type", "application/json")
+  _ = json.NewEncoder(w).Encode(map[string]string{
+    "status": "ok",
+    "service": "perfect-demo-site",
+  })
+})</code></pre>
+
+      <h3>3.3 Capacity & resilience — measurable, no breach <span class="tag ok">Capacity/Resilience 100</span></h3>
+      <div class="where"><strong>Where to change:</strong> server/runtime sizing, reverse proxy/WAF/rate-limit rules, and application performance.</div>
+      <ul>
+        <li><strong>Run in Standard mode with authorization</strong> so active load is measured (Passive skips load by design).</li>
+        <li>Do not block the audit traffic path with WAF/bot/401/403/429 in a way that makes capacity unmeasurable for the in-scope test.</li>
+        <li>Keep error rate and latency within thresholds during the test window (optimize hot paths, right-size resources, tune timeouts).</li>
+        <li>“No breach within the audit window” is measured evidence, not a guarantee under higher/different load.</li>
+      </ul>
+
+      <h3>3.4 Dashboard/action wiring (this project)</h3>
+      <div class="where"><strong>Where implemented:</strong><br>
+      <code>internal/dashboard/index.html</code> → button <code>#a360RunPerfectDemo</code> (“Test 100-point demo site”)<br>
+      <code>internal/dashboard/assets/app-15-audit360.js</code> → preflight reachability check + prefill Standard + authorized + submit</div>
+      <p>If the demo target is unreachable, the dashboard shows an actionable message to start it first (preventing misleading low-score runs caused by an unavailable target).</p>
+    </section>
+
+    <section class="card">
+      <h2>4) Checklist for a Legitimate 100/100</h2>
+      <div class="two">
+        <div>
+          <ul>
+            <li><span class="tag ok">Scope</span> Authorized target, correct mode, defined window</li>
+            <li><span class="tag ok">Security</span> Recommended headers/TLS configured consistently, 0 findings</li>
+            <li><span class="tag ok">Stability</span> Target reachable and stable for the full run</li>
+          </ul>
+        </div>
+        <div>
+          <ul>
+            <li><span class="tag ok">Standard</span> Active load measurable (not blocked/skipped), no breach</li>
+            <li><span class="tag ok">Evidence</span> No partial/unavailable stages; report sealed (signature/cert/hash)</li>
+            <li><span class="tag ok">Honesty</span> Interpret as measured results for this run, not a lifetime guarantee</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>5) Common Reasons It’s Not 100/100</h2>
+      <table>
+        <tr><th>Symptom</th><th>Likely cause</th><th>Where/what to fix</th></tr>
+        <tr><td>Security &lt; 100</td><td>Missing/weak headers, TLS issues, or findings</td><td>Add/fix response headers and TLS config on the server/proxy; retest</td></tr>
+        <tr><td>Capacity not measurable / blocked</td><td>Target refused load (401/403/429/WAF) or unavailable telemetry</td><td>Authorize/allowlist in-scope test traffic or use a suitable staging target</td></tr>
+        <tr><td>Evidence &lt; 100</td><td>Partial scan or skipped load (Passive)</td><td>Improve reachability/time budget; use Standard when capacity evidence is required</td></tr>
+        <tr><td>Low score on demo run</td><td>Demo site not running/reachable</td><td>Start <code>go run ./examples/perfect_demo_site -addr 127.0.0.1:8095</code>, then run again</td></tr>
+      </table>
+    </section>
+
+    <div class="footer">
+      <p><strong>Artifacts in this project:</strong> <code>examples/perfect_demo_site/main.go</code> (target + headers), <code>examples/perfect_demo_site/GUIDE.md</code> (text guide), <code>/guide</code> (this visual guide), dashboard 360° UI (<code>internal/dashboard/index.html</code>, <code>internal/dashboard/assets/app-15-audit360.js</code>).</p>
+      <p>Real screenshots captured via <strong>ego-browser</strong> against a local, authorized run (dashboard <code>127.0.0.1:8888</code>, demo target <code>127.0.0.1:8095</code>).</p>
+    </div>
+  </div>
+</body>
+</html>
