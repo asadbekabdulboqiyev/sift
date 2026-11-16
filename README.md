@@ -91,7 +91,11 @@ Unified 1-click full diagnostic for **any `http(s)` target** with mode selection
 - **Passive** — non-intrusive checks only (no active load/breaking-point test); capacity is reported as skipped/not measured.
 - **Standard** — requires explicit authorization confirmation and may run an active load/breaking-point test (linear ramp from 50 VUs, stops at error rate >5% or p99 >2000ms).
 
-Pipeline stages: **1. Scanning Security** (headers/TLS/OWASP) → **2. Testing Load Limit** (skipped in Passive) → **3. Calculating Resilience** (0–100, risk level/remediation) → **4. Sealing VPMP Certificate** (Ed25519 attestation over canonical report digest). Output includes `resilience_score`, `risk_level`, `breaking_point_users`, `max_safe_rps`, findings with business impact & fix instructions, **deterministic prioritized recommended action notes** (included in sealed reports), `certificate_id`, `vpmp_signature`, and ISO8601 `timestamp`.
+Pipeline stages: **1. Scanning Security** (headers/TLS/OWASP) → **2. Testing Load Limit** (skipped in Passive) → **3. Calculating Resilience** (0–100, risk level/remediation) → **4. Sealing VPMP Certificate** (Ed25519 attestation over canonical report digest).
+
+**Evidence-based scoring (v3):** `scoring_version: sift.audit360-scoring/v3` with split scores (0–100) for overall, `security`, `resilience`, `capacity`, `evidence_quality`, and **assessment `coverage`** (evidence basis). Scoring is transparent and driven by measured/observed evidence: weaknesses, partial/untested areas, and unmeasured capacity/load reduce confidence/scores accordingly; unavailable or refused-load capacity is never fabricated. Every detected weakness is reported as an individual, detailed finding (severity, source, impact, remediation, observed evidence) in the scorecard and sealed report. The local perfect demo target (`examples/perfect_demo_site/`, Standard/authorized, fully measured) can still achieve **100/100** under v3.
+
+Output includes `resilience_score`, `risk_level`, `breaking_point_users`, `max_safe_rps`, detailed findings, **deterministic prioritized recommended action notes** (included in sealed reports), `certificate_id`, `vpmp_signature`, and ISO8601 `timestamp`.
 
 Safety/behavior: same-origin checks for state-changing requests; Standard mode requires authorization confirmation; Passive performs non-intrusive checks only; unavailable metrics are explicitly labeled (no-fabrication). Backend may permit an operator **Admin** mode when allowed (not shown in the standard UI). Real-time progress via SSE or polling. Modular `internal/audit360/` package.
 
@@ -108,6 +112,7 @@ The dashboard includes quick actions for local demos: **Use VoltStore demo** (`h
 
 ### Security Testing
 - `pentest`: one-command assessment workflow (recon/fingerprint, ports/subdomains, auth options, crawl, headers/TLS/WAF, deep checks, CVE/NVD enrichment, OWASP/compliance mapping, reports)
+  - **Full weakness breakdown:** every discovered weakness is reported individually and in detail (not limited to OWASP category summaries), across all sources — headers/TLS/CORS, passive/intrusive/deep/sensitive-file checks, CVE/NVD matches, and OWASP findings — with severity, evidence, impact, remediation, location/parameter/CWE/source/confidence as available. Broken down consistently in CLI output, dashboard, certificates, and all report formats (JSON/HTML/Markdown/professional).
 - Individual scanners (scope-gated): `fuzz`, `dirbust`, `jwt` (offline), `graphql`, `websocket`, `crawl`, `subdomain`, `portscan`, `sslscan`
 - `scan`: TLS/WAF/HTTP fingerprinting and security-header analysis
 - Safety controls: authorization tickets/policy, allowlists, dry-run, rate/budget controls, audit logging; untested categories are reported as `NOT TESTED` (not `PASS`)
@@ -151,6 +156,11 @@ The dashboard includes quick actions for local demos: **Use VoltStore demo** (`h
 
 - Dashboard/audit360 helper and API guard coverage added; JS/asset and flow fixes maintained. Pentest report/output error handling and run-start refusal/guard behavior hardened in prior staged commits on this line.
 - **Verification (measured):** `gofmt` clean, `go vet ./...` OK, `go build ./...` OK; package tests and targeted `-race` runs pass in controlled environments (see commit/test evidence). In a local authorized Standard audit with the demo target reachable, the example target measured **100/100** (security/resilience/capacity/evidence 100, 0 findings, Low Risk, sealed report).
+
+**Recent updates (main, unreleased)**
+
+- **360° evidence-based scoring v3:** `sift.audit360-scoring/v3` with split scores plus assessment `coverage` (evidence basis), stronger evidence-driven deductions and transparent notes; every detected security/load/evidence issue is reported as an individual, detailed finding. No-fabrication preserved (untested/unmeasured/refused capacity explicitly reported). The local 100-point demo site (`127.0.0.1:8095`, Standard/authorized) still measures **100/100** (security/resilience/capacity/evidence/coverage 100, 0 findings, Low Risk, sealed) under v3.
+- **Pentest full weakness breakdown:** every discovered weakness is reported individually with full detail across all sources (headers/TLS/CORS, passive/intrusive/deep/sensitive-file, CVE/NVD, OWASP and other checks) — severity, evidence, impact, remediation, location/parameter/CWE/source/confidence as available — consistently in CLI, dashboard, certificates, and JSON/HTML/Markdown/professional reports (not limited to OWASP category summaries). OWASP coverage/status remains separate and `NOT TESTED` is never reported as `PASS`. Scoring/counters/merge/dedupe aligned to the detailed finding set.
 
 **Included from 0.16.4**
 - **Reliability & correctness hardening:** Audit360 SSE/subscriber publish-close race fix and stress-test cancellation/drain hardening; Host X-Ray artifact persistence integrity (atomic temp-write/sync/rename, mode enforcement); accumulated staged bounty-hunt hardening across Audit360/scoring/seal, dashboard/report/certificate/insights, scanners/OWASP, host X-Ray/twin/bounty/report paths and tests.
@@ -737,7 +747,7 @@ sift pentest --target https://example.com --depth 3 --format all --verbose
 sift pentest --target https://example.com --dry-run
 ```
 
-`pentest` provides a broader multi-phase workflow (discovery, auth/crawl options, deep checks, enrichment/mapping, and reporting). Depth, output format, scope, and authenticated/browser options are command-specific; consult `sift pentest --help`.
+`pentest` provides a broader multi-phase workflow (discovery, auth/crawl options, deep checks, enrichment/mapping, and reporting) with a **full per-weakness breakdown**: every discovered issue (headers/TLS/CORS, passive/intrusive/deep/sensitive-file, CVE/NVD, OWASP and other checks) is listed individually with severity, evidence, impact, remediation, and location/parameter/CWE/source/confidence as available across CLI, dashboard, certificates, and all report formats (JSON/HTML/Markdown/professional). Depth, output format, scope, and authenticated/browser options are command-specific; consult `sift pentest --help`.
 
 > **Important:** Always run scans/pentests only with proper authorization and within approved scope.
 
@@ -752,7 +762,7 @@ The dashboard features **Sift 360° — 1-Click Full Audit** with a large target
 - **Passive** — non-intrusive checks only (no active load/breaking-point test); safe for passive assessment, capacity reported as skipped/not measured.
 - **Standard** — requires explicit authorization confirmation and may run an active load/breaking-point test.
 
-On start, an animated 4-stage progress tracker runs: **1. Scanning Security → 2. Testing Load Limit → 3. Calculating Resilience → 4. Sealing VPMP Certificate** (load stage is skipped in Passive). The Executive Audit Scorecard shows a resilience gauge (Green/Yellow/Red), breaking point/capacity in plain language (when measured), vulnerabilities with business impact and fix instructions, **prioritized recommended action notes** (included in sealed reports), **Print / Export Verified Report**, and a verifiable VPMP badge/QR preview.
+On start, an animated 4-stage progress tracker runs: **1. Scanning Security → 2. Testing Load Limit → 3. Calculating Resilience → 4. Sealing VPMP Certificate** (load stage is skipped in Passive). The Executive Audit Scorecard shows evidence-based split scores (including coverage), a resilience gauge (Green/Yellow/Red), breaking point/capacity in plain language (when measured), and **every detected weakness as an individual detailed finding** with source, evidence, business impact, and fix instructions, plus **prioritized recommended action notes** (included in sealed reports), **Print / Export Verified Report**, and a verifiable VPMP badge/QR preview.
 
 Quick actions: **Use VoltStore demo** (`http://127.0.0.1:8090`) and **Test 100-point demo site** (`http://127.0.0.1:8095`) to prefill/run a standard authorized audit against the local 100-point example target (start it first; see `examples/perfect_demo_site/`). Visual step-by-step guide (real screenshots): `http://127.0.0.1:8095/guide`.
 
