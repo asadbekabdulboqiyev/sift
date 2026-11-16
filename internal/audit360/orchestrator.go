@@ -199,6 +199,7 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 		rep.DurationMS = 0
 		rep.Notes = append(rep.Notes, "Duration normalized to 0ms due to inconsistent clock readings.")
 	}
+	rep.Notes = append(rep.Notes, RecommendedActionNotes(rep)...)
 
 	// Seal the finalized report state. The signature/certificate are derived
 	// from the payload, so the final returned report must be the exact attested
