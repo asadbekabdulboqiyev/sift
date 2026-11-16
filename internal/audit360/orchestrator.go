@@ -307,10 +307,41 @@ func runSecurityScan(ctx context.Context, targetURL string) ([]Finding, bool, []
 		notes = append(notes, "Core security scan did not complete within the time budget.")
 	}
 
+	hasObservableSecurityEvidence := false
+	targetReachable := false
+	dialAddr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+	if conn, derr := net.DialTimeout("tcp", dialAddr, 2*time.Second); derr == nil {
+		targetReachable = true
+		_ = conn.Close()
+	}
+
 	if scanRes != nil {
+		if scanRes.HTTP != nil || scanRes.Security != nil || len(scanRes.Vulns) > 0 {
+			hasObservableSecurityEvidence = true
+		}
+		if scanRes.TLS != nil {
+			if strings.TrimSpace(scanRes.TLS.Version) != "" || scanRes.TLS.Certificate != nil || scanRes.TLS.HasHSTS ||
+				len(scanRes.TLS.SupportedVersions) > 0 || len(scanRes.TLS.SupportedCiphers) > 0 || len(scanRes.TLS.Vulnerabilities) > 0 {
+				hasObservableSecurityEvidence = true
+			}
+		}
+		// If target was reachable, consider scan execution as evidence attempt even
+		// when no weaknesses/findings were reported by completed checks.
+		if targetReachable {
+			hasObservableSecurityEvidence = true
+		}
+		// If the target was unreachable or produced no usable evidence, treat as partial.
+		if !hasObservableSecurityEvidence {
+			partial = true
+			notes = append(notes, "Core security scan produced no observable security evidence (target likely unreachable or refusing connections).")
+		}
 		findings = append(findings, findingsFromScanResult(scanRes, scheme)...)
 	} else {
 		partial = true
+		if targetReachable {
+			hasObservableSecurityEvidence = true
+		}
+		notes = append(notes, "Core security scan returned no results (target unreachable or scan failed).")
 	}
 
 	// 2) Lightweight OWASP/passive checks (safe categories only; non-intrusive).
@@ -320,6 +351,33 @@ func runSecurityScan(ctx context.Context, targetURL string) ([]Finding, bool, []
 	}
 	partial = partial || owaspPartial
 	findings = append(findings, owaspFindings...)
+	if len(owaspFindings) > 0 {
+		hasObservableSecurityEvidence = true
+	}
+
+	// If we could not collect any observable security evidence (common for
+	// unreachable/unknown targets), report this explicitly so scoring does not
+	// treat "no findings observed" as a verified secure posture.
+	if !hasObservableSecurityEvidence {
+		partial = true
+		if len(findings) == 0 {
+			findings = append(findings, Finding{
+				Title:         "Target unreachable or unassessable — security posture could not be verified",
+				Severity:      "high",
+				ImpactSummary: "The target did not produce observable security evidence, so its security posture remains unverified.",
+				Remediation:   "Verify the target URL, DNS, network reachability, and that the service is running and accessible from this environment, then rerun the audit.",
+				Evidence:      "No observable TLS/HTTP/security-header/OWASP evidence could be collected from the target during the security scan.",
+				Source:        "security_scan",
+			})
+		}
+	} else if len(findings) == 0 && !partial {
+		// Evidence was observed but no weaknesses found and scan reported complete.
+		// This is a valid "no issues found by executed checks" outcome.
+	} else if len(findings) == 0 && partial {
+		// Partial evidence with no specific findings: keep partial state; no
+		// synthetic weakness added beyond coverage handling.
+		notes = append(notes, "Security scan completed with partial evidence and no specific weaknesses reported by completed checks.")
+	}
 
 	findings = dedupeFindings(findings)
 	return findings, partial, notes
