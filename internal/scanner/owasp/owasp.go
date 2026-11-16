@@ -796,30 +796,32 @@ func (c *OWASPChecker) checkA05() *OWASPCategory {
 		}
 	}
 
-	// Open ports
+	// Open ports (best-effort exposure signal). For loopback targets this is
+	// ambiguous: local services may be reachable on the host but not exposed by
+	// the target application or to the network. Skip to avoid misattribution.
 	host := c.extractHost()
-	importantPorts := []struct {
-		port int
-		name string
-	}{
-		{21, "FTP"},
-		{23, "Telnet"},
-		{445, "SMB"},
-		{1433, "MSSQL"},
-		{3306, "MySQL"},
-		{5432, "PostgreSQL"},
-		{6379, "Redis"},
-		{27017, "MongoDB"},
-	}
-	if host != "" {
+	if host != "" && !isLoopbackHost(host) {
+		importantPorts := []struct {
+			port int
+			name string
+		}{
+			{21, "FTP"},
+			{23, "Telnet"},
+			{445, "SMB"},
+			{1433, "MSSQL"},
+			{3306, "MySQL"},
+			{5432, "PostgreSQL"},
+			{6379, "Redis"},
+			{27017, "MongoDB"},
+		}
 		for _, ip := range importantPorts {
 			addr := net.JoinHostPort(host, strconv.Itoa(ip.port))
 			conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 			if err == nil {
 				_ = conn.Close()
 				c.addFinding(cat,
-					fmt.Sprintf("Database/service port exposed: %s (port %d)", ip.name, ip.port),
-					fmt.Sprintf("Block port %d (%s) from external access via firewall", ip.port, ip.name),
+					fmt.Sprintf("Database/service port reachable on target host: %s (port %d)", ip.name, ip.port),
+					fmt.Sprintf("Restrict port %d (%s) to trusted networks or block external access via firewall if not required", ip.port, ip.name),
 					"high")
 			}
 		}
@@ -1009,6 +1011,11 @@ func (c *OWASPChecker) checkA07() *OWASPCategory {
 		if resp2 == nil {
 			continue
 		}
+		// 404/405 usually means no login endpoint at this path; not evidence of
+		// missing brute-force protection on an authentication flow.
+		if resp2.StatusCode == http.StatusNotFound || resp2.StatusCode == http.StatusMethodNotAllowed {
+			continue
+		}
 		attemptsReached++
 		if resp2.StatusCode == 429 || resp2.StatusCode == 503 {
 			lockoutDetected = true
@@ -1022,9 +1029,9 @@ func (c *OWASPChecker) checkA07() *OWASPCategory {
 		}
 	}
 	// Only claim missing brute-force protection when the login endpoint was
-	// actually reached. If every attempt failed to connect, timed out, or was
-	// refused by the gate/WAF before a response, there is no evidence either
-	// way — not a confirmed absence of protection.
+	// actually reached. If every attempt failed to connect, timed out, was
+	// refused by the gate/WAF, or the endpoint did not exist, there is no
+	// evidence either way — not a confirmed absence of protection.
 	if attemptsReached > 0 && !lockoutDetected {
 		c.addFinding(cat,
 			"No brute force protection signal observed: 20 failed login attempts to /api/login with no lockout/rate limit response",
@@ -1479,4 +1486,18 @@ func (c *OWASPChecker) extractPort() int {
 	}
 	port, _ := strconv.Atoi(portStr)
 	return port
+}
+
+func isLoopbackHost(host string) bool {
+	h := strings.TrimSpace(strings.ToLower(host))
+	if h == "" {
+		return false
+	}
+	if h == "localhost" || strings.HasSuffix(h, ".localhost") {
+		return true
+	}
+	if ip := net.ParseIP(h); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
 }
