@@ -14,7 +14,7 @@ import (
 
 // ScoringVersion identifies the scoring/capacity-assessment rules used.
 // Additive and deterministic; older reports may omit this field.
-const ScoringVersion = "sift.audit360-scoring/v2"
+const ScoringVersion = "sift.audit360-scoring/v3"
 
 func normalizeSeverity(s string) string {
 	switch strings.ToLower(strings.TrimSpace(s)) {
@@ -140,6 +140,8 @@ func riskForOverall(score int) string {
 
 // ComputeAssessment calculates component scores, overall score/risk, findings and notes.
 // No values are fabricated: capacity metrics are only scored/labeled when measured.
+// Scoring is evidence-based and transparent: deductions are driven by observed
+// weaknesses, incomplete coverage, and unmeasured capacity/resilience evidence.
 func ComputeAssessment(secFindings []Finding, securityPartial bool, stress StressOutcome) (ScoreBreakdown, string, []Finding, []string) {
 	// Normalize measured stress inputs so NaN/Infinity/negative values cannot
 	// leak into scoring, notes, or cross-module assessment state.
@@ -152,79 +154,128 @@ func ComputeAssessment(secFindings []Finding, securityPartial bool, stress Stres
 	stress.PeakP99MS = nonNegFinite(stress.PeakP99MS)
 	stress.RejectSharePct = nonNegFinite(stress.RejectSharePct)
 
-	findings := dedupeFindings(secFindings)
+	findings := []Finding{}
 	notes := []string{}
 
 	securityScore := 100
 	capacityScore := 100
 	resilienceScore := 100
 	evidenceScore := 100
+	coverageUnits := 2.0 // security evidence + capacity/load evidence
+	coveredUnits := 0.0
 
-	// Security component: penalties from security findings and partial coverage.
+	notes = append(notes, "Scoring model: evidence-based weighted assessment (security 35%, resilience 25%, capacity 25%, evidence quality 15%) with strict penalties for critical/high weaknesses and reduced confidence for untested/unmeasured areas.")
+
+	// Security findings / coverage
 	if securityPartial {
-		securityScore -= 8
-		evidenceScore -= 10
+		coveredUnits += 0.5
+		securityScore -= 15
+		evidenceScore -= 20
 		notes = append(notes, "Security scan completed partially; some checks may be unavailable or not tested.")
 		findings = append(findings, Finding{
 			Title:         "Security scan coverage incomplete",
 			Severity:      "medium",
-			ImpactSummary: "Some security checks did not complete, so the risk picture may be incomplete.",
-			Remediation:   "Rerun the audit with a reachable target and sufficient time/budget to complete all checks.",
+			ImpactSummary: "Some security checks could not be completed, so unknown risks may remain and the assessment confidence is reduced.",
+			Remediation:   "Run the scan again with a reachable target and sufficient time/budget to complete all security checks.",
 			Evidence:      "Security scan stage reported partial coverage or did not complete all checks within the audit budget.",
 			Source:        "evidence_quality",
 		})
+	} else {
+		coveredUnits += 1.0
+		notes = append(notes, "Security scan stage completed and produced observed evidence (subject to the checks executed in this run).")
 	}
-	for _, f := range findings {
-		if strings.EqualFold(strings.TrimSpace(f.Source), "security_scan") || (f.Source == "" && !strings.Contains(strings.ToLower(f.Title), "capacity") && !strings.Contains(strings.ToLower(f.Title), "evidence")) {
-			securityScore -= severityPenalty(f.Severity)
+
+	secWeaknesses := 0
+	for _, f := range secFindings {
+		sf := f
+		sf.Severity = normalizeSeverity(sf.Severity)
+		if strings.TrimSpace(sf.Source) == "" {
+			sf.Source = "security_scan"
 		}
+		if strings.TrimSpace(sf.Evidence) == "" {
+			sf.Evidence = defaultEvidence(sf)
+		}
+		findings = append(findings, sf)
+
+		src := strings.ToLower(strings.TrimSpace(sf.Source))
+		isStressDerived := src == "stress_test"
+		if !isStressDerived {
+			secWeaknesses++
+			switch sf.Severity {
+			case "critical":
+				securityScore -= 35
+				evidenceScore -= 6
+			case "high":
+				securityScore -= 22
+				evidenceScore -= 4
+			case "medium":
+				securityScore -= 12
+				evidenceScore -= 3
+			case "low":
+				securityScore -= 6
+				evidenceScore -= 2
+			default:
+				securityScore -= 2
+				evidenceScore -= 1
+			}
+		}
+	}
+	if secWeaknesses > 0 {
+		notes = append(notes, fmt.Sprintf("Security weaknesses/findings identified from observed evidence: %d (each fully listed in findings).", secWeaknesses))
+	} else if !securityPartial {
+		notes = append(notes, "No security weaknesses were reported by the executed security checks (absence of evidence in untested areas is not a guarantee).")
 	}
 
 	// Capacity/resilience/evidence components from stress outcome.
 	switch {
 	case stress.RejectedByTarget:
 		// Access gate refused load: capacity/breaking point is unmeasurable (not a measured capacity failure).
-		// Penalize evidence quality (we could not obtain capacity evidence) but do not score capacity as poor.
+		coveredUnits += 0.35
+		capacityScore -= 25
+		resilienceScore -= 10
 		evidenceScore -= 20
+		label := rejectionLabel(stress.RejectStatusCode)
 		findings = append(findings, Finding{
-			Title:    fmt.Sprintf("Capacity not measurable — target refused load (HTTP %d)", stress.RejectStatusCode),
-			Severity: "medium",
-			ImpactSummary: fmt.Sprintf(
-				"The target rejected %.0f%% of audit requests with HTTP %d, so its real breaking point could not be measured. This is an access-control/rate-limit response, not proof of a capacity limit.",
-				stress.RejectSharePct, stress.RejectStatusCode),
-			Remediation: "Re-run the audit against a target that accepts the load generator (allowlist its IP, disable the WAF/bot gate, or use a dedicated staging endpoint), then measure capacity.",
-			Evidence: fmt.Sprintf(
-				"Measured during ramp: dominant rejection status HTTP %d observed for %.1f%% of requests; peak observed users=%d (capacity/breaking-point figures suppressed as unmeasurable).",
-				stress.RejectStatusCode, stress.RejectSharePct, stress.MaxObservedUsers),
-			Source: "stress_test",
+			Title:         fmt.Sprintf("Target refused load before capacity could be measured (HTTP %d)", stress.RejectStatusCode),
+			Severity:      "medium",
+			ImpactSummary: fmt.Sprintf("The target answered %s to %.0f%% of requests during the ramp, so the probe measured the access gate rather than service capacity.", label, stress.RejectSharePct),
+			Remediation:   "Run the audit from an authorized client/network that the target accepts (or against a staging environment) to measure real capacity and breaking-point behavior.",
+			Evidence:      fmt.Sprintf("Dominant response during ramp: %s on %.0f%% of observed requests. No breach/throughput/capacity figure is reported because the service itself was not exercised.", label, stress.RejectSharePct),
+			Source:        "evidence_quality",
 		})
+		notes = append(notes, fmt.Sprintf("Capacity not measurable: target answered %s to %.0f%% of requests during the ramp (access gate, not service capacity).", label, stress.RejectSharePct))
 		notes = append(notes, "Observed throughput/capacity figures suppressed because the target refused load traffic (access gate, not service capacity).")
 		notes = append(notes, "Capacity and resilience-under-load were not measured due to target refusal; capacity score reflects no adverse measured capacity evidence in this run.")
 	case stress.Skipped:
 		// Intentionally not executed (e.g. passive mode): no capacity measurement, not a failure.
-		evidenceScore -= 15
-		notes = append(notes, "Capacity/load testing skipped in passive mode (non-intrusive checks only); capacity metrics not measured.")
-		notes = append(notes, "Sustainable capacity and breaking point were not measured in Passive mode; capacity score reflects no adverse measured capacity evidence.")
-	case !stress.Available:
-		capacityScore -= 30
-		resilienceScore -= 15
+		coveredUnits += 0.15
 		evidenceScore -= 20
+		capacityScore -= 10
+		resilienceScore -= 10
+		notes = append(notes, "Capacity/load testing skipped in passive mode (non-intrusive checks only); capacity metrics not measured.")
+		notes = append(notes, "Sustainable capacity and breaking point were not measured in Passive mode; capacity score reflects limited/no load evidence.")
+	case !stress.Available:
+		coveredUnits += 0.1
+		capacityScore -= 35
+		resilienceScore -= 20
+		evidenceScore -= 25
 		notes = append(notes, "Load/stress evidence unavailable: capacity could not be measured in this run.")
 		findings = append(findings, Finding{
 			Title:         "Capacity test unavailable",
 			Severity:      "high",
-			ImpactSummary: "Without a measured load test, the system's real breaking point is unknown.",
+			ImpactSummary: "Without a measured load test, the system's real breaking point and resilience under stress are unknown.",
 			Remediation:   "Run the stress test against an authorized, reachable target to measure safe capacity and failure thresholds.",
 			Evidence:      "Stress test stage did not produce measurable telemetry (unreachable target, execution error, or no samples).",
 			Source:        "evidence_quality",
 		})
 	default:
 		// Measured stress evidence available.
+		coveredUnits += 1.0
 		if stress.Breached {
-			capacityScore -= 30
-			resilienceScore -= 25
+			capacityScore -= 35
+			resilienceScore -= 30
 			impact := "The service reached a failure threshold during ramp-up, which means users may see errors or severe slowdowns under load."
-			rem := "Increase capacity, optimize slow endpoints, add caching/queueing, and tune timeouts/autoscaling before higher traffic."
+			rem := "Increase capacity, optimize slow endpoints, add caching/queueing, and tune timeouts/autoscaling before higher traffic. Re-test to confirm improved safe capacity."
 			if stress.BreakingPointUsers > 0 {
 				impact = fmt.Sprintf("The service hit failure thresholds around %d concurrent users, so higher traffic can cause errors or severe slowdowns.", stress.BreakingPointUsers)
 			}
@@ -248,12 +299,12 @@ func ComputeAssessment(secFindings []Finding, securityPartial bool, stress Stres
 
 		// Penalize poor observed reliability/latency (resilience) even without formal breach.
 		if stress.PeakErrorRatePct > 1.0 {
-			pen := int(math.Min(12, math.Round(stress.PeakErrorRatePct)))
+			pen := int(math.Min(15, math.Round(stress.PeakErrorRatePct)))
 			resilienceScore -= pen
 			capacityScore -= pen / 2
 		}
 		if stress.PeakP99MS > 1000 {
-			pen := int(math.Min(10, math.Round((stress.PeakP99MS-1000)/300)))
+			pen := int(math.Min(12, math.Round((stress.PeakP99MS-1000)/250)))
 			resilienceScore -= pen
 			capacityScore -= pen / 2
 		}
@@ -265,6 +316,19 @@ func ComputeAssessment(secFindings []Finding, securityPartial bool, stress Stres
 			notes = append(notes, "Observed peak throughput can exceed sustainable/safe capacity estimate; sustainable/safe estimate is derived only from measured samples meeting error/latency thresholds.")
 		}
 	}
+
+	coveragePct := int(math.Round(100.0 * coveredUnits / coverageUnits))
+	if coveragePct < 0 {
+		coveragePct = 0
+	}
+	if coveragePct > 100 {
+		coveragePct = 100
+	}
+	// Evidence quality cannot exceed coverage-based confidence in a strong model.
+	if evidenceScore > 30+coveragePct*7/10 {
+		evidenceScore = 30 + coveragePct*7/10
+	}
+	notes = append(notes, fmt.Sprintf("Assessment coverage (evidence basis): %d%% of intended security+capacity/load scope produced measurable or observed evidence.", coveragePct))
 
 	securityScore = clampScore(securityScore)
 	capacityScore = clampScore(capacityScore)
@@ -309,6 +373,7 @@ func ComputeAssessment(secFindings []Finding, securityPartial bool, stress Stres
 		Resilience:      resilienceScore,
 		Capacity:        capacityScore,
 		EvidenceQuality: evidenceScore,
+		Coverage:        coveragePct,
 	}
 	return breakdown, risk, findings, notes
 }

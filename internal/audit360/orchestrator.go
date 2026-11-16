@@ -333,33 +333,59 @@ func findingsFromScanResult(res *scanner.ScanResult, scheme string) []Finding {
 
 	if res.Security != nil {
 		for _, d := range res.Security.Details {
-			if strings.EqualFold(d.Status, "missing") || strings.EqualFold(d.Status, "weak") {
-				sev := "medium"
-				title := "Security header issue: " + d.Header
-				impact := "Missing or weak security headers make browser-side protections easier to bypass."
-				rem := strings.TrimSpace(d.Message)
-				if rem == "" {
-					rem = "Configure recommended security headers (CSP, HSTS, X-Frame-Options, X-Content-Type-Options, etc.)."
-				} else {
-					rem = "Fix: " + rem
-				}
-				evidence := fmt.Sprintf("Header %q reported as %s by security header scan.", d.Header, strings.ToLower(strings.TrimSpace(d.Status)))
-				if strings.TrimSpace(d.Value) != "" {
-					evidence += " Observed value: " + strings.TrimSpace(d.Value) + "."
-				}
-				if strings.TrimSpace(d.Message) != "" {
-					evidence += " Scanner note: " + strings.TrimSpace(d.Message) + "."
-				}
-				out = append(out, Finding{Title: title, Severity: sev, ImpactSummary: impact, Remediation: rem, Evidence: evidence, Source: "security_scan"})
+			st := strings.ToLower(strings.TrimSpace(d.Status))
+			if st != "missing" && st != "weak" {
+				continue
 			}
-		}
-		if len(res.Security.MissingHeaders) > 0 {
+			sev := "medium"
+			if st == "weak" {
+				sev = "medium"
+			}
+			header := strings.TrimSpace(d.Header)
+			if header == "" {
+				header = "security header"
+			}
+			statusWord := "Misconfigured"
+			if st == "missing" {
+				statusWord = "Missing"
+			} else if st == "weak" {
+				statusWord = "Weak"
+			}
+			title := fmt.Sprintf("%s security header: %s", statusWord, header)
+			rem := strings.TrimSpace(d.Message)
+			if rem == "" {
+				rem = headerSpecificRemediation(header)
+			}
+			impact := headerImpact(header, st)
+			evidence := fmt.Sprintf("Security header check for %q returned status=%q.", header, st)
+			if strings.TrimSpace(d.Value) != "" {
+				evidence += " Observed value: " + strings.TrimSpace(d.Value) + "."
+			}
+			if strings.TrimSpace(d.Message) != "" {
+				evidence += " Scanner note: " + strings.TrimSpace(d.Message) + "."
+			}
 			out = append(out, Finding{
-				Title:         "Missing recommended security headers",
+				Title:         title,
+				Severity:      sev,
+				ImpactSummary: impact,
+				Remediation:   rem,
+				Evidence:      evidence,
+				Source:        "security_scan",
+			})
+		}
+		// Report each missing header explicitly (full breakdown), even if not
+		// already represented in Details by a specific implementation.
+		for _, h := range res.Security.MissingHeaders {
+			header := strings.TrimSpace(h)
+			if header == "" {
+				continue
+			}
+			out = append(out, Finding{
+				Title:         "Missing security header: " + header,
 				Severity:      "medium",
-				ImpactSummary: "Browsers cannot enforce important protections when key headers are absent.",
-				Remediation:   "Add the missing headers reported by the scan (especially CSP, HSTS on HTTPS, X-Frame-Options, and X-Content-Type-Options).",
-				Evidence:      "Missing headers observed by scan: " + strings.Join(res.Security.MissingHeaders, ", ") + ".",
+				ImpactSummary: headerImpact(header, "missing"),
+				Remediation:   headerSpecificRemediation(header),
+				Evidence:      fmt.Sprintf("Header %q was not observed in the HTTP response.", header),
 				Source:        "security_scan",
 			})
 		}
@@ -367,12 +393,16 @@ func findingsFromScanResult(res *scanner.ScanResult, scheme string) []Finding {
 
 	if res.TLS != nil {
 		for _, v := range res.TLS.Vulnerabilities {
+			issue := strings.TrimSpace(v)
+			if issue == "" {
+				continue
+			}
 			out = append(out, Finding{
-				Title:         "TLS/SSL issue detected",
+				Title:         "TLS/SSL weakness: " + issue,
 				Severity:      "high",
-				ImpactSummary: "Weak or misconfigured TLS can expose traffic to interception or downgrade risks.",
-				Remediation:   "Address TLS finding: " + v + ". Use modern TLS versions/ciphers and valid certificates.",
-				Evidence:      "TLS scan reported: " + v,
+				ImpactSummary: "Weak or misconfigured TLS can expose traffic to interception, downgrade, or confidentiality/integrity risks.",
+				Remediation:   "Remediate the reported TLS issue: " + issue + ". Disable weak protocols/ciphers/features and use modern TLS configuration.",
+				Evidence:      "TLS scan reported: " + issue,
 				Source:        "security_scan",
 			})
 		}
@@ -383,22 +413,22 @@ func findingsFromScanResult(res *scanner.ScanResult, scheme string) []Finding {
 			}
 			out = append(out, Finding{
 				Title:         "Expired TLS certificate",
-				Severity:      "high",
-				ImpactSummary: "Users and clients may distrust or block connections to the service.",
-				Remediation:   "Renew and deploy a valid TLS certificate before production exposure.",
+				Severity:      "critical",
+				ImpactSummary: "Users and clients may distrust or block connections; expired certificates undermine transport trust.",
+				Remediation:   "Renew and deploy a valid TLS certificate before production exposure and ensure automated renewal/monitoring.",
 				Evidence:      ev,
 				Source:        "security_scan",
 			})
 		}
 		if res.TLS.Certificate != nil && res.TLS.Certificate.IsSelfSigned && strings.EqualFold(scheme, "https") {
 			ev := "TLS certificate reported as self-signed by scan."
-			if res.TLS.Certificate.Subject != "" {
-				ev += " Subject=" + res.TLS.Certificate.Subject + "."
+			if strings.TrimSpace(res.TLS.Certificate.Subject) != "" {
+				ev += " Subject=" + strings.TrimSpace(res.TLS.Certificate.Subject) + "."
 			}
 			out = append(out, Finding{
 				Title:         "Self-signed TLS certificate",
 				Severity:      "medium",
-				ImpactSummary: "Self-signed certificates can trigger trust warnings and weaken assurance for users.",
+				ImpactSummary: "Self-signed certificates can trigger trust warnings and weaken assurance for users and integrations.",
 				Remediation:   "Use a certificate issued by a trusted CA for production endpoints.",
 				Evidence:      ev,
 				Source:        "security_scan",
@@ -406,11 +436,61 @@ func findingsFromScanResult(res *scanner.ScanResult, scheme string) []Finding {
 		}
 		if strings.EqualFold(scheme, "https") && !res.TLS.HasHSTS {
 			out = append(out, Finding{
-				Title:         "HSTS not detected",
+				Title:         "Missing HSTS policy on HTTPS endpoint",
 				Severity:      "medium",
-				ImpactSummary: "Without HSTS, browsers may be more exposed to downgrade or insecure-first connections.",
-				Remediation:   "Enable HTTP Strict Transport Security (HSTS) with an appropriate max-age and rollout plan.",
+				ImpactSummary: "Without HSTS, browsers may be more exposed to downgrade or insecure-first connection attempts.",
+				Remediation:   "Enable HTTP Strict Transport Security (HSTS) with an appropriate max-age and staged rollout plan.",
 				Evidence:      "HTTPS target scanned but HSTS header/policy was not detected.",
+				Source:        "security_scan",
+			})
+		}
+		if strings.EqualFold(scheme, "https") && strings.TrimSpace(res.TLS.Version) != "" {
+			switch strings.TrimSpace(res.TLS.Version) {
+			case "TLS 1.0", "TLS 1.1":
+				out = append(out, Finding{
+					Title:         "Deprecated TLS protocol version in use: " + strings.TrimSpace(res.TLS.Version),
+					Severity:      "high",
+					ImpactSummary: "Deprecated TLS versions weaken transport security and may be vulnerable to known protocol weaknesses.",
+					Remediation:   "Disable TLS 1.0/1.1 and enforce TLS 1.2+ (prefer TLS 1.3) with modern cipher suites.",
+					Evidence:      "Negotiated/observed TLS version: " + strings.TrimSpace(res.TLS.Version) + ".",
+					Source:        "security_scan",
+				})
+			}
+		}
+	}
+
+	if res.HTTP != nil {
+		if s := strings.TrimSpace(res.HTTP.Server); s != "" {
+			out = append(out, Finding{
+				Title:         "Server version/banner disclosure",
+				Severity:      "low",
+				ImpactSummary: "Exposed server software/version details can help attackers fingerprint the stack and target known issues.",
+				Remediation:   "Minimize or remove detailed Server header/banner information where possible.",
+				Evidence:      "Observed Server header: " + s,
+				Source:        "security_scan",
+			})
+		}
+		if s := strings.TrimSpace(res.HTTP.XPoweredBy); s != "" {
+			out = append(out, Finding{
+				Title:         "Technology stack disclosure (X-Powered-By)",
+				Severity:      "low",
+				ImpactSummary: "Framework/runtime disclosure can aid fingerprinting and targeted exploitation attempts.",
+				Remediation:   "Disable or mask X-Powered-By and similar technology-identifying headers.",
+				Evidence:      "Observed X-Powered-By header: " + s,
+				Source:        "security_scan",
+			})
+		}
+		if res.HTTP.CORS != nil && res.HTTP.CORS.IsPermissive {
+			origin := strings.TrimSpace(res.HTTP.CORS.AllowOrigin)
+			if origin == "" {
+				origin = "*"
+			}
+			out = append(out, Finding{
+				Title:         "Permissive CORS configuration detected",
+				Severity:      "medium",
+				ImpactSummary: "Overly permissive CORS can expose responses to untrusted origins and increase risk for sensitive endpoints.",
+				Remediation:   "Restrict Access-Control-Allow-Origin to trusted origins and avoid wildcard or reflective policies for sensitive responses.",
+				Evidence:      "Observed permissive CORS policy (Allow-Origin=" + origin + ").",
 				Source:        "security_scan",
 			})
 		}
@@ -426,14 +506,18 @@ func findingsFromScanResult(res *scanner.ScanResult, scheme string) []Finding {
 			impact = defaultImpact(v.Severity)
 		}
 		ev := strings.TrimSpace(v.Description)
+		title := strings.TrimSpace(v.Title)
+		if title == "" {
+			title = "Reported security weakness"
+		}
 		if ev == "" {
-			ev = "Reported by scanner finding: " + v.Title
+			ev = "Reported by scanner finding: " + title
 		}
 		if strings.TrimSpace(v.ID) != "" {
 			ev = "Finding ID " + strings.TrimSpace(v.ID) + ": " + ev
 		}
 		out = append(out, Finding{
-			Title:         v.Title,
+			Title:         title,
 			Severity:      normalizeSeverity(v.Severity),
 			ImpactSummary: impact,
 			Remediation:   rem,
@@ -443,6 +527,49 @@ func findingsFromScanResult(res *scanner.ScanResult, scheme string) []Finding {
 	}
 
 	return out
+}
+
+func headerSpecificRemediation(header string) string {
+	switch strings.ToLower(strings.TrimSpace(header)) {
+	case "strict-transport-security":
+		return "Enable HSTS (Strict-Transport-Security) with an appropriate max-age, includeSubDomains where safe, and a staged rollout plan."
+	case "content-security-policy":
+		return "Define and deploy a Content-Security-Policy tailored to the application to reduce XSS and content injection risk."
+	case "x-frame-options":
+		return "Set X-Frame-Options (or CSP frame-ancestors) to prevent clickjacking on sensitive pages."
+	case "x-content-type-options":
+		return "Set X-Content-Type-Options: nosniff to prevent MIME type sniffing."
+	case "referrer-policy":
+		return "Set a restrictive Referrer-Policy to limit leakage of sensitive URL data to third parties."
+	case "permissions-policy":
+		return "Set Permissions-Policy to explicitly restrict browser features not required by the application."
+	default:
+		return "Configure the recommended security header according to application requirements and security best practices."
+	}
+}
+
+func headerImpact(header, status string) string {
+	h := strings.ToLower(strings.TrimSpace(header))
+	st := strings.ToLower(strings.TrimSpace(status))
+	base := "Missing or weak security headers can weaken browser-side protections."
+	switch h {
+	case "strict-transport-security":
+		base = "Without effective HSTS, clients may be more exposed to downgrade or insecure-first connection attempts."
+	case "content-security-policy":
+		base = "Without an effective CSP, browsers have less protection against XSS and content injection attacks."
+	case "x-frame-options":
+		base = "Without clickjacking protection, sensitive pages may be embedded in malicious frames."
+	case "x-content-type-options":
+		base = "Without MIME sniffing protection, browsers may interpret responses unsafely."
+	case "referrer-policy":
+		base = "A weak or missing referrer policy can leak sensitive URL information to third parties."
+	case "permissions-policy":
+		base = "Without a restrictive permissions policy, unnecessary browser features may remain available to page content."
+	}
+	if st == "weak" {
+		return base + " The current configuration is weak and should be hardened."
+	}
+	return base
 }
 
 func runLightweightOWASP(ctx context.Context, targetURL string) ([]Finding, bool, string) {

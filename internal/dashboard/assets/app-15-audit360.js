@@ -382,10 +382,14 @@
       } else {
         findingsEl.innerHTML = findings.map(function (f) {
           var sev = sevClass(f.severity);
+          var src = f.source ? ('<p><strong>Source:</strong> ' + esc(f.source) + '</p>') : '';
+          var ev = f.evidence ? ('<p><strong>Evidence:</strong> ' + esc(f.evidence) + '</p>') : '';
           return '<article class="a360-finding">' +
             '<div class="a360-finding-head"><div class="a360-finding-title">' + esc(f.title || 'Finding') + '</div><span class="a360-sev ' + sev + '">' + esc(sev) + '</span></div>' +
+            src +
             '<p><strong>Business impact:</strong> ' + esc(f.impact_summary || 'Impact not specified.') + '</p>' +
             '<p><strong>How to fix:</strong> ' + esc(f.remediation || 'Review and remediate this issue.') + '</p>' +
+            ev +
             '</article>';
         }).join('');
       }

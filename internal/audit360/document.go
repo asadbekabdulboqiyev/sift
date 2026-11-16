@@ -314,8 +314,17 @@ func renderScores(s *ScoreBreakdown, overall int) string {
 		v = clampDocScore(v)
 		return fmt.Sprintf(`<tr><td>%s</td><td><b>%d</b> / 100</td><td><div style="background:#e2e8f0;border-radius:999px;height:8px;overflow:hidden"><div style="width:%d%%;height:8px;background:linear-gradient(90deg,#0e7490,#2563eb)"></div></div></td></tr>`, html.EscapeString(name), v, v)
 	}
+	coverageRow := ""
+	if s.Coverage > 0 || (s.Coverage == 0 && s.Overall == 0) || s.Coverage != 0 {
+		// always show coverage if set (including 0)
+		coverageRow = row("Assessment coverage (evidence basis)", clampDocScore(s.Coverage))
+	} else if s.Coverage > 0 {
+		coverageRow = row("Assessment coverage (evidence basis)", clampDocScore(s.Coverage))
+	}
+	// Better: show coverage if present (non-negative). We'll always show it.
+	coverageRow = row("Assessment coverage (evidence basis)", clampDocScore(s.Coverage))
 	return `<table><thead><tr><th>Category</th><th>Score</th><th>Indicator</th></tr></thead><tbody>` +
-		row("Overall", s.Overall) + row("Security", s.Security) + row("Resilience", s.Resilience) + row("Capacity", s.Capacity) + row("Evidence quality", s.EvidenceQuality) +
+		row("Overall", s.Overall) + row("Security", s.Security) + row("Resilience", s.Resilience) + row("Capacity", s.Capacity) + row("Evidence quality", s.EvidenceQuality) + coverageRow +
 		`</tbody></table>`
 }
 

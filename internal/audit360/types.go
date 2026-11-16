@@ -49,12 +49,15 @@ type Finding struct {
 
 // ScoreBreakdown provides separate assessments (0-100) by category.
 // Overall is retained as the canonical aggregate for backward compatibility.
+// Coverage reflects how much of the intended assessment scope produced
+// measured/observed evidence (higher = stronger evidence basis).
 type ScoreBreakdown struct {
 	Overall         int `json:"overall"`
 	Security        int `json:"security"`
 	Resilience      int `json:"resilience"`
 	Capacity        int `json:"capacity"`
 	EvidenceQuality int `json:"evidence_quality"`
+	Coverage        int `json:"coverage,omitempty"`
 }
 
 // TestConfiguration records the executed test configuration for integrity/audit.
