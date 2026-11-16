@@ -91,9 +91,11 @@ Unified 1-click full diagnostic for **any `http(s)` target** with mode selection
 - **Passive** — non-intrusive checks only (no active load/breaking-point test); capacity is reported as skipped/not measured.
 - **Standard** — requires explicit authorization confirmation and may run an active load/breaking-point test (linear ramp from 50 VUs, stops at error rate >5% or p99 >2000ms).
 
-Pipeline stages: **1. Scanning Security** (headers/TLS/OWASP) → **2. Testing Load Limit** (skipped in Passive) → **3. Calculating Resilience** (0–100, risk level/remediation) → **4. Sealing VPMP Certificate** (Ed25519 attestation over canonical report digest). Output includes `resilience_score`, `risk_level`, `breaking_point_users`, `max_safe_rps`, findings with business impact & fix instructions, `certificate_id`, `vpmp_signature`, and ISO8601 `timestamp`.
+Pipeline stages: **1. Scanning Security** (headers/TLS/OWASP) → **2. Testing Load Limit** (skipped in Passive) → **3. Calculating Resilience** (0–100, risk level/remediation) → **4. Sealing VPMP Certificate** (Ed25519 attestation over canonical report digest). Output includes `resilience_score`, `risk_level`, `breaking_point_users`, `max_safe_rps`, findings with business impact & fix instructions, **deterministic prioritized recommended action notes** (included in sealed reports), `certificate_id`, `vpmp_signature`, and ISO8601 `timestamp`.
 
 Safety/behavior: same-origin checks for state-changing requests; Standard mode requires authorization confirmation; Passive performs non-intrusive checks only; unavailable metrics are explicitly labeled (no-fabrication). Backend may permit an operator **Admin** mode when allowed (not shown in the standard UI). Real-time progress via SSE or polling. Modular `internal/audit360/` package.
+
+The dashboard includes quick actions for local demos: **Use VoltStore demo** (`http://127.0.0.1:8090`) and **Test 100-point demo site** (`http://127.0.0.1:8095`, runs a standard authorized audit when the example target is running). See `examples/perfect_demo_site/` and `examples/perfect_demo_site/GUIDE.md`.
 
 ### Load & Performance
 - Protocols: HTTP/HTTPS, WebSocket (`ws`/`wss`), gRPC (`grpc`/`grpcs`), TCP, UDP
@@ -743,7 +745,9 @@ The dashboard features **Sift 360° — 1-Click Full Audit** with a large target
 - **Passive** — non-intrusive checks only (no active load/breaking-point test); safe for passive assessment, capacity reported as skipped/not measured.
 - **Standard** — requires explicit authorization confirmation and may run an active load/breaking-point test.
 
-On start, an animated 4-stage progress tracker runs: **1. Scanning Security → 2. Testing Load Limit → 3. Calculating Resilience → 4. Sealing VPMP Certificate** (load stage is skipped in Passive). The Executive Audit Scorecard shows a resilience gauge (Green/Yellow/Red), breaking point/capacity in plain language (when measured), vulnerabilities with business impact and fix instructions, **Print / Export Verified Report**, and a verifiable VPMP badge/QR preview.
+On start, an animated 4-stage progress tracker runs: **1. Scanning Security → 2. Testing Load Limit → 3. Calculating Resilience → 4. Sealing VPMP Certificate** (load stage is skipped in Passive). The Executive Audit Scorecard shows a resilience gauge (Green/Yellow/Red), breaking point/capacity in plain language (when measured), vulnerabilities with business impact and fix instructions, **prioritized recommended action notes** (included in sealed reports), **Print / Export Verified Report**, and a verifiable VPMP badge/QR preview.
+
+Quick actions: **Use VoltStore demo** (`http://127.0.0.1:8090`) and **Test 100-point demo site** (`http://127.0.0.1:8095`) to prefill/run a standard authorized audit against the local 100-point example target (start it first; see `examples/perfect_demo_site/`).
 
 Live progress: SSE (`/api/audit-360/stream?job_id=`) with polling fallback (`/api/audit-360/status?job_id=`). Safety/no-fabrication: cross-origin state-changing requests rejected, Standard requires authorization, unavailable metrics explicitly labeled. If a target refuses load traffic, capacity is reported as not measurable (see below).
 
@@ -1017,9 +1021,23 @@ VeriGate demonstrates protective controls such as:
 - Proof-of-work challenge flows
 - IP blocking / enforcement behavior (implementation-dependent)
 
+### 100-Point Demo Site (local, authorized audit target)
+
+A minimal, clean example target for Sift 360° audits is included at `examples/perfect_demo_site/`.
+
+```bash
+go run ./examples/perfect_demo_site -addr 127.0.0.1:8095
+```
+
+- Serves recommended security headers and simple endpoints (`/`, `/health`)
+- Designed for authorized local/controlled verification (no fabricated behavior)
+- Dashboard shortcut: **Test 100-point demo site** (prefills `http://127.0.0.1:8095` and runs a standard authorized audit when the target is running)
+- Guide: `examples/perfect_demo_site/GUIDE.md` (English) — achieving and interpreting a full 100/100 Sift 360° result with measured evidence
+
 Useful references:
 - `docs/VERIGATE.md`
 - `examples/demo_store/`
+- `examples/perfect_demo_site/`
 - `make demo-store`, `make demo-store-protect`, `make demo-sla` (from source repo)
 
 ---
@@ -1174,6 +1192,7 @@ See `docs/DEPLOYMENT-HARDENING.md` for detailed checklists and examples.
 
 ### Additional Docs
 - `docs/COMPLIANCE.md`, `docs/SECRETS-OBSERVABILITY.md`, `docs/POWER-FEATURES.md`, `docs/STUDY-GUIDE.md`, `docs/ROADMAP.md`, and others in `docs/`
+- `examples/perfect_demo_site/GUIDE.md` — English guide for preparing and interpreting a full 100/100 Sift 360° audit with measured evidence (authorized use)
 
 ### Repository Policies
 - `SECURITY.md` — Security reporting and policy
