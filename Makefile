@@ -8,6 +8,7 @@
 #   make verify      Full local gate: build, vet, gofmt, tests, linux build, gosec
 #   make gosec       Run the gosec ratchet (new error-level findings fail)
 #   make gosec-test  Self-test the ratchet's own logic (no gosec needed)
+#   make secrets     Scan the full git history and the worktree for secrets (gitleaks)
 #   make clean       Remove bin/ and reports/
 #   make release     Cross-compile for all platforms
 #   make docker      Build Docker image
@@ -90,6 +91,18 @@ gosec: ## Run the gosec ratchet: new error-level findings outside G204/G304 fail
 	}
 	$(GOSEC) -no-fail -fmt sarif -out gosec.sarif ./...
 	bash scripts/gosec-ratchet.sh gosec.sarif
+
+GITLEAKS ?= gitleaks
+
+.PHONY: secrets
+secrets: ## Scan the full git history and the worktree for secrets (gitleaks)
+	@command -v $(GITLEAKS) >/dev/null || { \
+		echo "gitleaks: not on PATH. Install:"; \
+		echo "  brew install gitleaks   # or: go install github.com/zricethezav/gitleaks/v8@latest"; \
+		exit 1; \
+	}
+	$(GITLEAKS) git --redact --no-banner
+	$(GITLEAKS) dir . --redact --no-banner
 
 .PHONY: verify
 verify: ## Full local gate: build, vet, gofmt, tests, linux build, gosec ratchet

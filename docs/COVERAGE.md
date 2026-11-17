@@ -12,6 +12,20 @@ This document tracks test coverage status and policy for Sift.
 | Uncovered/low-covered areas (real code) | `store/memstore` 0%, `tenant` 0%, `version` 0%, `auditdb` 0%, parts of `replay/pcap`, engine internals | Requires targeted tests |
 | CLI entrypoints (`cmd/*/main.go`) | 0.0% | Expected; `main()` is typically not exercised by unit tests |
 
+## Current measurement (2026-11-17)
+
+| Metric | Value | How it was measured |
+|---|---:|---|
+| Aggregate suite | **75.7%** | CI `Coverage gate` job, run [44087015007](https://github.com/asadbekabdulboqiyev/sift/actions/runs/44087015007) on commit `6e65195` |
+| Measurement mode | `-race -covermode=atomic -coverpkg=./...` | `test` job produces one profile per package; the gate merges them and runs `go tool cover -func` |
+| Floor enforced in CI | 45% | `.github/workflows/ci.yml` |
+
+The 2026-11-05 baseline (58.7%) and this figure are not a like-for-like
+comparison of the same commit: tests were added between the two dates, and the
+CI gate merges per-package profiles instead of using a single `go test ./...`
+run. The number above is the one CI actually enforces against, so it is the
+number quoted when the project states its coverage.
+
 ## Local coverage commands
 
 ```bash

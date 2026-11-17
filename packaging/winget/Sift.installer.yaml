@@ -6,7 +6,7 @@ ReleaseNotesUrl: https://github.com/asadbekabdulboqiyev/Sift/releases/tag/v0.16.
 Installers:
   - Architecture: arm64
     InstallerUrl: https://github.com/asadbekabdulboqiyev/Sift/releases/download/v0.16.6/Sift_0.16.6_windows_arm64.zip
-    InstallerSha256: REPLACE_WITH_SHA256_FROM_checksums_txt
+    InstallerSha256: 8f1823b61e8bfece76cfd85247989ad96ef43b498eda57109533bd41c6d96b0c
 FileExtensions:
   - ss
 Commands:

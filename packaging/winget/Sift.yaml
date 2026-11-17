@@ -1,8 +1,8 @@
 # Windows Package Manager manifest for Sift.
 #
 # Put this directory in a winget-pkgs fork as:
-#   manifests/a/asadbekabdulboqiyev/Sift/0.14.3/Sift.yaml
-#   manifests/a/asadbekabdulboqiyev/Sift/0.14.3/
+#   manifests/a/asadbekabdulboqiyev/Sift/0.16.6/Sift.yaml
+#   manifests/a/asadbekabdulboqiyev/Sift/0.16.6/
 #       Sift.installer.yaml   (see packaging/winget/)
 #
 # Replace both hashes with the values from checksums.txt in the release.
@@ -29,7 +29,7 @@ Tags:
   - performance
   - benchmarking
   - go
-ReleaseDate: 2026-10-01T00:00:00Z
+ReleaseDate: 2026-11-17T00:00:00Z
 Platform:
   - Windows.Desc
   - Windows.X64
@@ -41,7 +41,7 @@ InstallerSwitches:
 Installers:
   - Architecture: x64
     InstallerUrl: https://github.com/asadbekabdulboqiyev/Sift/releases/download/v0.16.6/Sift_0.16.6_windows_amd64.zip
-    InstallerSha256: REPLACE_WITH_SHA256_FROM_checksums_txt
+    InstallerSha256: 3e61bd735426eda116591d69dcbae28b0ba9f841f06c0a60c82d2c21c7a9a2b7
 
 FileExtensions:
   - ss

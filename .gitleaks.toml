@@ -2,8 +2,8 @@
 #
 # The Security workflow checks out the full history (fetch-depth: 0), so gitleaks
 # also sees branches that were never merged. That is deliberate: a secret is a
-# secret the moment it is pushed, whether or not the branch lands. Both entries
-# below are therefore about *values that are not secrets*, not about files we
+# secret the moment it is pushed, whether or not the branch lands. Every entry
+# below is therefore about *values that are not secrets*, not about files we
 # would rather not scan, and each one is scoped as tightly as the false positive
 # allows — a real credential in the same file, or the same shape with different
 # digits, still fails the build.
@@ -33,7 +33,7 @@ id = "generic-api-key"
 # leaves the host, and never appears in a transcript. gitleaks' generic-api-key
 # rule matches any 64-character hex string, so it flags the public key.
 #
-# Scoped to this one file AND to the three lines that can print a key, so a real
+# Scoped to this one file AND to the lines that can print a key, so a real
 # credential elsewhere — or a non-key secret inside DEMO.md — still fails.
 [[rules.allowlists]]
 description = "docs/DEMO.md transcript: ephemeral Ed25519 public key / key_id / coordinator key, printed by keygen"
@@ -43,7 +43,7 @@ regexTarget = "line"
 regexes = [
 	'''public key: [0-9a-f]{64}''',
 	'''key_id \(public fingerprint\): [0-9a-f]{64}''',
-	'''coordinator: +[0-9a-f]{64}''',
+	'''coordinator( key)?: +[0-9a-f]{64}''',
 ]
 
 # ── 2. The TEP fixtures share a dummy HMAC secret ─────────────────────────────
@@ -61,3 +61,74 @@ regexes = [
 description = "dummy HMAC placeholder shared by the TEP fixtures (0123456789abcdef repeated) — not a credential"
 regexTarget = "match"
 regexes = ['''0123456789abcdef0123456789abcdef''']
+
+# ── 3. audit360 test signing key ──────────────────────────────────────────────
+# testSignerKey is a fixed 32-byte HMAC key that the sealing tests hand to their
+# own signer; the value is invented for the test and authenticates nothing.
+# Matched by the exact literal inside that one test file.
+[[rules.allowlists]]
+description = "internal/audit360/document_test.go: fixed HMAC key invented for the sealing tests"
+condition = "AND"
+paths = ['''internal/audit360/document_test\.go''']
+regexTarget = "match"
+regexes = ['''3b1f8a1e6d4c2b0a9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a3928''']
+
+# ── 4. A comment that trips the generic-api-key heuristic ────────────────────
+# "Access gate refused load: capacity/breaking point is unmeasurable" is a
+# sentence, not a credential; the rule reads the text after the colon as a key.
+# Scoped to that exact comment in that one file.
+[[rules.allowlists]]
+description = "internal/audit360/score.go: explanatory comment, not a key"
+condition = "AND"
+paths = ['''internal/audit360/score\.go''']
+regexTarget = "line"
+regexes = ['''Access gate refused load: capacity/breaking''']
+
+# ── 5. Dummy JWTs in the CLI scan tests ──────────────────────────────────────
+# The tests pass `eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.UNIQUESIGMARKER` (alg=none,
+# unsigned, literal marker) to prove the scanner reports what it was given. The
+# directory was `cmd/stress-strike` before the rename, so both names are listed.
+# Matched by that exact token only.
+[[rules.allowlists]]
+description = "CLI scan tests: unsigned alg=none JWT with the literal UNIQUESIGMARKER payload"
+condition = "AND"
+paths = ['''cmd/stress-strike/''', '''cmd/sift/''']
+regexTarget = "match"
+regexes = ['''eyJhbGciOiJub25lIn0\.eyJzdWIiOiIxIn0\.UNIQUESIGMARKER''']
+
+# ── 6. A dummy admin token in the old demo script ────────────────────────────
+# demo_script.md (since removed) showed an alg=none token with an empty
+# signature to demonstrate that Sift flags unsigned JWTs. There is no secret in
+# it: the signature segment is empty.
+[[rules.allowlists]]
+description = "demo_script.md (removed): alg=none admin token with an empty signature"
+condition = "AND"
+paths = ['''demo_script\.md''']
+regexTarget = "match"
+regexes = ['''eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0\.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiJ9\.''']
+
+[[rules]]
+id = "jwt"
+
+# ── 6b. Same token, seen by the jwt rule ─────────────────────────────────────
+# One value can match two built-in rules; the generic-api-key copy is above and
+# this is the jwt copy, identical in scope. Both must be listed or the finding
+# survives under whichever rule matched.
+[[rules.allowlists]]
+description = "demo_script.md (removed): alg=none admin token with an empty signature"
+condition = "AND"
+paths = ['''demo_script\.md''']
+regexTarget = "match"
+regexes = ['''eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0\.eyJzdWIiOiJhZG1pbiIsInJvbGUiOiJhZG1pbiJ9\.''']
+
+# ── 7. The jwt.io example token ──────────────────────────────────────────────
+# API_DOCS.md (since removed) quoted the token that jwt.io prints on its own
+# front page, signed with the published "your-256-bit-secret" demo key. It is
+# documentation of the JWT format, not a credential.
+[[rules.allowlists]]
+description = "API_DOCS.md (removed): public jwt.io example token"
+condition = "AND"
+paths = ['''API_DOCS\.md''']
+regexTarget = "match"
+regexes = ['''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ\.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c''']
+

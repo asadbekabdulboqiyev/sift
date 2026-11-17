@@ -11,6 +11,7 @@ class Sift < Formula
   url "https://github.com/asadbekabdulboqiyev/sift/releases/download/v0.16.6/Sift_0.16.6_darwin_arm64.tar.gz"
   version "0.16.6"
   license "Apache-2.0"
+  sha256 "2d6ce1f7f6bc0f0841ab50535e5ac4b1e7384df1a737042eb392c1c892427b6f"
   head "https://github.com/asadbekabdulboqiyev/sift.git", branch: "main"
 
   # Pure Go: no system dependencies, no libpcap.
