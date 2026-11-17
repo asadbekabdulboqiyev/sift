@@ -97,7 +97,9 @@ log_ok "wrote /etc/Sift/worker.env"
 #    fall back to the repo copy if present)
 UNIT=/etc/systemd/system/Sift-worker.service
 if [[ ! -f "$UNIT" ]]; then
-  LOCAL_UNIT="$(find "$WORK_DIR" -name Sift-worker.service -type f | head -n1)"
+  # The shipped unit is sift-worker.service; the uppercase spelling is the
+  # legacy name and is matched for tarballs built before v0.16.6.
+  LOCAL_UNIT="$(find "$WORK_DIR" -type f \( -name 'sift-worker.service' -o -name 'Sift-worker.service' \) | head -n1)"
   if [[ -n "$LOCAL_UNIT" ]]; then
     install -m 0644 "$LOCAL_UNIT" "$UNIT"
   else

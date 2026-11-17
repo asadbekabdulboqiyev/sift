@@ -157,7 +157,7 @@ archives:
     files:
       - LICENSE
       - NOTICE
-      - src: deploy/systemd/Sift-worker.service
+      - src: deploy/systemd/sift-worker.service
         dst: Sift-worker.service
       - src: deploy/systemd/worker.env.example
         dst: worker.env.example

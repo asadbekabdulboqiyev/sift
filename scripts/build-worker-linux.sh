@@ -64,7 +64,7 @@ for platform in "${PLATFORMS[@]}"; do
       -o "${pkg_dir}/Sift-master" ./cmd/sift-master
   )
 
-  cp "${REPO_ROOT}/deploy/systemd/Sift-worker.service" "${pkg_dir}/"
+  cp "${REPO_ROOT}/deploy/systemd/sift-worker.service" "${pkg_dir}/"
   cp "${REPO_ROOT}/deploy/systemd/worker.env.example" "${pkg_dir}/"
   cp "${REPO_ROOT}/docs/DISTRIBUTED.md" "${pkg_dir}/"
 

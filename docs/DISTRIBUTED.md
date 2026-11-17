@@ -37,8 +37,8 @@ virtual users and streams live telemetry back.
 
 ```bash
 ./scripts/build-worker-linux.sh 0.16.6
-# -> dist/linux-worker/Sift-worker-v0.14.0-linux-amd64.tar.gz
-#    dist/linux-worker/Sift-worker-v0.14.0-linux-arm64.tar.gz
+# -> dist/linux-worker/Sift-worker-v0.16.6-linux-amd64.tar.gz
+#    dist/linux-worker/Sift-worker-v0.16.6-linux-arm64.tar.gz
 ```
 
 Each archive contains `Sift-worker`, `Sift-master`, the
@@ -47,11 +47,11 @@ systemd unit and `worker.env.example`.
 ### 2. Install on each load host
 
 ```bash
-tar -xzf Sift-worker-v0.14.0-linux-amd64.tar.gz
-sudo install -m 0755 Sift-worker-v0.14.0-linux-amd64/Sift-worker /usr/local/bin/
-sudo install -m 0644 Sift-worker-v0.14.0-linux-amd64/Sift-worker.service /etc/systemd/system/
+tar -xzf Sift-worker-v0.16.6-linux-amd64.tar.gz
+sudo install -m 0755 Sift-worker-v0.16.6-linux-amd64/Sift-worker /usr/local/bin/
+sudo install -m 0644 Sift-worker-v0.16.6-linux-amd64/sift-worker.service /etc/systemd/system/
 sudo mkdir -p /etc/Sift
-sudo cp Sift-worker-v0.14.0-linux-amd64/worker.env.example /etc/Sift/worker.env
+sudo cp Sift-worker-v0.16.6-linux-amd64/worker.env.example /etc/Sift/worker.env
 sudo editor /etc/Sift/worker.env      # set WORKER_ARGS
 sudo groupadd --system Sift
 sudo useradd  --system --gid Sift --no-create-home Sift
