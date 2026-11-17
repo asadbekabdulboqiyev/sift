@@ -3,7 +3,7 @@
 [![Go 1.26+](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev/dl/)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
-[![Version](https://img.shields.io/badge/Version-0.16.5-green.svg)](https://github.com/asadbekabdulboqiyev/sift/releases/tag/v0.16.5)
+[![Version](https://img.shields.io/badge/Version-0.16.6-green.svg)](https://github.com/asadbekabdulboqiyev/sift/releases/tag/v0.16.6)
 
 **Sift** is a professional, self-hostable toolkit written in Go for **multi-protocol load testing**, **traffic replay**, **security scanning/pentest workflows**, **verifiable (cryptographically attestable) evidence**, and **planning/triage insights**.
 
@@ -19,7 +19,7 @@ It is designed for engineers, QA teams, and security practitioners who need a un
 
 - [Overview](#overview)
 - [Key Capabilities](#key-capabilities)
-- [What's Included in 0.16.5](#whats-included-in-0165)
+- [What's Included in 0.16.6](#whats-included-in-0166)
 - [Comparison with Paid Alternatives](#comparison-with-paid-alternatives)
 - [System Requirements](#system-requirements)
 - [Installation](#installation)
@@ -143,7 +143,7 @@ The dashboard includes quick actions for local demos: **Use VoltStore demo** (`h
 
 ---
 
-## What's Included in 0.16.5
+## What's Included in 0.16.6
 
 **100-point demo target, visual guide, and dashboard audit flow**
 
@@ -228,7 +228,7 @@ Sift can be installed in multiple ways depending on your environment and operati
 ```bash
 git clone https://github.com/asadbekabdulboqiyev/sift.git
 cd sift
-./scripts/install-local.sh 0.16.5
+./scripts/install-local.sh 0.16.6
 # or: make install
 ```
 This builds all binaries, installs them to `$(go env GOBIN)` (or `$SIFT_INSTALL_DIR`), and performs macOS signing/launch checks.
@@ -242,9 +242,9 @@ sift version
 
 #### Option C: Release installer script (review before running)
 ```bash
-curl -fsSL -o install.sh https://raw.githubusercontent.com/asadbekabdulboqiyev/sift/v0.16.5/scripts/install.sh
+curl -fsSL -o install.sh https://raw.githubusercontent.com/asadbekabdulboqiyev/sift/v0.16.6/scripts/install.sh
 less install.sh
-./install.sh v0.16.5
+./install.sh v0.16.6
 ```
 Notes:
 - The script downloads release archives, verifies checksums (and can verify signatures if `cosign` is installed), installs binaries, and performs macOS signature/launch validation.
@@ -254,7 +254,7 @@ Notes:
 ```bash
 git clone https://github.com/asadbekabdulboqiyev/sift.git
 cd sift
-./scripts/build-all.sh 0.16.5
+./scripts/build-all.sh 0.16.6
 # binaries in ./bin
 ```
 
@@ -264,7 +264,7 @@ cd sift
 ```bash
 git clone https://github.com/asadbekabdulboqiyev/sift.git
 cd sift
-./scripts/install-local.sh 0.16.5
+./scripts/install-local.sh 0.16.6
 # or: make build && copy ./bin/* to a PATH directory
 ```
 
@@ -276,9 +276,9 @@ export PATH="$PATH:$(go env GOPATH)/bin"
 
 #### Option C: Release installer script
 ```bash
-curl -fsSL -o install.sh https://raw.githubusercontent.com/asadbekabdulboqiyev/sift/v0.16.5/scripts/install.sh
+curl -fsSL -o install.sh https://raw.githubusercontent.com/asadbekabdulboqiyev/sift/v0.16.6/scripts/install.sh
 less install.sh
-./install.sh v0.16.5
+./install.sh v0.16.6
 ```
 
 #### Option D: Release archives (manual)
@@ -316,12 +316,12 @@ git clone https://github.com/asadbekabdulboqiyev/sift.git
 cd sift
 
 # Build all binaries for current platform
-./scripts/build-all.sh 0.16.5
+./scripts/build-all.sh 0.16.6
 # or
 make build
 
 # Optional: install locally (with macOS signing/launch checks on Darwin)
-./scripts/install-local.sh 0.16.5
+./scripts/install-local.sh 0.16.6
 ```
 
 Produced binaries (local build): `Sift`, `Sift-dashboard`, `Sift-master`, `Sift-worker`, `Sift-replay`, `Sift-scan` (canonical names). Build/install scripts also create lowercase aliases: `sift`, `sift-dashboard`, `sift-master`, `sift-worker`, `sift-replay`, `sift-scan` for cross-platform CLI usage.
@@ -360,20 +360,20 @@ Always download from the official repository release page and verify integrity b
 #### Build images from source
 ```bash
 # Main/all-in-one image (per Dockerfile)
-docker build -t sift:0.16.5 .
+docker build -t sift:0.16.6 .
 
 # Distributed images
-docker build -f Dockerfile.master -t sift-master:0.16.5 .
-docker build -f Dockerfile.worker -t sift-worker:0.16.5 .
+docker build -f Dockerfile.master -t sift-master:0.16.6 .
+docker build -f Dockerfile.worker -t sift-worker:0.16.6 .
 ```
 
 #### Run examples
 ```bash
 # CLI help
-docker run --rm sift:0.16.5 sift --help
+docker run --rm sift:0.16.6 sift --help
 
 # Dashboard (bind to localhost on host)
-docker run --rm -p 127.0.0.1:8888:8888 sift:0.16.5 sift dashboard -listen 0.0.0.0:8888 --insecure
+docker run --rm -p 127.0.0.1:8888:8888 sift:0.16.6 sift dashboard -listen 0.0.0.0:8888 --insecure
 ```
 
 > Container defaults, entrypoints, and exposed ports may differ by image. Review the corresponding `Dockerfile`/compose configuration before production use.
@@ -469,9 +469,9 @@ sift --help | rg "simulate|xray|bounty"
 # 2) Rebuild and install latest local build (from repo root)
 cd /path/to/sift
 git pull
-./scripts/build-all.sh 0.16.5
-SIFT_INSTALL_DIR="$HOME/.local/bin" ./scripts/install-local.sh 0.16.5
-./scripts/install-local.sh 0.16.5
+./scripts/build-all.sh 0.16.6
+SIFT_INSTALL_DIR="$HOME/.local/bin" ./scripts/install-local.sh 0.16.6
+./scripts/install-local.sh 0.16.6
 
 # 3) Verify again
 sift version
@@ -1226,7 +1226,7 @@ See `docs/DEPLOYMENT-HARDENING.md` for detailed checklists and examples.
 ### Build
 ```bash
 make build
-./scripts/build-all.sh 0.16.5
+./scripts/build-all.sh 0.16.6
 ```
 
 ### Test and Validation
@@ -1267,7 +1267,7 @@ make verifier
 
 ### Latest version or new features not visible (macOS/CLI/dashboard)
 - Check installed binaries and version: `which -a sift && sift version`.
-- Rebuild/reinstall: `./scripts/build-all.sh 0.16.5 && ./scripts/install-local.sh 0.16.5`.
+- Rebuild/reinstall: `./scripts/build-all.sh 0.16.6 && ./scripts/install-local.sh 0.16.6`.
 - If another copy is earlier in `PATH` (e.g. `~/go/bin` vs `~/.local/bin`), update/remove the stale one or adjust `PATH`.
 - For dashboard UI, restart the dashboard process and hard refresh the browser (`Cmd+Shift+R`).
 - Confirm the running dashboard serves latest APIs: `curl -sS http://127.0.0.1:8888/api/version`.
