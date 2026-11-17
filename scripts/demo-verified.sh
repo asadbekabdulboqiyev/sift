@@ -66,7 +66,7 @@ DURATION="${DEMO_DURATION:-10s}"
 COUNT="${DEMO_COUNT:-1500}"
 # Live-mode knobs. The load is a steady profile with a fixed --rps cap on
 # purpose: that is the one schedule shape whose coordinated-omission correction
-# this tool will claim (see coCorrectionGate in cmd/Sift/cmd_run.go),
+# this tool will claim (see coCorrectionGate in cmd/sift/cmd_run.go),
 # so the demo shows a corrected tail with its 95% interval rather than a
 # withheld claim.
 RPS="${DEMO_RPS:-300}"
@@ -125,8 +125,8 @@ find_bin() {
     fi
   done
   root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-  if [ -f "${root}/cmd/Sift/main.go" ] && command -v go >/dev/null 2>&1; then
-    if (cd "${root}" && go build -o "${WORK}/Sift" ./cmd/Sift) >/dev/null 2>&1; then
+  if [ -f "${root}/cmd/sift/main.go" ] && command -v go >/dev/null 2>&1; then
+    if (cd "${root}" && go build -o "${WORK}/Sift" ./cmd/sift) >/dev/null 2>&1; then
       printf '%s' "${WORK}/Sift"
       return 0
     fi
@@ -677,7 +677,7 @@ else
   probe_sub keygen            || say "         · Sift keygen --out <key>        [unavailable]"
   probe_sub verify            || say "         · Sift verify --bundle …        [unavailable]"
   probe_emit_bundle           || say "         · Sift run --emit-bundle <b>    [unavailable]"
-  say  "       The real thing ships in this repo (cmd/Sift): set"
+  say  "       The real thing ships in this repo (cmd/sift): set"
   say  "       SIFT_BIN to a built binary, or install Go so this script"
   say  "       can build one itself."
   say  "       So: NO load is generated here. Instead a spec-conformant vpmp/v1"

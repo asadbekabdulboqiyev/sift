@@ -23,6 +23,7 @@ import (
 
 	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 	"github.com/asadbekabdulboqiyev/sift/internal/certificate"
+	"github.com/asadbekabdulboqiyev/sift/internal/fsutil"
 )
 
 var (
@@ -229,17 +230,5 @@ func certTimestamp() string {
 }
 
 func certSyncDir(dir string) error {
-	f, err := os.Open(filepath.Clean(dir))
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	if err := f.Sync(); err != nil {
-		msg := strings.ToLower(err.Error())
-		if strings.Contains(msg, "invalid argument") || strings.Contains(msg, "not supported") || strings.Contains(msg, "inappropriate ioctl") || strings.Contains(msg, "operation not supported") {
-			return nil
-		}
-		return err
-	}
-	return nil
+	return fsutil.SyncDir(dir)
 }

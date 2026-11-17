@@ -95,7 +95,7 @@ every release asset; winget, Homebrew-grade install scripts and a `ss` command.
 - No SOC 2, no ISO 27001 certification, no pen-test-of-the-pen-tester report.
 - No hosted SaaS, no billing, no self-serve signup.
 - The coverage floor is real: `internal/dist/proto` sits at 17% (generated
-  code), and `cmd/Sift-worker` at 46%.
+  code), and `cmd/sift-worker` at 46%.
 - `gopacket` is effectively unmaintained; the exposure is bounded by a size
   guard and by not fuzzing third-party parsing, but the dependency is a liability.
 - Dual-use: an offensive tool. Some buyers cannot touch it without legal review.

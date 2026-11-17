@@ -559,7 +559,7 @@ func (b *EngineBridge) emitAttestation(actualDuration time.Duration) error {
 		Run:            run,
 		CreatedAt:      time.Now(),
 		// Dashboard scenarios never set profile.coordinated_omission (see
-		// cmd/Sift-dashboard scenarioFromConfig), so the correction is
+		// cmd/sift-dashboard scenarioFromConfig), so the correction is
 		// withheld and the bundle records raw percentiles, co_corrected=false.
 		// That is exactly what `Sift run --emit-bundle` does for the
 		// same scenario (cmd_run.emitEvidenceBundle gates the claim on the same

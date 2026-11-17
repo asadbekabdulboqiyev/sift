@@ -114,13 +114,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [Sift, Sift-master, Sift-worker]
+        # `image` is the human-readable name used in job titles; `tag` is the
+        # lowercase slug used for the Docker tag and the SARIF file. Docker
+        # rejects any uppercase character in a repository name, so
+        # `Sift-master:scan` fails with
+        # `invalid tag "Sift-master:gate": repository name must be lowercase`
+        # before a single layer is built — the scan then never runs.
         include:
           - image: Sift
+            tag: sift
             dockerfile: Dockerfile
           - image: Sift-master
+            tag: sift-master
             dockerfile: Dockerfile.master
           - image: Sift-worker
+            tag: sift-worker
             dockerfile: Dockerfile.worker
     steps:
       - uses: actions/checkout@v4
@@ -133,7 +141,7 @@ jobs:
           context: .
           file: ./${{ matrix.dockerfile }}
           load: true
-          tags: ${{ matrix.image }}:scan
+          tags: ${{ matrix.tag }}:scan
           build-args: |
             VERSION=scan
 
@@ -147,9 +155,9 @@ jobs:
         # go back to a bare tag.
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ matrix.image }}:scan
+          image-ref: ${{ matrix.tag }}:scan
           format: sarif
-          output: trivy-${{ matrix.image }}.sarif
+          output: trivy-${{ matrix.tag }}.sarif
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           scanners: vuln,misconfig,secret
@@ -165,8 +173,8 @@ jobs:
       - uses: github/codeql-action/upload-sarif@v3
         if: always() && github.event.repository.visibility == 'public'
         with:
-          sarif_file: trivy-${{ matrix.image }}.sarif
-          category: trivy-${{ matrix.image }}
+          sarif_file: trivy-${{ matrix.tag }}.sarif
+          category: trivy-${{ matrix.tag }}
 
   # ── container images: enforcing gate ──────────────────────────────────────
   # The `trivy` job above uploads SARIF but never fails the build (no
@@ -181,12 +189,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # `image` = display name, `tag` = lowercase Docker tag (Docker rejects
+        # uppercase repository names outright).
         include:
           - image: Sift
+            tag: sift
             dockerfile: Dockerfile
           - image: Sift-master
+            tag: sift-master
             dockerfile: Dockerfile.master
           - image: Sift-worker
+            tag: sift-worker
             dockerfile: Dockerfile.worker
     steps:
       - uses: actions/checkout@v4
@@ -199,7 +212,7 @@ jobs:
           context: .
           file: ./${{ matrix.dockerfile }}
           load: true
-          tags: ${{ matrix.image }}:gate
+          tags: ${{ matrix.tag }}:gate
           build-args: |
             VERSION=scan
 
@@ -208,9 +221,9 @@ jobs:
         # for why a tag is not enough).
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ matrix.image }}:gate
+          image-ref: ${{ matrix.tag }}:gate
           format: sarif
-          output: trivy-image-${{ matrix.image }}.sarif
+          output: trivy-image-${{ matrix.tag }}.sarif
           severity: HIGH,CRITICAL
           exit-code: "1"
           ignore-unfixed: true
@@ -241,8 +254,8 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         if: always() && github.event.repository.visibility == 'public'
         with:
-          sarif_file: trivy-image-${{ matrix.image }}.sarif
-          category: trivy-image-${{ matrix.image }}
+          sarif_file: trivy-image-${{ matrix.tag }}.sarif
+          category: trivy-image-${{ matrix.tag }}
 
   # ── dependency review on PRs ──────────────────────────────────────────────
   dependency-review:

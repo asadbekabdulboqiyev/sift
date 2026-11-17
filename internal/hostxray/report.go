@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/asadbekabdulboqiyev/sift/internal/fsutil"
 )
 
 // maxTimelineRows caps the host timeline in a Markdown report. A 100k-sample
@@ -515,21 +517,8 @@ func writeArtifact(path string, data []byte) error {
 		_ = os.Remove(tmpName)
 		return fmt.Errorf("host xray: replace %s: %w", clean, err)
 	}
-	syncDir := dir
-	if syncDir == "" {
-		syncDir = "."
-	}
-	df, err := os.Open(filepath.Clean(syncDir))
-	if err != nil {
-		return fmt.Errorf("host xray: sync artifact directory %s: %w", syncDir, err)
-	}
-	syncErr := df.Sync()
-	closeErr := df.Close()
-	if syncErr != nil && !isIgnorableDirSyncError(syncErr) {
-		return fmt.Errorf("host xray: sync artifact directory %s: %w", syncDir, syncErr)
-	}
-	if closeErr != nil {
-		return fmt.Errorf("host xray: close artifact directory %s: %w", syncDir, closeErr)
+	if err := fsutil.SyncDir(dir); err != nil {
+		return fmt.Errorf("host xray: sync artifact directory %s: %w", dir, err)
 	}
 	// Enforce 0600 after rename in case platform/filesystem semantics differ.
 	if err := os.Chmod(clean, 0o600); err != nil {

@@ -226,7 +226,14 @@ func (s *Server) handleAudit360Download(w http.ResponseWriter, r *http.Request) 
 		doc := audit360.RenderHTML(report)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		// The report is offered as a download, so keep it in a sandbox with no
+		// scripts, forms or downloads even if a browser opens it inline.
+		w.Header().Set("Content-Security-Policy", "sandbox")
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.html"`, base))
+		// #nosec G705 -- RenderHTML escapes every report-derived value with
+		// html.EscapeString (internal/audit360/document.go); styles and class
+		// names are fixed literals. The sandbox header above is a second layer.
 		_, _ = w.Write([]byte(doc))
 		return
 	case "pdf":
@@ -237,7 +244,11 @@ func (s *Server) handleAudit360Download(w http.ResponseWriter, r *http.Request) 
 		}
 		w.Header().Set("Content-Type", "application/pdf")
 		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.pdf"`, base))
+		// #nosec G705 -- the taint rule flags any write of a rendered artifact,
+		// but RenderPDF builds bytes with a pure-Go PDF writer (no browser, no
+		// HTML, no JavaScript), so this is a binary download, not a web response.
 		_, _ = w.Write(b)
 		return
 	default:

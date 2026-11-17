@@ -167,7 +167,7 @@ NOTE  REFERENCE mode — no Sift binary was found or could be built.
          · Sift keygen --out <key>        [unavailable]
          · Sift verify --bundle …        [unavailable]
          · Sift run --emit-bundle <b>    [unavailable]
-       The real thing ships in this repo (cmd/Sift): set
+       The real thing ships in this repo (cmd/sift): set
        SIFT_BIN to a built binary, or install Go so this script
        can build it itself.
        So: NO load is generated here. Instead a spec-conformant vpmp/v1

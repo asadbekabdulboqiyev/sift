@@ -61,7 +61,11 @@ if [ "$MODE" = "go" ]; then
   command -v go >/dev/null 2>&1 || { err "Go 1.26+ is required for --go: https://go.dev/dl/"; exit 1; }
   step "installing via the Go module proxy"
   for b in "${BINARIES[@]}"; do
-    [ "$b" = "Sift" ] && pkg=cmd/Sift || pkg="cmd/${b}"
+    # Release/archive names are capitalized (Sift, Sift-master), but the Go
+    # package directories are lowercase (cmd/sift, cmd/sift-master). On
+    # case-sensitive filesystems the old `cmd/${b}` failed for every binary
+    # except Sift with "directory ... cmd/Sift-master not found".
+    pkg="cmd/$(printf '%s' "$b" | tr '[:upper:]' '[:lower:]')"
     go install "github.com/${REPO}/${pkg}@${VERSION:-latest}"
     ok "$b"
   done

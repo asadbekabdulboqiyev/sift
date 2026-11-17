@@ -45,7 +45,7 @@ trusted **by design** (there is no multi-tenant or remote input surface).
 | 3 | **Path traversal** | A scenario `name` with `../`, `/`, NUL, etc. could escape the report directory or overwrite arbitrary files. | `internal/report/report.go` |
 | 4 | **Secret leakage** | Tokens, passwords, headers, and request bodies may exist in scenario files; they must never appear in reports. The opt-in debug capture (`--capture N`, ≤100 entries, bodies ≤2KB) stores *response* data only — request headers/bodies (credentials) are never captured; the capture file is private (`0600`) and disabled by default. | `internal/report/report.go`, `internal/engine/engine.go`, `internal/engine/capture.go` |
 | 5 | **Transport downgrade / MITM** | Redirect to a plaintext or different host, or disabling certificate verification, would weaken TLS protection. | `internal/engine/client.go` |
-| 6 | **Denial of service (target side)** | The tool is, by definition, a load generator. Misuse against third-party systems is illegal (DDoS) and is mitigated by operator warnings, not technical controls. | `cmd/Sift/main.go` |
+| 6 | **Denial of service (target side)** | The tool is, by definition, a load generator. Misuse against third-party systems is illegal (DDoS) and is mitigated by operator warnings, not technical controls. | `cmd/sift/main.go` |
 | 7 | **Malicious config parsing** | `yaml.v3` alias/entity expansion ("billion laughs", alias bombs) on untrusted scenario files. | `internal/config/scenario.go` |
 
 ---
@@ -86,9 +86,9 @@ Verified against the codebase during the audit:
   (`internal/report/report.go`, `internal/metrics/metrics.go`)
 - **Operator guardrails:** a legal (DDoS) warning is printed on every run, and a
   warning is shown when the open-file limit (`ulimit -n`) is too low for the
-  planned concurrency. (`cmd/Sift/main.go`)
+  planned concurrency. (`cmd/sift/main.go`)
 - **Graceful shutdown:** `SIGINT`/`SIGTERM` drain in-flight requests; a second
-  signal exits immediately. (`cmd/Sift/main.go`)
+  signal exits immediately. (`cmd/sift/main.go`)
 
 ---
 

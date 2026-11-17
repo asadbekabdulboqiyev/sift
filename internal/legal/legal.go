@@ -47,7 +47,7 @@ var shippedFiles = []string{
 	"README.md",
 	"CONTRIBUTING.md",
 	"packaging/scoop/Sift.json",
-	"packaging/homebrew/Sift.rb",
+	"packaging/homebrew/sift.rb",
 	"packaging/winget/Sift.yaml",
 	".goreleaser.yaml",
 	"Dockerfile",

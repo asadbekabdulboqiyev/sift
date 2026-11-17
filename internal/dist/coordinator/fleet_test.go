@@ -92,6 +92,23 @@ func TestLivenessKeepsRespondingWorker(t *testing.T) {
 	defer srv.Stop()
 	addr := lis.Addr().String()
 
+	// Serve starts accepting asynchronously. gRPC is fail-fast by default, so
+	// a Ping that races a not-yet-serving listener returns Unavailable right
+	// away and a healthy worker gets marked dead. Wait for the listener before
+	// probing, the same way startWorker does for the other E2E tests.
+	readyDeadline := time.Now().Add(5 * time.Second)
+	for {
+		probe, derr := net.DialTimeout("tcp", addr, 250*time.Millisecond)
+		if derr == nil {
+			_ = probe.Close()
+			break
+		}
+		if time.Now().After(readyDeadline) {
+			t.Fatalf("worker %s not ready: %v", addr, derr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
 	master := NewMaster(MasterConfig{
 		Scenario: tinyScenario(t, "http://127.0.0.1:1", 1, 1),
 		Workers:  []string{addr},

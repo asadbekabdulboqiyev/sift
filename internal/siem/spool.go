@@ -10,8 +10,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync/atomic"
+
+	"github.com/asadbekabdulboqiyev/sift/internal/fsutil"
 )
 
 // spoolFileName is the JSON-lines file written inside Config.SpoolDir.
@@ -190,21 +191,5 @@ func (n *Notifier) ReplaySpool(ctx context.Context) (int, error) {
 }
 
 func syncDir(dir string) error {
-	f, err := os.Open(filepath.Clean(dir))
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	if err := f.Sync(); err != nil {
-		if isIgnorableDirSyncError(err) {
-			return nil
-		}
-		return err
-	}
-	return nil
-}
-
-func isIgnorableDirSyncError(err error) bool {
-	msg := strings.ToLower(err.Error())
-	return errors.Is(err, os.ErrInvalid) || strings.Contains(msg, "invalid argument") || strings.Contains(msg, "not supported") || strings.Contains(msg, "inappropriate ioctl") || strings.Contains(msg, "operation not supported")
+	return fsutil.SyncDir(dir)
 }

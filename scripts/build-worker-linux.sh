@@ -58,10 +58,10 @@ for platform in "${PLATFORMS[@]}"; do
     cd "${REPO_ROOT}"
     CGO_ENABLED=0 GOOS="${os}" GOARCH="${arch}" \
       go build -trimpath -buildvcs=false -ldflags="${LDFLAGS}" \
-      -o "${pkg_dir}/Sift-worker" ./cmd/Sift-worker
+      -o "${pkg_dir}/Sift-worker" ./cmd/sift-worker
     CGO_ENABLED=0 GOOS="${os}" GOARCH="${arch}" \
       go build -trimpath -buildvcs=false -ldflags="${LDFLAGS}" \
-      -o "${pkg_dir}/Sift-master" ./cmd/Sift-master
+      -o "${pkg_dir}/Sift-master" ./cmd/sift-master
   )
 
   cp "${REPO_ROOT}/deploy/systemd/Sift-worker.service" "${pkg_dir}/"

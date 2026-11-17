@@ -39,12 +39,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # `image` is the display name in the job title; `tag` is the lowercase
+        # repository slug. Docker/GHCR reject uppercase repository names
+        # ("repository name must be lowercase"), which is why the images were
+        # never published under the previous `Sift`-cased names.
         include:
           - image: Sift
+            tag: sift
             dockerfile: Dockerfile
           - image: Sift-master
+            tag: sift-master
             dockerfile: Dockerfile.master
           - image: Sift-worker
+            tag: sift-worker
             dockerfile: Dockerfile.worker
     steps:
       - uses: actions/checkout@v4
@@ -82,9 +89,9 @@ jobs:
           fi
           {
             echo "images<<EOF"
-            echo "${REGISTRY_GHCR}/${GITHUB_REPOSITORY_OWNER}/${{ matrix.image }}"
+            echo "${REGISTRY_GHCR}/${GITHUB_REPOSITORY_OWNER}/${{ matrix.tag }}"
             if [ -n "${DOCKERHUB_USER}" ]; then
-              echo "${DOCKERHUB_USER}/${{ matrix.image }}"
+              echo "${DOCKERHUB_USER}/${{ matrix.tag }}"
             fi
             echo "EOF"
           } >> "$GITHUB_OUTPUT"

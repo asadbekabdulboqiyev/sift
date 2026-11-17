@@ -43,6 +43,13 @@ COPY . .
 # but internal/replay reads PCAP through gopacket/pcapgo, which needs neither.
 # That cost ~2 MB in the image and a build-base install for nothing.
 #
+# Directory names are lowercase (cmd/sift, cmd/sift-master, ...) but the
+# shipped binary names are not: .goreleaser.yaml declares `binary: Sift`,
+# `binary: Sift-master`, and so on, and the release archives use those names.
+# The case block below maps dir -> binary so the image and the archives agree;
+# without it the loop wrote /out/sift and the next `RUN /out/Sift --version`
+# died with exit 127.
+#
 # Iterate real directories (`./cmd/*`), never the Go package pattern
 # `./cmd/...`: the shell does not expand `...`, so the loop ran exactly once
 # with name="..." and `go build -o /out/... ./cmd/...` died with "cannot write
@@ -51,13 +58,17 @@ COPY . .
 RUN set -eux; \
     for dir in ./cmd/*; do \
         name="$(basename "$dir")"; \
+        case "$name" in \
+          sift)   bin=Sift ;; \
+          sift-*) bin="Sift-${name#sift-}" ;; \
+          *)      bin="$name" ;; \
+        esac; \
         CGO_ENABLED=0 GOOS="${TARGETOS:-linux}" GOARCH="${TARGETARCH:-amd64}" \
         go build -trimpath \
           -ldflags="-s -w \
             -X github.com/asadbekabdulboqiyev/sift/internal/version.Version=${VERSION} \
-            -X github.com/asadbekabdulboqiyev/sift/internal/version.Version=${VERSION} \
             -X github.com/asadbekabdulboqiyev/sift/internal/version.Commit=${REVISION}" \
-          -o "/out/${name}" "$dir"; \
+          -o "/out/${bin}" "$dir"; \
     done
 
 # Verify the binary we are about to ship is not a dev build.
@@ -103,6 +114,7 @@ COPY --from=builder /out/Sift-replay    /usr/local/bin/Sift-replay
 COPY --from=builder /out/Sift-scan      /usr/local/bin/Sift-scan
 
 # Lowercase aliases for cross-platform/consistent CLI usage inside the container.
+# alpine's busybox provides `ln`, so the aliases can be real symlinks here.
 RUN ln -s /usr/local/bin/Sift /usr/local/bin/sift \
  && ln -s /usr/local/bin/Sift-dashboard /usr/local/bin/sift-dashboard \
  && ln -s /usr/local/bin/Sift-master /usr/local/bin/sift-master \

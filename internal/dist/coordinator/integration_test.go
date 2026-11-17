@@ -65,6 +65,15 @@ func tinyScenario(t *testing.T, url string, users, duration int) *config.Scenari
 			Users:    users,
 			Duration: duration,
 			Timeout:  5,
+			// Paced on purpose. These tests assert coordinator semantics
+			// (aggregation, timeout grace, worker loss), not throughput. An
+			// unpaced loopback run opens tens of thousands of connections in
+			// ~10 s, exhausts this host's 16 384-port ephemeral range
+			// (measured), and then every test on the host — including
+			// unrelated packages — fails at connect(2) with EADDRNOTAVAIL.
+			// 100 req/s keeps real concurrency and in-flight requests while
+			// staying far below that ceiling.
+			RPS: 100,
 		},
 		Steps: []config.Step{{Name: "req", Method: "GET", URL: url}},
 	}

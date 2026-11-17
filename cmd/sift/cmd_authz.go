@@ -59,7 +59,7 @@ func addAuthzFlags(fs *flag.FlagSet, g *gateOptions) {
 // configHome, defaultPolicyPath and defaultAuditPath delegate to the authz
 // package so the CLI, the scan binary and the dashboard resolve the same
 // policy and the same audit trail. The bodies used to live here and in
-// cmd/Sift-scan as two hand-kept copies.
+// cmd/sift-scan as two hand-kept copies.
 func configHome() string {
 	return authz.ConfigHome()
 }

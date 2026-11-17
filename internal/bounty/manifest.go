@@ -31,6 +31,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/attest"
+	"github.com/asadbekabdulboqiyev/sift/internal/fsutil"
 )
 
 const (
@@ -486,28 +487,13 @@ func WritePackage(m Manifest, dir string) (string, error) {
 
 // syncDir fsyncs a directory so a rename or create within it is durable on
 // platforms where directory entries require an explicit sync. Errors are
-// returned so callers can fail closed on durability-sensitive writes.
+// returned so callers can fail closed on durability-sensitive writes; see
+// fsutil.SyncDir for the platform rules (Windows has no directory flush).
 func syncDir(dir string) error {
-	f, err := os.Open(filepath.Clean(dir))
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	if err := f.Sync(); err != nil {
-		// Some platforms/filesystems do not support syncing directories.
-		// Treat those cases as non-fatal to preserve portability.
-		if isIgnorableDirSyncError(err) {
-			return nil
-		}
+	if err := fsutil.SyncDir(dir); err != nil {
 		return err
 	}
 	return nil
-}
-
-func isIgnorableDirSyncError(err error) bool {
-	// Best-effort portability: on filesystems/platforms that reject directory
-	// fsync, durability of the directory entry cannot be strengthened here.
-	return errors.Is(err, os.ErrInvalid) || strings.Contains(err.Error(), "invalid argument") || strings.Contains(err.Error(), "not supported") || strings.Contains(err.Error(), "Inappropriate ioctl")
 }
 
 // LoadPackage reads, strictly decodes and structurally validates a manifest.

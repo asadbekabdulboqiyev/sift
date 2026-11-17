@@ -3,6 +3,7 @@ package twin
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -53,7 +54,10 @@ func TestWriteArtifacts(t *testing.T) {
 	for _, p := range []string{paths.ModelPath, paths.ReportPath} {
 		if info, statErr := os.Stat(p); statErr != nil {
 			t.Fatalf("stat %s: %v", p, statErr)
-		} else if info.Mode().Perm() != 0o600 {
+		} else if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+			// Windows has no POSIX permission bits: Chmod only toggles the
+			// read-only attribute and Stat reports 0666 for any writable file,
+			// so the assertion is macOS/Linux-only by nature.
 			t.Errorf("%s mode = %o, want 600", p, info.Mode().Perm())
 		}
 	}

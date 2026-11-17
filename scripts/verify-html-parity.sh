@@ -60,7 +60,7 @@ PY
 )
 
 say "verify-html-parity: building the Go CLI and a demo target"
-go build -o "$work/Sift" ./cmd/Sift || { say "FAIL: could not build the CLI"; exit 1; }
+go build -o "$work/Sift" ./cmd/sift || { say "FAIL: could not build the CLI"; exit 1; }
 go build -o "$work/demo_server" ./examples/demo_server.go || { say "FAIL: could not build the demo server"; exit 1; }
 
 say "verify-html-parity: starting the demo target on 127.0.0.1:$port"

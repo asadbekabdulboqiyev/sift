@@ -618,7 +618,16 @@ func TestReplayResult_ExportJSONToFile(t *testing.T) {
 
 func TestReplayResult_ExportJSONToFile_BadPath(t *testing.T) {
 	result := &ReplayResult{}
-	err := result.ExportJSONToFile("/nonexistent/dir/result.json")
+	// A path whose parent is a regular file cannot be created on any platform.
+	// The previous path ("/nonexistent/dir/result.json") was a Unix-only
+	// assumption: on Windows it resolves to <current drive>:\nonexistent\...,
+	// which MkdirAll happily creates, so the test asserted the opposite of what
+	// happened there.
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	if err := os.WriteFile(blocker, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("prepare blocker: %v", err)
+	}
+	err := result.ExportJSONToFile(filepath.Join(blocker, "result.json"))
 	if err == nil {
 		t.Fatal("expected error for bad path")
 	}

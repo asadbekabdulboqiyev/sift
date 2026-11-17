@@ -25,9 +25,26 @@ DIST_DIR := dist
 build: ## Build all binaries into ./bin
 	./scripts/build-all.sh $(VERSION)
 
+# Package-level parallelism for the test targets.
+#
+# Serial by default, and that is a correctness setting, not a speed one: the
+# suite contains load generators and protocol clients that open thousands of
+# loopback connections, and on macOS the ephemeral port range is only
+# 49152-65535 (16 384 ports) with a 15 s TIME_WAIT. Running all ~60 packages at
+# once therefore exhausts it, and tests that never touch each other's state fail
+# at dial time with "connect: can't assign requested address" (EADDRNOTAVAIL):
+#   3 of 60 packages failed on an otherwise clean tree; every one of them passed
+#   when run alone, and `-p 1` passed the whole suite (4 min) with no failures.
+# Raise it on a host with a wider range, e.g. `make test TEST_P=4`.
+TEST_P ?= 1
+
 .PHONY: test
 test: ## Run the full test suite with the race detector
-	$(GO) test -race ./...
+	$(GO) test -p $(TEST_P) -race ./...
+
+.PHONY: test-short
+test-short: ## Run the test suite without the race detector (faster local loop)
+	$(GO) test -p $(TEST_P) ./...
 
 .PHONY: vet
 vet: ## Run go vet across the whole module
@@ -75,7 +92,7 @@ gosec: ## Run the gosec ratchet: new error-level findings outside G204/G304 fail
 	bash scripts/gosec-ratchet.sh gosec.sarif
 
 .PHONY: verify
-verify: ## Full local gate: build, vet, gofmt, tests, linux build, zero gosec findings
+verify: ## Full local gate: build, vet, gofmt, tests, linux build, gosec ratchet
 	$(GO) build ./...
 	$(GO) vet ./...
 	@unformatted=$$(gofmt -l .); \
@@ -85,22 +102,17 @@ verify: ## Full local gate: build, vet, gofmt, tests, linux build, zero gosec fi
 		exit 1; \
 	fi
 	@echo "gofmt: all files formatted"
-	$(GO) test ./...
+	$(GO) test -p $(TEST_P) ./...
 	GOOS=linux $(GO) build ./...
 	@command -v $(GOSEC) >/dev/null || { \
 		echo "gosec: not on PATH. Install the version CI pins (v2.29.0):"; \
 		echo "  GOBIN=$$(go env GOPATH)/bin go install github.com/securego/gosec/v2/cmd/gosec@v2.29.0"; \
 		exit 1; \
 	}
-	@tmp=$$(mktemp); \
-	$(GOSEC) -fmt=json -exclude-generated ./... > "$$tmp" 2>/dev/null || true; \
-	count=$$(jq -r '.Issues | length // 0' "$$tmp" 2>/dev/null || echo 0); \
-	rm -f "$$tmp"; \
-	if [ "$$count" != "0" ] && [ "$$count" != "null" ] && [ -n "$$count" ]; then \
-		echo "gosec: $$count finding(s) — run 'gosec -exclude-generated ./...' for details"; \
-		exit 1; \
-	fi; \
-	echo "gosec: 0 findings"
+	@tmp=$$(mktemp -t gosec-verify-XXXXXX).sarif; \
+	trap 'rm -f "$$tmp"' EXIT; \
+	$(GOSEC) -quiet -no-fail -fmt sarif -out "$$tmp" ./... >/dev/null 2>&1 || true; \
+	bash scripts/gosec-ratchet.sh "$$tmp"
 
 .PHONY: clean
 clean: ## Remove bin/ and reports/

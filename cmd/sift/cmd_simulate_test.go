@@ -9,6 +9,7 @@ package main
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -509,5 +510,27 @@ func TestCmdSimulateBacktestRequireNoLeakageFails(t *testing.T) {
 	}
 	if !strings.Contains(res.stderr, "no-leakage requirement not satisfied") {
 		t.Errorf("stderr missing no-leakage failure: %s", res.stderr)
+	}
+}
+
+// Dataset provenance copies the report's uint64 request counter into an int.
+// On a 32-bit build a large counter must saturate, not wrap negative.
+func TestClampUint64ToInt(t *testing.T) {
+	cases := []struct {
+		in   uint64
+		want int
+	}{
+		{0, 0},
+		{1, 1},
+		{1 << 20, 1 << 20},
+		{uint64(math.MaxInt) - 1, math.MaxInt - 1},
+		{uint64(math.MaxInt), math.MaxInt},
+		{uint64(math.MaxInt) + 1, math.MaxInt},
+		{math.MaxUint64, math.MaxInt},
+	}
+	for _, tc := range cases {
+		if got := clampUint64ToInt(tc.in); got != tc.want {
+			t.Errorf("clampUint64ToInt(%d) = %d, want %d", tc.in, got, tc.want)
+		}
 	}
 }

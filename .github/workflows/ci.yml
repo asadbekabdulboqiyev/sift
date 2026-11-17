@@ -88,7 +88,9 @@ jobs:
   test:
     name: Test (${{ matrix.os }}, race)
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    # Serial packages (-p 1, see the test step) take longer wall-clock time;
+    # 30 m was the parallel budget and can expire before the suite finishes.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -110,7 +112,14 @@ jobs:
         # "no required module provides package .out". bash preserves argv on
         # every runner, so one command works on ubuntu, macOS and Windows.
         shell: bash
-        run: go test -race -timeout 20m -covermode=atomic -coverprofile=coverage.out -coverpkg=./... ./...
+        # -p 1 is a correctness setting here, not a speed one. On a macOS host
+        # with the default 49152-65535 ephemeral range (16 384 ports) and a
+        # 15 s TIME_WAIT, the load/protocol packages collectively exhaust the
+        # range at full parallelism and unrelated tests fail while dialling
+        # their own loopback listeners with EADDRNOTAVAIL. Measured locally:
+        # 3/60 packages failed with default -p, all passed in isolation, and
+        # `go test -p 1 ./...` passed all 61 packages. Same tests, no skips.
+        run: go test -p 1 -race -timeout 20m -covermode=atomic -coverprofile=coverage.out -coverpkg=./... ./...
         env:
           # Keep CI workers from being starved by the engine's own load tests.
           GOMAXPROCS: 4
@@ -203,7 +212,7 @@ jobs:
       fail-fast: false
       matrix:
         # The previous matrix had 3 entries and compiled only
-        # ./cmd/Sift — 1 of 6 binaries, missing linux/arm64,
+        # ./cmd/sift — 1 of 6 binaries, missing linux/arm64,
         # darwin/amd64 and windows/arm64.
         os: [linux, darwin, windows]
         arch: [amd64, arm64]
@@ -228,17 +237,30 @@ jobs:
           # basename turned the literal argument into "..." -> `go build -o out/...`
           # -> "cannot write multiple packages to non-directory". Iterate the
           # directories themselves and name the package explicitly.
+          #
+          # Directory names are lowercase (cmd/sift, cmd/sift-master, ...) but
+          # the shipped binary names are not: .goreleaser.yaml declares
+          # `binary: Sift`, `binary: Sift-master`, and so on, and the release
+          # archives, Dockerfile and README all use those names. Map dir ->
+          # binary here too, otherwise this job writes out/sift and the
+          # "Run the built CLI" step below dies with `./out/Sift: No such file
+          # or directory` (exit 127).
           for dir in ./cmd/*/; do
             [ -d "$dir" ] || continue
             name="$(basename "$dir")"
-            out="out/${name}"
+            case "$name" in
+              sift)   bin=Sift ;;
+              sift-*) bin="Sift-${name#sift-}" ;;
+              *)      bin="$name" ;;
+            esac
+            out="out/${bin}"
             [ "${{ matrix.os }}" = "windows" ] && out="${out}.exe"
             CGO_ENABLED=0 GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} \
               go build -trimpath \
-                -ldflags="-s -w -X main.version=${version} \
+                -ldflags="-s -w \
                           -X github.com/asadbekabdulboqiyev/sift/internal/version.Version=${version}" \
                 -o "$out" "./cmd/${name}"
-            echo "  built ${name} (${{ matrix.os }}/${{ matrix.arch }}) $(du -h "$out" | cut -f1)"
+            echo "  built ${bin} (${{ matrix.os }}/${{ matrix.arch }}) $(du -h "$out" | cut -f1)"
           done
 
       - name: Run the built CLI (linux/amd64 only)
@@ -393,7 +415,7 @@ jobs:
           cache: true
 
       - name: Build the CLI
-        run: go build -o /tmp/ss ./cmd/Sift
+        run: go build -o /tmp/ss ./cmd/sift
 
       - name: Generate a coordinator key
         run: /tmp/ss keygen --out /tmp/coord.key

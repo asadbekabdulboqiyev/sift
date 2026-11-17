@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"sort"
 	"sync"
+	"syscall"
 	"time"
 
 	"google.golang.org/grpc"
@@ -32,7 +34,7 @@ const (
 )
 
 // registerTTL is how long a self-registration stays valid without a
-// re-register. Workers re-register every 10s (see cmd/Sift-worker),
+// re-register. Workers re-register every 10s (see cmd/sift-worker),
 // so an entry older than this belongs to a dead worker and is pruned so
 // auto-discovery never waits on — or selects — a corpse.
 var registerTTL = 35 * time.Second
@@ -388,6 +390,83 @@ func (m *Master) ResolveWorkers(ctx context.Context) ([]string, error) {
 	}
 }
 
+// isEphemeralPortPressure reports the transient errno values a connect(2)
+// returns when a host has no free source port (EADDRNOTAVAIL, and EADDRINUSE
+// on stacks that report the same pressure that way). Every other error —
+// refused, timeout, DNS failure — is a real result and must surface at once.
+func isEphemeralPortPressure(err error) bool {
+	return errors.Is(err, syscall.EADDRNOTAVAIL) || errors.Is(err, syscall.EADDRINUSE)
+}
+
+// Dial tunables. They are variables so the retry loop can be exercised
+// deterministically without real sockets or multi-second waits.
+var (
+	dialRetryBudget    = 4 * time.Second
+	dialRetryDelay     = 100 * time.Millisecond
+	dialAttemptTimeout = 2 * time.Second
+	dialTCP            = func(ctx context.Context, addr string) (net.Conn, error) {
+		return (&net.Dialer{Timeout: dialAttemptTimeout}).DialContext(ctx, "tcp", addr)
+	}
+)
+
+// dialWorker is the dialer for master->worker gRPC connections. A burst of
+// loopback connections (a full test suite, or a master that commands many
+// local workers) can temporarily exhaust a host's ephemeral port range; while
+// those sockets sit in TIME_WAIT, connect(2) fails with EADDRNOTAVAIL even for
+// a healthy listener. Retry only that specific condition, within the caller's
+// deadline, instead of declaring a reachable worker dead.
+//
+// The retry loop is bounded by wall-clock time rather than an attempt count:
+// gRPC hands the dialer its own connect context (≈20 s), so a count-based
+// bound could stall one connect attempt far past the caller's Ping deadline
+// and suppress gRPC's own backoff/failover. Worker addresses are always tcp
+// (the worker server listens with net.Listen("tcp")); a custom dialer bypasses
+// gRPC's proxy handling, so unix/proxy targets are deliberately not supported.
+func dialWorker(ctx context.Context, addr string) (net.Conn, error) {
+	deadline := time.Now().Add(dialRetryBudget)
+	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
+		deadline = ctxDeadline
+	}
+	var lastErr error
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			if lastErr == nil {
+				lastErr = ctx.Err()
+			}
+			return nil, lastErr
+		}
+		attemptTimeout := dialAttemptTimeout
+		if remaining < attemptTimeout {
+			attemptTimeout = remaining
+		}
+		attemptCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
+		conn, err := dialTCP(attemptCtx, addr)
+		cancel()
+		if err == nil {
+			return conn, nil
+		}
+		lastErr = err
+		if !isEphemeralPortPressure(err) {
+			return nil, err
+		}
+		delay := dialRetryDelay
+		if wait := time.Until(deadline); wait < delay {
+			delay = wait
+		}
+		if delay <= 0 {
+			return nil, err
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
 // Connect dials the workers, verifies each with a Ping and records the healthy
 // ones. It errors only when no worker at all is reachable.
 func (m *Master) Connect(ctx context.Context, workers []string) ([]string, error) {
@@ -399,6 +478,7 @@ func (m *Master) Connect(ctx context.Context, workers []string) ([]string, error
 		}
 		conn, err := grpc.NewClient(addr, append([]grpc.DialOption{
 			grpc.WithTransportCredentials(creds),
+			grpc.WithContextDialer(dialWorker),
 		}, ClientOptions(m.cfg.Token)...)...)
 		if err != nil {
 			m.cfg.Logf("worker %s dial failed: %v", addr, err)

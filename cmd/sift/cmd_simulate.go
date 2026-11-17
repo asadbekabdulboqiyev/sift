@@ -22,6 +22,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -662,7 +663,10 @@ func simulateValidate(args []string) {
 		}
 	}
 	if datasetMeta.Records == 0 {
-		datasetMeta.Records = int(actual.TotalRequests)
+		// The report counter is uint64 but the provenance field is int. Clamp
+		// instead of wrapping: a 32-bit build must not turn a large request
+		// count into a negative record count (gosec G115).
+		datasetMeta.Records = clampUint64ToInt(actual.TotalRequests)
 	}
 	if strings.TrimSpace(datasetMeta.ID) == "" {
 		datasetMeta.ID = filepath.Base(datasetMeta.Path)
@@ -1185,4 +1189,13 @@ func parseLeakageMetaFlag(s string) (*twin.LeakageGuard, error) {
 		return nil, err
 	}
 	return &v, nil
+}
+
+// clampUint64ToInt converts n without wrapping on 32-bit platforms. Counts
+// that exceed the platform's int range are saturating rather than negative.
+func clampUint64ToInt(n uint64) int {
+	if n > uint64(math.MaxInt) {
+		return math.MaxInt
+	}
+	return int(n)
 }

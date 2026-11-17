@@ -213,7 +213,7 @@ Sift pentest --target https://shop.example.com --authorized SEC-4421
 
 A policy refusal exits with **code 3** — distinct from `1` (the run failed) and
 `2` (bad usage) — so CI can branch on it
-(`cmd/Sift/cmd_authz.go`, `authzDeniedExitCode`). The refusal is
+(`cmd/sift/cmd_authz.go`, `authzDeniedExitCode`). The refusal is
 printed with the target and the reason, plus the exact `authorize add` command
 that would grant access.
 
@@ -383,7 +383,7 @@ document specifies and the report aims for. Today the false-positive verifier in
 badges `[VERIFIED]`, `[PROBABLE]`, `[UNVERIFIED]`. The mapping is
 `confirmed`↔`[VERIFIED]`, `high`↔`probable`↔`[PROBABLE]`,
 `heuristic`↔`possible`↔`[UNVERIFIED]`, and `informational` carries no badge.
-Also note that `cmd/Sift/cmd_pentest.go` (`pentestDeepScan`) computes a
+Also note that `cmd/sift/cmd_pentest.go` (`pentestDeepScan`) computes a
 real per-finding confidence but then writes `Confidence: string(scanner.ConfPossible)`
 for every emitted finding — so the badge in the pentest report may not reflect
 the verifier's verdict. **Verify against the code** before relying on a badge.
@@ -394,7 +394,7 @@ the verifier's verdict. **Verify against the code** before relying on a badge.
 
 The flags below are wired and covered by tests. `Sift scan` is a thin
 subcommand that re-execs the standalone `Sift-scan` binary with the
-same arguments (`cmd/Sift/cmd_sub.go`), so both spellings run the same
+same arguments (`cmd/sift/cmd_sub.go`), so both spellings run the same
 program. Verify against the code before scripting against it.
 
 ### Interface
@@ -501,7 +501,7 @@ come from the target server, so the panel writes every one of them with
   false-positive rationale.
 - **HTML/PDF** (from `pentest --format html|pdf|professional`) is for people: a
   findings list grouped by severity, plus the OWASP category matrix
-  (`cmd/Sift/cmd_pentest.go`, `owaspFullCategories`).
+  (`cmd/sift/cmd_pentest.go`, `owaspFullCategories`).
 - The terminal output uses the confidence badge
   (`[VERIFIED]` / `[PROBABLE]` / `[UNVERIFIED]`).
 

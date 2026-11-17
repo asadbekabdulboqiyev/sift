@@ -87,7 +87,17 @@ func (m *Manager) Start(ctx context.Context, target string, maxDur time.Duration
 				break
 			}
 		}
-		delete(m.jobs, evict)
+		if victim, ok := m.jobs[evict]; ok {
+			// An evicted job may still be running (the all-active fallback
+			// above picks an arbitrary entry), and its status is no longer
+			// reachable through Get, so stop it instead of letting it scan a
+			// target nobody can observe. Without this the per-job context is
+			// only released when the parent context dies.
+			if victim.cancel != nil {
+				victim.cancel()
+			}
+			delete(m.jobs, evict)
+		}
 	}
 	m.jobs[id] = j
 	m.mu.Unlock()
@@ -97,6 +107,11 @@ func (m *Manager) Start(ctx context.Context, target string, maxDur time.Duration
 }
 
 func (m *Manager) run(ctx context.Context, j *job, target string, maxDur time.Duration) {
+	// Release the per-job context when the run ends, whichever way it ends.
+	// `job.cancel` was stored but never called, so every finished audit left a
+	// live cancel func and a child context attached to the caller's context
+	// until the caller itself was cancelled (gosec G118).
+	defer j.cancel()
 	j.update(func(s *JobStatus) {
 		s.State = "running"
 		s.UpdatedAt = time.Now()
