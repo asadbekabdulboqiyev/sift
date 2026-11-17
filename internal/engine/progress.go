@@ -188,7 +188,7 @@ func (pt *ProgressTracker) render() {
 	c := pt.isTerminal
 
 	if !pt.first {
-		fmt.Fprintf(pt.out, "\r\x1b[%dA\x1b[J", progressBoxLines)
+		_, _ = fmt.Fprintf(pt.out, "\r\x1b[%dA\x1b[J", progressBoxLines)
 	}
 	pt.first = false
 
@@ -251,7 +251,7 @@ func (pt *ProgressTracker) renderFinal() {
 	c := pt.isTerminal
 
 	if !pt.first {
-		fmt.Fprintf(pt.out, "\r\x1b[%dA\x1b[J", progressBoxLines)
+		_, _ = fmt.Fprintf(pt.out, "\r\x1b[%dA\x1b[J", progressBoxLines)
 	}
 	pt.first = false
 

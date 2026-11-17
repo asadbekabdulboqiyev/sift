@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -119,12 +120,16 @@ func TestAppendEventAndReplay(t *testing.T) {
 		t.Fatalf("package digest not replayed: %q", loaded[0].PackageDigest)
 	}
 
-	info, err := os.Stat(logPath)
-	if err != nil {
-		t.Fatalf("stat log: %v", err)
-	}
-	if got := info.Mode().Perm(); got != 0o600 {
-		t.Fatalf("log mode is %o, want 600", got)
+	// 0600 is a POSIX guarantee: Windows has no mode bits and Go reports 0666
+	// for any writable file.
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(logPath)
+		if err != nil {
+			t.Fatalf("stat log: %v", err)
+		}
+		if got := info.Mode().Perm(); got != 0o600 {
+			t.Fatalf("log mode is %o, want 600", got)
+		}
 	}
 }
 

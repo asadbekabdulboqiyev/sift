@@ -358,7 +358,8 @@ func runSecurityScan(ctx context.Context, targetURL string) ([]Finding, bool, []
 	// If we could not collect any observable security evidence (common for
 	// unreachable/unknown targets), report this explicitly so scoring does not
 	// treat "no findings observed" as a verified secure posture.
-	if !hasObservableSecurityEvidence {
+	switch {
+	case !hasObservableSecurityEvidence:
 		partial = true
 		if len(findings) == 0 {
 			findings = append(findings, Finding{
@@ -370,14 +371,13 @@ func runSecurityScan(ctx context.Context, targetURL string) ([]Finding, bool, []
 				Source:        "security_scan",
 			})
 		}
-	} else if len(findings) == 0 && !partial {
-		// Evidence was observed but no weaknesses found and scan reported complete.
-		// This is a valid "no issues found by executed checks" outcome.
-	} else if len(findings) == 0 && partial {
+	case len(findings) == 0 && partial:
 		// Partial evidence with no specific findings: keep partial state; no
 		// synthetic weakness added beyond coverage handling.
 		notes = append(notes, "Security scan completed with partial evidence and no specific weaknesses reported by completed checks.")
 	}
+	// A complete scan that observed evidence and found nothing is a valid
+	// "no issues found by executed checks" outcome; nothing to add.
 
 	findings = dedupeFindings(findings)
 	return findings, partial, notes
@@ -404,9 +404,10 @@ func findingsFromScanResult(res *scanner.ScanResult, scheme string) []Finding {
 				header = "security header"
 			}
 			statusWord := "Misconfigured"
-			if st == "missing" {
+			switch st {
+			case "missing":
 				statusWord = "Missing"
-			} else if st == "weak" {
+			case "weak":
 				statusWord = "Weak"
 			}
 			title := fmt.Sprintf("%s security header: %s", statusWord, header)

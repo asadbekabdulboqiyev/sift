@@ -527,14 +527,6 @@ func writeArtifact(path string, data []byte) error {
 	return nil
 }
 
-func isIgnorableDirSyncError(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	return errors.Is(err, os.ErrInvalid) || strings.Contains(msg, "invalid argument") || strings.Contains(msg, "not supported") || strings.Contains(msg, "inappropriate ioctl") || strings.Contains(msg, "operation not supported")
-}
-
 // rawSignal is the on-disk shape. Pointers distinguish "absent" from "zero" so
 // a missing error_rate is not mistaken for a measured 0%.
 type rawSignal struct {

@@ -451,7 +451,16 @@ func TestChallengeBoundToIPAndFreshness(t *testing.T) {
 	if g.verifyChallenge(prefix, "203.0.113.8") {
 		t.Fatal("challenge must NOT verify for a different IP (no replay sharing)")
 	}
-	if g.verifyChallenge(prefix[:len(prefix)-2]+"00", "203.0.113.7") {
+	// Flip the last signature nibble rather than overwriting it with a fixed
+	// value: a signature that already ends in that value would be unchanged and
+	// still verify, making the test flaky (about 1 run in 256).
+	tampered := prefix[:len(prefix)-1]
+	if prefix[len(prefix)-1] == '0' {
+		tampered += "1"
+	} else {
+		tampered += "0"
+	}
+	if g.verifyChallenge(tampered, "203.0.113.7") {
 		t.Fatal("tampered signature must not verify")
 	}
 

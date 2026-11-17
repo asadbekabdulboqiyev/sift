@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -40,12 +41,16 @@ func TestBuildManifestAndLoadRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WritePackage: %v", err)
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat package: %v", err)
-	}
-	if got := info.Mode().Perm(); got != 0o600 {
-		t.Fatalf("package mode is %o, want 600", got)
+	// 0600 is a POSIX guarantee: Windows has no mode bits and Go reports 0666
+	// for any writable file.
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat package: %v", err)
+		}
+		if got := info.Mode().Perm(); got != 0o600 {
+			t.Fatalf("package mode is %o, want 600", got)
+		}
 	}
 
 	loaded, err := LoadPackage(path)
