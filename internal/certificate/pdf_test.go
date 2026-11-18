@@ -14,6 +14,7 @@ package certificate
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -539,5 +540,171 @@ func TestPDFWithoutSealIsRefused(t *testing.T) {
 	// A non-PDF must be rejected before any parsing.
 	if _, err := PDFEvidenceOf([]byte(`{"assessment":{}}`)); err == nil {
 		t.Fatal("JSON was accepted as a PDF")
+	}
+}
+
+// pdfInsertShiftingXref inserts block at offset at and rewrites the last
+// cross-reference table so every in-use offset still points at its object. It is
+// how a careful forger would keep a PDF structurally valid while adding an
+// object the verifier is not supposed to see.
+func pdfInsertShiftingXref(t *testing.T, doc, block []byte, at int) []byte {
+	t.Helper()
+
+	out := make([]byte, 0, len(doc)+len(block))
+	out = append(out, doc[:at]...)
+	out = append(out, block...)
+	out = append(out, doc[at:]...)
+	delta := len(block)
+
+	i := bytes.LastIndex(out, []byte("\nxref\n"))
+	if i < 0 {
+		t.Fatal("test setup: no xref table")
+	}
+	i++
+	tail := out[i:]
+
+	firstNL := bytes.IndexByte(tail, '\n')
+	if firstNL < 0 {
+		t.Fatal("test setup: xref header is not terminated")
+	}
+	hdrEnd := firstNL + 1 + bytes.IndexByte(tail[firstNL+1:], '\n')
+	fields := strings.Fields(string(tail[firstNL+1 : hdrEnd]))
+	if len(fields) != 2 {
+		t.Fatalf("test setup: xref subsection header is %q", string(tail[firstNL+1:hdrEnd]))
+	}
+	count, err := strconv.Atoi(fields[1])
+	if err != nil {
+		t.Fatalf("test setup: xref count: %v", err)
+	}
+
+	pos := hdrEnd + 1
+	var rebuilt bytes.Buffer
+	rebuilt.Write(tail[:pos])
+	for k := 0; k < count; k++ {
+		entry := tail[pos : pos+20]
+		pos += 20
+		if entry[17] == 'n' {
+			off, err := strconv.Atoi(strings.TrimSpace(string(entry[:10])))
+			if err != nil {
+				t.Fatalf("test setup: xref offset %q: %v", entry[:10], err)
+			}
+			fmt.Fprintf(&rebuilt, "%010d 00000 n \n", off+delta)
+			continue
+		}
+		rebuilt.Write(entry)
+	}
+	trailer := tail[pos:]
+	end := bytes.Index(trailer, []byte("startxref"))
+	if end < 0 {
+		t.Fatal("test setup: no startxref after the table")
+	}
+	rebuilt.Write(trailer[:end])
+	fmt.Fprintf(&rebuilt, "startxref\n%d\n%%%%EOF\n", i)
+
+	return append(out[:i], rebuilt.Bytes()...)
+}
+
+// TestPDFReadsObjectsThroughXrefNotByScanning is the parser-confusion attack.
+//
+// The verifier used to find objects by searching the file for "\n<num> 0 obj"
+// and taking the first hit. So: take a sealed certificate, change the real page
+// to say grade A, then insert a decoy object with the page's content number,
+// holding the original grade-B text, near the top of the file. Fix the xref to
+// point at the real objects. A viewer reads the xref and shows grade A; a
+// scanning verifier reads the decoy, hashes grade B, and says VALID.
+//
+// That file was built and confirmed against the released v0.17.0 binary before
+// this test existed. Objects are now read at the offset the table gives, so the
+// decoy is simply never looked at, and the real page fails the check.
+func TestPDFReadsObjectsThroughXrefNotByScanning(t *testing.T) {
+	c := verifiableCert(t)
+	certJSON, err := json.Marshal(c)
+	if err != nil {
+		t.Fatalf("marshal certificate: %v", err)
+	}
+	p := NewPDF()
+	for _, line := range CertificatePDFLines(c.Assessment, c) {
+		p.Text(line)
+	}
+	genuine, err := p.Seal(certJSON).Bytes()
+	if err != nil {
+		t.Fatalf("Bytes: %v", err)
+	}
+
+	objs := pdfParse(t, genuine)
+	contentNum := mustRef(t, reContRef, objs[3], "page 1 contents")
+	body := objs[contentNum]
+	streamStart := strings.Index(body, "stream\n")
+	streamEnd := strings.LastIndex(body, "\nendstream")
+	if streamStart < 0 || streamEnd < 0 {
+		t.Fatalf("test setup: content object has no stream: %q", body)
+	}
+	stream := body[streamStart+len("stream\n") : streamEnd]
+	if !strings.Contains(stream, "Grade: B") {
+		t.Fatalf("test setup: page 1 does not draw the grade: %q", stream)
+	}
+
+	// The real page now lies.
+	forged := bytes.Replace(genuine, []byte("Grade: B"), []byte("Grade: A"), 1)
+	if bytes.Equal(forged, genuine) {
+		t.Fatal("test setup: the edit did not apply")
+	}
+
+	// The decoy carries the genuine text under the same object number, and sits
+	// before every real object.
+	decoy := []byte(fmt.Sprintf("\n%d 0 obj\n<< /Length %d >>\nstream\n%s\nendstream\nendobj\n",
+		contentNum, len(stream), stream))
+	attacked := pdfInsertShiftingXref(t, forged, decoy, len("%PDF-1.4\n"))
+
+	expected := ExpectedPDFRenderedSHA256(c)
+	got, err := PDFRenderedSHA256(attacked)
+	if err != nil {
+		t.Fatalf("PDFRenderedSHA256: %v", err)
+	}
+	if got == expected {
+		t.Fatal("the verifier hashed the decoy object instead of the page a reader opens")
+	}
+	if _, err := VerifyPDF(attacked, nil, false); err == nil {
+		t.Fatal("a PDF whose real page differs from its decoy verified")
+	}
+}
+
+// TestPDFRefusesTamperedXrefOffset pins the fail-closed rule: an offset that
+// does not land on the header the table promised is refused, not repaired by
+// scanning for the object elsewhere.
+func TestPDFRefusesTamperedXrefOffset(t *testing.T) {
+	c := verifiableCert(t)
+	certJSON, err := json.Marshal(c)
+	if err != nil {
+		t.Fatalf("marshal certificate: %v", err)
+	}
+	p := NewPDF()
+	for _, line := range CertificatePDFLines(c.Assessment, c) {
+		p.Text(line)
+	}
+	doc, err := p.Seal(certJSON).Bytes()
+	if err != nil {
+		t.Fatalf("Bytes: %v", err)
+	}
+
+	i := bytes.LastIndex(doc, []byte("\nxref\n")) + 1
+	// The free entry comes first, so object 1's entry is the one after it.
+	// Locate it from the subsection header instead of hard-coding its width.
+	tail := doc[i:]
+	firstNL := bytes.IndexByte(tail, '\n')
+	hdrEnd := firstNL + 1 + bytes.IndexByte(tail[firstNL+1:], '\n')
+	entry := i + hdrEnd + 1 + 20
+	off, err := strconv.Atoi(strings.TrimSpace(string(doc[entry : entry+10])))
+	if err != nil {
+		t.Fatalf("test setup: %v", err)
+	}
+	tampered := append([]byte{}, doc...)
+	copy(tampered[entry:entry+10], []byte(fmt.Sprintf("%010d", off+1)))
+
+	if _, err := PDFRenderedSHA256(tampered); err == nil {
+		t.Fatal("a file whose xref points one byte off an object was accepted")
+	}
+	if _, err := PDFEvidenceOf(tampered); err == nil {
+		t.Fatal("the seal was read from a file with a broken cross-reference table")
 	}
 }

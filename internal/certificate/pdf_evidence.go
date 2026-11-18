@@ -59,6 +59,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/attest"
@@ -117,16 +118,25 @@ func pdfRenderedDigest(pages [][]string) string {
 // Every failure is a refusal with a reason a reader can act on: not a PDF, no
 // envelope (printed before sealing), unknown version, damaged payload.
 func PDFEvidenceOf(data []byte) (*PDFEvidence, error) {
-	if !bytes.HasPrefix(data, []byte("%PDF-")) {
-		return nil, fmt.Errorf("certificate: not a PDF file (no %%PDF- header)")
+	doc, err := parsePDFDoc(data)
+	if err != nil {
+		return nil, err
 	}
 
-	m := reSiftEvidence.FindSubmatch(data)
+	catalog, err := doc.object(doc.root)
+	if err != nil {
+		return nil, err
+	}
+	m := reSiftEvidence.FindSubmatch(catalog)
 	if m == nil {
 		return nil, fmt.Errorf("certificate: this PDF carries no seal, so it cannot be verified on its own — it was printed before PDFs embedded their certificate. Verify the .json certificate instead, or re-issue the PDF from it")
 	}
+	evNum, err := strconv.Atoi(string(m[1]))
+	if err != nil {
+		return nil, fmt.Errorf("certificate: PDF catalog names a bad /SiftEvidence object")
+	}
 
-	obj, err := pdfObject(data, string(m[1]))
+	obj, err := doc.object(evNum)
 	if err != nil {
 		return nil, err
 	}
@@ -159,18 +169,23 @@ func PDFEvidenceOf(data []byte) (*PDFEvidence, error) {
 // PDFRenderedSHA256 recomputes the digest of the visible text from the page
 // content streams.
 func PDFRenderedSHA256(data []byte) (string, error) {
-	if !bytes.HasPrefix(data, []byte("%PDF-")) {
-		return "", fmt.Errorf("certificate: not a PDF file (no %%PDF- header)")
+	doc, err := parsePDFDoc(data)
+	if err != nil {
+		return "", err
 	}
 
-	contents, err := pdfPageContentObjects(data)
+	contents, err := doc.pageContentObjects()
 	if err != nil {
 		return "", err
 	}
 
 	h := sha256.New()
 	for _, num := range contents {
-		obj, err := pdfObject(data, num)
+		n, err := strconv.Atoi(num)
+		if err != nil {
+			return "", fmt.Errorf("certificate: PDF page names a bad /Contents object")
+		}
+		obj, err := doc.object(n)
 		if err != nil {
 			return "", err
 		}
@@ -267,22 +282,215 @@ var (
 	reSiftEvidence = regexp.MustCompile(`/SiftEvidence\s+(\d+)\s+0\s+R`)
 	reObjRef       = regexp.MustCompile(`(\d+)\s+0\s+R`)
 	reContentsRef  = regexp.MustCompile(`/Contents\s+(\d+)\s+0\s+R`)
+	reContentsArr  = regexp.MustCompile(`/Contents\s*\[`)
+	rePagesRef     = regexp.MustCompile(`/Pages\s+(\d+)\s+0\s+R`)
+	reKidsArray    = regexp.MustCompile(`(?s)/Kids\s*\[([^\]]*)\]`)
+	reTrailerSize  = regexp.MustCompile(`/Size\s+(\d+)`)
+	reTrailerRoot  = regexp.MustCompile(`/Root\s+(\d+)\s+0\s+R`)
 )
 
-// pdfObject returns the text of object n, from "n 0 obj" through "endobj".
-func pdfObject(data []byte, num string) ([]byte, error) {
-	needle := []byte("\n" + num + " 0 obj")
-	i := bytes.Index(data, needle)
-	if i < 0 {
-		return nil, fmt.Errorf("certificate: PDF object %s is missing", num)
+// pdfDoc locates objects the way a reader does: through the cross-reference
+// table, not by scanning for text that looks like an object header.
+//
+// # Why this matters
+//
+// The first version searched the file for "\n<num> 0 obj" and took the first
+// hit. That is not how a PDF is read, and the difference is exploitable: insert
+// an object header with the genuine page's number near the top of the file,
+// point the real page's content at the forged text, and fix up the xref so a
+// viewer shows the forged page. A verifier that scans finds the decoy first and
+// hashes the genuine text, so it reports VALID while the page a reader opens
+// says something else. That attack was built and confirmed against the strict
+// re-render check before this type existed.
+//
+// So the table is the authority. Every object is read from the offset the xref
+// gives, and the header there must name the object the table promised; anything
+// else is refused rather than guessed at.
+//
+// # What it refuses
+//
+// Cross-reference streams (PDF 1.5+), incremental updates (/Prev), and a
+// document with no catalog. None of these appear in a file this package wrote,
+// so meeting one means the file was produced or re-saved by something else, and
+// the honest answer is "re-print it from the certificate" rather than a verdict
+// based on a parse we do not trust.
+type pdfDoc struct {
+	data    []byte
+	offsets map[int]int
+	root    int
+}
+
+// parsePDFDoc reads the last cross-reference table and the trailer.
+func parsePDFDoc(data []byte) (*pdfDoc, error) {
+	if !bytes.HasPrefix(data, []byte("%PDF-")) {
+		return nil, fmt.Errorf("certificate: not a PDF file (no %%PDF- header)")
 	}
-	start := i + 1
-	rest := data[start:]
+
+	marker := bytes.LastIndex(data, []byte("startxref"))
+	if marker < 0 {
+		return nil, fmt.Errorf("certificate: PDF has no startxref pointer, so its cross-reference table cannot be found")
+	}
+	off, err := readPDFInt(data, marker+len("startxref"))
+	if err != nil {
+		return nil, fmt.Errorf("certificate: PDF startxref pointer is damaged: %w", err)
+	}
+	if off < 0 || off >= len(data) {
+		return nil, fmt.Errorf("certificate: PDF startxref points outside the file")
+	}
+	if !bytes.HasPrefix(data[off:], []byte("xref")) {
+		return nil, fmt.Errorf("certificate: this PDF uses a cross-reference stream (PDF 1.5+) instead of a table; this verifier does not read those — re-print the certificate from its JSON")
+	}
+
+	d := &pdfDoc{data: data, offsets: make(map[int]int)}
+	pos := off + len("xref")
+	for {
+		pos = skipPDFSpace(data, pos)
+		if pos >= len(data) {
+			return nil, fmt.Errorf("certificate: PDF cross-reference table is truncated")
+		}
+		if bytes.HasPrefix(data[pos:], []byte("trailer")) {
+			break
+		}
+		startNum, err := readPDFInt(data, pos)
+		if err != nil {
+			return nil, fmt.Errorf("certificate: PDF cross-reference subsection is damaged: %w", err)
+		}
+		countPos, err := skipPDFInt(data, pos)
+		if err != nil {
+			return nil, fmt.Errorf("certificate: PDF cross-reference subsection is damaged: %w", err)
+		}
+		count, err := readPDFInt(data, countPos)
+		if err != nil {
+			return nil, fmt.Errorf("certificate: PDF cross-reference subsection is damaged: %w", err)
+		}
+		pos, err = skipPDFInt(data, countPos)
+		if err != nil {
+			return nil, fmt.Errorf("certificate: PDF cross-reference subsection is damaged: %w", err)
+		}
+		// The subsection header ends at a line break; the entries start on the
+		// next line. Skipping only the number would leave pos on "\n" and the
+		// first entry would be read as an empty line.
+		pos = skipPDFSpace(data, pos)
+		if count < 0 || count > len(data) {
+			return nil, fmt.Errorf("certificate: PDF cross-reference subsection claims %d entries", count)
+		}
+
+		for i := 0; i < count; i++ {
+			line, next := readPDFLine(data, pos)
+			fields := strings.Fields(line)
+			if len(fields) < 3 {
+				return nil, fmt.Errorf("certificate: PDF cross-reference entry is malformed: %q", line)
+			}
+			if fields[2] == "n" {
+				entryOff, err := strconv.Atoi(fields[0])
+				if err != nil || entryOff < 0 || entryOff >= len(data) {
+					return nil, fmt.Errorf("certificate: PDF cross-reference entry %d points outside the file", startNum+i)
+				}
+				d.offsets[startNum+i] = entryOff
+			}
+			pos = next
+		}
+	}
+
+	trailer := data[pos:]
+	if bytes.Contains(trailer, []byte("/Prev")) {
+		return nil, fmt.Errorf("certificate: this PDF has an incremental update (/Prev), so it has more than one version of its pages; this verifier reads one document only — re-print the certificate from its JSON")
+	}
+	if m := reTrailerSize.FindSubmatch(trailer); m == nil {
+		return nil, fmt.Errorf("certificate: PDF trailer has no /Size")
+	} else if size, err := strconv.Atoi(string(m[1])); err != nil || size <= 0 {
+		return nil, fmt.Errorf("certificate: PDF trailer has an unusable /Size")
+	}
+	root := reTrailerRoot.FindSubmatch(trailer)
+	if root == nil {
+		return nil, fmt.Errorf("certificate: PDF trailer names no /Root catalog")
+	}
+	d.root, err = strconv.Atoi(string(root[1]))
+	if err != nil {
+		return nil, fmt.Errorf("certificate: PDF trailer /Root is not an object number")
+	}
+	return d, nil
+}
+
+// readPDFInt reads a non-negative decimal integer starting at pos.
+func readPDFInt(data []byte, pos int) (int, error) {
+	pos = skipPDFSpace(data, pos)
+	start := pos
+	for pos < len(data) && data[pos] >= '0' && data[pos] <= '9' {
+		pos++
+	}
+	if pos == start {
+		return 0, fmt.Errorf("expected a number at byte %d", start)
+	}
+	n, err := strconv.Atoi(string(data[start:pos]))
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// skipPDFInt returns the position just past the integer that starts at pos.
+func skipPDFInt(data []byte, pos int) (int, error) {
+	pos = skipPDFSpace(data, pos)
+	start := pos
+	for pos < len(data) && data[pos] >= '0' && data[pos] <= '9' {
+		pos++
+	}
+	if pos == start {
+		return 0, fmt.Errorf("expected a number at byte %d", start)
+	}
+	return pos, nil
+}
+
+func skipPDFSpace(data []byte, pos int) int {
+	for pos < len(data) {
+		switch data[pos] {
+		case ' ', '\t', '\r', '\n', '\f', 0:
+			pos++
+		default:
+			return pos
+		}
+	}
+	return pos
+}
+
+// readPDFLine returns the line starting at pos and the position after it.
+func readPDFLine(data []byte, pos int) (string, int) {
+	end := bytes.IndexByte(data[pos:], '\n')
+	if end < 0 {
+		return string(data[pos:]), len(data)
+	}
+	return string(data[pos : pos+end]), pos + end + 1
+}
+
+// object returns the body of object num, from its header through "endobj".
+//
+// The header at the table's offset must name this object. A mismatch is not
+// repaired or retried: it means the table and the bytes disagree, which is what
+// a file looks like when someone tried to show one reader a different document
+// than another.
+func (d *pdfDoc) object(num int) ([]byte, error) {
+	off, ok := d.offsets[num]
+	if !ok {
+		return nil, fmt.Errorf("certificate: PDF object %d is not in the cross-reference table", num)
+	}
+	rest := d.data[off:]
+	want := strconv.Itoa(num) + " 0 obj"
+	if !bytes.HasPrefix(rest, []byte(want)) {
+		return nil, fmt.Errorf("certificate: the cross-reference table points object %d at %q, not at its header — the file is malformed or was tampered with", num, headBytes(rest, 24))
+	}
 	end := bytes.Index(rest, []byte("endobj"))
 	if end < 0 {
-		return nil, fmt.Errorf("certificate: PDF object %s is truncated", num)
+		return nil, fmt.Errorf("certificate: PDF object %d is truncated", num)
 	}
 	return rest[:end], nil
+}
+
+func headBytes(b []byte, n int) string {
+	if len(b) > n {
+		b = b[:n]
+	}
+	return string(b)
 }
 
 // pdfStreamOf returns the bytes between "stream" and "endstream" in an object.
@@ -308,29 +516,50 @@ func pdfStreamOf(obj []byte) ([]byte, error) {
 	return obj[start : start+end], nil
 }
 
-// pdfPageContentObjects lists the /Contents object number of every page, in the
+// pageContentObjects lists the /Contents object number of every page, in the
 // order the page tree names them.
-func pdfPageContentObjects(data []byte) ([]string, error) {
-	kidsAt := bytes.Index(data, []byte("/Kids ["))
-	if kidsAt < 0 {
-		return nil, fmt.Errorf("certificate: PDF page tree has no /Kids array")
+//
+// The tree is reached from the trailer's catalog: /Root -> /Pages -> /Kids. A
+// page that draws an array of content streams is refused rather than guessed at;
+// this writer never produces one.
+func (d *pdfDoc) pageContentObjects() ([]string, error) {
+	catalog, err := d.object(d.root)
+	if err != nil {
+		return nil, err
 	}
-	kids := data[kidsAt:]
-	if end := bytes.IndexByte(kids, ']'); end >= 0 {
-		kids = kids[:end]
-	} else {
-		return nil, fmt.Errorf("certificate: PDF page tree /Kids array is not closed")
+	pagesRef := rePagesRef.FindSubmatch(catalog)
+	if pagesRef == nil {
+		return nil, fmt.Errorf("certificate: PDF catalog names no page tree")
+	}
+	pagesNum, err := strconv.Atoi(string(pagesRef[1]))
+	if err != nil {
+		return nil, fmt.Errorf("certificate: PDF catalog /Pages is not an object number")
+	}
+	pages, err := d.object(pagesNum)
+	if err != nil {
+		return nil, err
+	}
+	kids := reKidsArray.FindSubmatch(pages)
+	if kids == nil {
+		return nil, fmt.Errorf("certificate: PDF page tree has no /Kids array")
 	}
 
 	var out []string
-	for _, ref := range reObjRef.FindAllStringSubmatch(string(kids), -1) {
-		obj, err := pdfObject(data, ref[1])
+	for _, ref := range reObjRef.FindAllSubmatch(kids[1], -1) {
+		pageNum, err := strconv.Atoi(string(ref[1]))
+		if err != nil {
+			return nil, fmt.Errorf("certificate: PDF page tree names a bad object number")
+		}
+		page, err := d.object(pageNum)
 		if err != nil {
 			return nil, err
 		}
-		m := reContentsRef.FindSubmatch(obj)
+		if reContentsArr.Match(page) {
+			return nil, fmt.Errorf("certificate: PDF page %d draws an array of content streams; this verifier reads single-stream pages only", pageNum)
+		}
+		m := reContentsRef.FindSubmatch(page)
 		if m == nil {
-			return nil, fmt.Errorf("certificate: PDF page %s names no /Contents", ref[1])
+			return nil, fmt.Errorf("certificate: PDF page %d names no /Contents", pageNum)
 		}
 		out = append(out, string(m[1]))
 	}
