@@ -11,6 +11,8 @@ package scanner
 // delivered by the target.
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -41,11 +43,48 @@ func FuzzAnalyzeJWT(f *testing.F) {
 		if res == nil {
 			t.Fatalf("AnalyzeJWT returned nil for %q", token)
 		}
-		// The header/claims maps are decoded from base64 of arbitrary bytes;
-		// the analyser may leave them nil, but a non-nil map must be usable.
+		if res.Token != token {
+			t.Fatalf("result carries a different token than the one analysed")
+		}
+
+		// An earlier version of this target required every decoded header key to
+		// be non-empty. That is not an invariant: a JWT header is a JSON object
+		// handed to us by whoever minted the token, and {"":""} is a legal one.
+		// The corpus found exactly that ("eyJ0000iOiJ00000IiwiIjoiIn0..", whose
+		// header decodes to {"t\xd3M":"t\xd3M4","":""}), so the job went red on
+		// input the analyser handles correctly. The rule that does matter is
+		// that the analyser reports the header it was given: no key invented,
+		// none dropped, and a header that did not decode leaves Valid false.
+		want, decoded := decodeFuzzJWTHeader(token)
+		if !decoded {
+			if res.Header != nil {
+				t.Fatalf("header did not decode but result carries %v", res.Header)
+			}
+			if res.Valid {
+				t.Fatalf("header did not decode but result claims Valid")
+			}
+			return
+		}
+		if want == nil { // the segment is the JSON literal "null"
+			if res.Header != nil {
+				t.Fatalf("header is JSON null but result carries %v", res.Header)
+			}
+			return
+		}
+		if res.Header == nil {
+			t.Fatalf("header decoded to %v but result carries none", want)
+		}
+		if !res.Valid {
+			t.Fatalf("header decoded but result claims Valid is false")
+		}
 		for k := range res.Header {
-			if k == "" {
-				t.Fatalf("empty key in decoded header")
+			if _, ok := want[k]; !ok {
+				t.Fatalf("analyser invented header key %q", k)
+			}
+		}
+		for k := range want {
+			if _, ok := res.Header[k]; !ok {
+				t.Fatalf("analyser dropped header key %q", k)
 			}
 		}
 	})
@@ -128,4 +167,24 @@ func FuzzPassiveParseCSP(f *testing.F) {
 			}
 		}
 	})
+}
+
+// decodeFuzzJWTHeader is the reference decoder the target compares against: the
+// header segment, base64url without padding, parsed as a JSON object. It reports
+// decoded=false when either step fails, which is when AnalyzeJWT must not claim
+// it has a header.
+func decodeFuzzJWTHeader(token string) (map[string]any, bool) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return nil, false
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return nil, false
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, false
+	}
+	return m, true
 }
