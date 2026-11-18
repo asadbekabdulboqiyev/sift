@@ -43,6 +43,7 @@ import (
 	"math/bits"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/honesty"
 )
@@ -61,6 +62,32 @@ const (
 	// effective width is reduced further on a large run.
 	DefaultProofSampleWidth = 256
 )
+
+// IssuerTrust is the verdict of the trust-anchor check: did this bundle come
+// from an issuer the verifier accepts?
+//
+// A signature that verifies only proves the bundle is self-consistent, because
+// the bundle carries the very key that signed it. IssuerTrust is what turns
+// that into an answer about *identity*.
+type IssuerTrust string
+
+const (
+	// IssuerPinned means the signing key is in the verifier's trust store.
+	IssuerPinned IssuerTrust = "pinned"
+	// IssuerUnpinned means no trust store was configured, so the signature was
+	// checked but nothing ties the key to a known issuer. This is the historical
+	// behaviour and is reported explicitly rather than silently treated as OK.
+	IssuerUnpinned IssuerTrust = "unpinned"
+	// IssuerUntrusted means a trust store was configured and the signing key is
+	// not in it: the evidence may be internally consistent and still worthless,
+	// because anyone can produce such a bundle.
+	IssuerUntrusted IssuerTrust = "untrusted"
+	// IssuerMissing means the bundle carries no signing key at all.
+	IssuerMissing IssuerTrust = "missing"
+)
+
+// Trusted reports whether the issuer was positively established.
+func (t IssuerTrust) Trusted() bool { return t == IssuerPinned }
 
 // VerifyOptions tunes work and limits. The zero value means "strict defaults".
 type VerifyOptions struct {
@@ -82,6 +109,15 @@ type VerifyOptions struct {
 	// is a reproducibility aid; skipping it is a documented speed/soundness
 	// trade, not a correctness hole in the tamper-evidence property.
 	SkipCICheck bool
+	// TrustStore, when non-nil, is the set of issuer keys this verifier accepts.
+	// A bundle signed by any other key fails the "issuer-trust" check and the
+	// overall verdict is invalid, whatever else the bundle says about itself.
+	// An empty (non-nil) store therefore means "accept no issuer".
+	TrustStore *TrustStore
+	// RequireTrustAnchor turns "no trust store configured" into a failure. Use
+	// it when the verification is meant to establish *who* issued the evidence
+	// rather than only that the bytes are internally consistent.
+	RequireTrustAnchor bool
 }
 
 func (o VerifyOptions) withDefaults() VerifyOptions {
@@ -194,6 +230,13 @@ type VerifyResult struct {
 	SamplesAbsent bool
 	// BundleDigest is the hex SHA-256 of the canonical bundle.
 	BundleDigest string
+	// IssuerKey is the bundle's signing key as lowercase hex, echoed for the
+	// report even when the trust check fails.
+	IssuerKey string
+	// IssuerLabel is the trust-store label of the issuer, when pinned.
+	IssuerLabel string
+	// IssuerTrust is the outcome of the trust-anchor check.
+	IssuerTrust IssuerTrust
 	// Checks lists run-wide checks.
 	Checks []Check
 	// Workers lists per-worker outcomes.
@@ -323,6 +366,12 @@ func (v *verifier) run(b Bundle, samples map[string][]Record) {
 		v.globalPass("bundle-signature", "Ed25519 signature verifies over "+shortHex(v.res.BundleDigest))
 	}
 
+	// 4b. issuer trust. The signature above proves internal consistency; this
+	// check is what ties the bundle to an identity the verifier chose to accept.
+	// It runs even when the signature failed, because "who claims this" is
+	// useful information in a rejection report.
+	v.verifyIssuerTrust(b)
+
 	// 5. duplicate worker ids
 	seen := make(map[string]int, len(b.Workers))
 	for i := range b.Workers {
@@ -408,6 +457,53 @@ func (v *verifier) verifyIntegrity(b Bundle) {
 		return
 	}
 	v.globalPass("integrity", fmt.Sprintf("dropped_samples %d and schedule_accuracy_ppm %d reproduce from the rates", wantDropped, wantAccuracy))
+}
+
+// verifyIssuerTrust answers the question a signature alone cannot: did this
+// evidence come from an issuer this verifier accepts?
+//
+// The outcomes are deliberately distinct, because collapsing them is how
+// "signed" gets mistaken for "trustworthy":
+//
+//   - pinned    — the key is in the trust store; the rest of the verdict stands.
+//   - unpinned  — no store was configured. The signature was still checked, but
+//     the report says so instead of implying an identity.
+//   - untrusted — a store was configured and the key is not in it. This fails
+//     verification: a self-signed bundle is exactly what a forger
+//     produces, and it must not pass an audit.
+func (v *verifier) verifyIssuerTrust(b Bundle) {
+	raw := strings.ToLower(strings.TrimSpace(b.Signature.Key))
+	v.res.IssuerKey = raw
+	if raw == "" {
+		v.res.IssuerTrust = IssuerMissing
+		v.globalFail("issuer-trust", "bundle carries no signing key, so no issuer can be established")
+		return
+	}
+
+	store := v.opts.TrustStore
+	if store == nil {
+		v.res.IssuerTrust = IssuerUnpinned
+		if v.opts.RequireTrustAnchor {
+			v.globalFail("issuer-trust", fmt.Sprintf("issuer %s is unpinned and a trust anchor is required", FingerprintHex(raw)))
+			return
+		}
+		v.globalPass("issuer-trust", "no trust store configured: issuer is unpinned (self-signed evidence)")
+		return
+	}
+
+	entry, ok := store.Lookup(raw)
+	if !ok {
+		v.res.IssuerTrust = IssuerUntrusted
+		v.globalFail("issuer-trust", fmt.Sprintf("issuer %s is not in the trust store (%d accepted issuers)", FingerprintHex(raw), store.Len()))
+		return
+	}
+	v.res.IssuerTrust = IssuerPinned
+	v.res.IssuerLabel = entry.Label
+	if entry.Label != "" {
+		v.globalPass("issuer-trust", fmt.Sprintf("issuer %q (%s) is pinned", entry.Label, FingerprintHex(raw)))
+		return
+	}
+	v.globalPass("issuer-trust", fmt.Sprintf("issuer %s is pinned", FingerprintHex(raw)))
 }
 
 // verifyWorker checks one worker and returns the number of samples it examined

@@ -79,6 +79,8 @@ func cmdVerify() {
 	proofLimit := fs.Int("proof-limit", 0, "SHA-256 budget for inclusion-proof verification (0 = built-in default)")
 	skipCI := fs.Bool("skip-ci", false, "skip confidence-interval recomputation")
 	expectKey := fs.String("expect-key", "", "pin the coordinator public key (lowercase hex) out of band")
+	trustStorePath := fs.String("trust-store", "", "issuer trust store (JSON file or key directory); default: $SIFT_HOME/trust.json when it exists")
+	requireAnchor := fs.Bool("require-anchor", false, "fail unless the signing key is in the trust store")
 
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		if err == flag.ErrHelp {
@@ -125,6 +127,15 @@ func cmdVerify() {
 
 	var samples map[string][]attest.Record
 	var loadStats attest.SampleLoadStats
+	trustStore, err := loadVerifyTrustStore(*trustStorePath, *requireAnchor)
+	if err != nil {
+		if *asJSON {
+			emitVerifyCLIErrorJSON(err)
+		} else {
+			fatal(err)
+		}
+		exitProcess(1)
+	}
 	if p := strings.TrimSpace(*samplesPath); p != "" {
 		opts := attest.DefaultSampleLoadOptions()
 		if *maxPerWorker > 0 {
@@ -149,6 +160,8 @@ func cmdVerify() {
 		MaxSamplesTotal:     *maxTotal,
 		ProofVerifyLimit:    *proofLimit,
 		SkipCICheck:         *skipCI,
+		TrustStore:          trustStore,
+		RequireTrustAnchor:  *requireAnchor,
 	})
 
 	if *asJSON {
@@ -202,6 +215,9 @@ type verifyJSON struct {
 	Format         string            `json:"format"`
 	Bundle         string            `json:"bundle"`
 	BundleDigest   string            `json:"bundle_digest,omitempty"`
+	IssuerKey      string            `json:"issuer_key,omitempty"`
+	IssuerLabel    string            `json:"issuer_label,omitempty"`
+	IssuerTrust    string            `json:"issuer_trust,omitempty"`
 	Sidecar        string            `json:"sidecar,omitempty"`
 	SamplesAbsent  bool              `json:"samples_absent"`
 	Workers        int               `json:"workers"`
@@ -221,6 +237,9 @@ func emitVerifyJSON(res attest.VerifyResult, bundlePath, samplesPath string, sta
 		Format:         res.Format,
 		Bundle:         bundlePath,
 		BundleDigest:   res.BundleDigest,
+		IssuerKey:      res.IssuerKey,
+		IssuerLabel:    res.IssuerLabel,
+		IssuerTrust:    string(res.IssuerTrust),
 		Sidecar:        samplesPath,
 		SamplesAbsent:  res.SamplesAbsent,
 		Workers:        res.Summary.Workers,
@@ -245,6 +264,9 @@ func printVerifyHuman(res attest.VerifyResult, bundlePath, samplesPath string, s
 	fmt.Printf("  format:        %s\n", res.Format)
 	if res.BundleDigest != "" {
 		fmt.Printf("  bundle digest: %s\n", res.BundleDigest)
+	}
+	if line := issuerSummaryLine(res); line != "" {
+		fmt.Printf("  issuer:        %s\n", line)
 	}
 	if res.SamplesAbsent {
 		fmt.Printf("  sidecar:       (absent: signature and internal consistency only)\n")
@@ -285,6 +307,65 @@ func printVerifyHuman(res attest.VerifyResult, bundlePath, samplesPath string, s
 	}
 }
 
+// issuerSummaryLine renders the one line that answers "who signed this?".
+// It is printed even on failure, because in a rejection report the claimed
+// identity is part of the evidence.
+func issuerSummaryLine(res attest.VerifyResult) string {
+	if strings.TrimSpace(res.IssuerKey) == "" {
+		return ""
+	}
+	fp := attest.FingerprintHex(res.IssuerKey)
+	switch res.IssuerTrust {
+	case attest.IssuerPinned:
+		if res.IssuerLabel != "" {
+			return fmt.Sprintf("%s (pinned) %s", res.IssuerLabel, fp)
+		}
+		return fmt.Sprintf("%s (pinned)", fp)
+	case attest.IssuerUnpinned:
+		return fmt.Sprintf("%s (unpinned: no trust store configured)", fp)
+	case attest.IssuerUntrusted:
+		return fmt.Sprintf("%s (UNTRUSTED: not in the trust store)", fp)
+	default:
+		return fp
+	}
+}
+
+// loadVerifyTrustStore resolves the trust anchor for one verification run.
+//
+// Precedence, and why:
+//
+//  1. --trust-store, when given. An explicit path that does not load is an
+//     error: silently proceeding without the anchor the operator asked for
+//     would defeat the check.
+//  2. $SIFT_HOME/trust.json, when it exists. Enrolling an issuer once should
+//     not require repeating a flag on every later command; the file only exists
+//     because an operator created it on purpose.
+//  3. Nothing, when no store exists. The run proceeds in the historical
+//     self-consistency mode and reports the issuer as unpinned.
+//
+// A store that exists but does not parse always fails, whatever the flags say:
+// a broken anchor is a different problem from an absent one, and quietly
+// ignoring it is how a verifier ends up trusting nobody while claiming to check.
+func loadVerifyTrustStore(path string, requireAnchor bool) (*attest.TrustStore, error) {
+	if p := strings.TrimSpace(path); p != "" {
+		return attest.LoadTrustStore(p)
+	}
+
+	def := defaultTrustStorePath()
+	store, err := attest.LoadTrustStore(def)
+	if err == nil {
+		return store, nil
+	}
+	if _, statErr := os.Stat(def); statErr == nil {
+		return nil, fmt.Errorf("trust store %s exists but could not be loaded: %w", def, err)
+	}
+	if requireAnchor {
+		return nil, fmt.Errorf("--require-anchor needs a trust store, but %s does not exist\n"+
+			"Pin an issuer first (Sift trust add --key <issuer.pub>), or pass --trust-store <path>", def)
+	}
+	return nil, nil
+}
+
 func keygenUsage() {
 	fmt.Fprint(os.Stderr, `Usage: Sift keygen --out <file>
 
@@ -316,13 +397,24 @@ Flags:
   --samples string                 path to the sidecar samples.jsonl (optional)
   --json                           emit a machine-readable JSON report
   --expect-key string              pin the coordinator public key (hex) out of band
+  --trust-store string             issuer trust store (JSON file or key directory)
+  --require-anchor                 fail unless the signing key is in the trust store
   --max-samples-per-worker int     per-worker record limit (0 = default)
   --max-samples int                whole-file record limit (0 = default)
   --proof-limit int                SHA-256 budget for proof verification
   --skip-ci                        skip confidence-interval recomputation
 
+Issuer trust:
+  A bundle carries the key that signed it, so a valid signature only proves the
+  file is self-consistent. --trust-store adds the missing half: the set of
+  issuers you decided to accept. Precedence: --trust-store when given, otherwise
+  $SIFT_HOME/trust.json when it exists. With --require-anchor, a bundle from any
+  key outside that set fails, and a missing store is an error.
+
 Examples:
   Sift verify --bundle bundle.json --samples bundle.samples.jsonl
   Sift verify --bundle bundle.json --json
+  Sift trust add --key school.pub --label "School #12"
+  Sift verify --bundle bundle.json --require-anchor
 `)
 }

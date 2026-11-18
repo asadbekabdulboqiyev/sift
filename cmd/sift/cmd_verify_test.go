@@ -43,12 +43,27 @@ var (
 // TestMain builds the CLI once and removes the temporary build directory after
 // the whole package's tests have run. Existing tests are unaffected: their
 // bodies still run under m.Run().
+//
+// It also points SIFT_HOME at a throwaway directory. Verification consults
+// $SIFT_HOME/trust.json automatically, so without this a developer who has
+// enrolled a real issuer would see different results than CI — and the tests
+// would silently depend on machine state instead of the code.
 func TestMain(m *testing.M) {
 	buildCLI()
+	home, err := os.MkdirTemp("", "Sift-home")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "TestMain: isolated SIFT_HOME: %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.Setenv("SIFT_HOME", home); err != nil {
+		fmt.Fprintf(os.Stderr, "TestMain: set SIFT_HOME: %v\n", err)
+		os.Exit(1)
+	}
 	code := m.Run()
 	if cliDir != "" {
 		_ = os.RemoveAll(cliDir)
 	}
+	_ = os.RemoveAll(home)
 	os.Exit(code)
 }
 

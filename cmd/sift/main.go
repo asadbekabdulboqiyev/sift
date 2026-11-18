@@ -21,7 +21,7 @@ var knownCommands = []string{
 	"demo-store", "pentest", "simulate", "xray", "bounty",
 	"fuzz", "dirbust", "jwt", "graphql", "websocket",
 	"crawl", "subdomain", "portscan", "sslscan",
-	"authorize", "audit", "healthcheck", "keygen", "verify", "certificate", "admin", "help", "version",
+	"authorize", "audit", "healthcheck", "keygen", "trust", "verify", "certificate", "admin", "help", "version",
 }
 
 func main() {
@@ -101,6 +101,9 @@ func main() {
 			return
 		case "keygen":
 			cmdKeygen()
+			return
+		case "trust":
+			cmdTrust()
 			return
 		case "verify":
 			cmdVerify()
@@ -184,6 +187,7 @@ Sift %s — Ultra-Fast Load Testing & Security Suite
    authorize   Manage target authorizations (allow-list + approvals)
    audit       Show or verify the authorization audit trail
    keygen      Create a Sift coordinator keypair (Ed25519, PEM)
+   trust       Manage the issuer trust store (pin who you believe)
    verify      Verify a Sift (vpmp/v1) evidence bundle
    certificate Issue/verify an Ed25519-signed security assessment certificate
    admin       Local admin area: code, status, unlock/lock the bypass switch

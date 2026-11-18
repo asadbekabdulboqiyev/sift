@@ -3,7 +3,7 @@
 [![Go 1.26+](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev/dl/)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
-[![Version](https://img.shields.io/badge/Version-0.16.6-green.svg)](https://github.com/asadbekabdulboqiyev/sift/releases/tag/v0.16.6)
+[![Version](https://img.shields.io/badge/Version-0.17.0-green.svg)](https://github.com/asadbekabdulboqiyev/sift/releases/tag/v0.17.0)
 
 **Sift** is a professional, self-hostable toolkit written in Go for **multi-protocol load testing**, **traffic replay**, **security scanning/pentest workflows**, **verifiable (cryptographically attestable) evidence**, and **planning/triage insights**.
 
@@ -19,7 +19,7 @@ It is designed for engineers, QA teams, and security practitioners who need a un
 
 - [Overview](#overview)
 - [Key Capabilities](#key-capabilities)
-- [What's Included in 0.16.6](#whats-included-in-0166)
+- [What's Included in 0.17.0](#whats-included-in-0166)
 - [Comparison with Paid Alternatives](#comparison-with-paid-alternatives)
 - [System Requirements](#system-requirements)
 - [Installation](#installation)
@@ -143,7 +143,18 @@ The dashboard includes quick actions for local demos: **Use VoltStore demo** (`h
 
 ---
 
-## What's Included in 0.16.6
+## What's Included in 0.17.0
+
+**Verifiable certificates: trust anchors, printed-copy verification, A4**
+
+- **Issuer trust anchors (`Sift trust add|list|remove|check|path`):** a certificate carries the key that signed it, so a passing signature proves the file is self-consistent and says nothing about who issued it. `Sift verify` and `Sift certificate` now consult an out-of-band trust store (`$SIFT_HOME/trust.json`, or `--trust-store`), and `--require-anchor` fails closed when the signer is not pinned. With no store configured, the previous behaviour is unchanged.
+- **A printed certificate verifies on its own:** the PDF embeds the signed certificate and a SHA-256 digest of the words drawn on its pages (`/SiftEvidence`, `sift-cert-pdf/v1`). `Sift certificate cert.pdf` checks both, so an edited printout fails even when the JSON inside it is untouched. `Sift certificate cert.json --format pdf` reprints a sealed PDF from a certificate that still verifies.
+- **A4 everywhere:** the PDF was US Letter while the HTML was A4; both are now 595.28x841.89 pt, so a printed certificate no longer shrinks on a European printer.
+- **Verdict tone fix:** the certificate derived its colour class with `strings.ToLower`, which turned `MEDIUM RISK -- Remediation recommended` into a class name containing spaces. No rule matched, so every verdict rendered uncoloured; the headline now carries the tone and the detail sits underneath it.
+- **Independent verifier:** `verify/standalone/sift_verify.py` checks a bundle with the Python standard library only, and `internal/attest/golden_test.go` pins the canonical digest so the Go and Python implementations cannot drift silently.
+- **Blank-PDF regression:** the PDF writer assigns object numbers deterministically and refuses to emit a cross-reference table with a gap; the tests resolve every reference instead of asserting the bytes are non-empty.
+
+**Included from 0.16.6**
 
 **100-point demo target, visual guide, and dashboard audit flow**
 
@@ -157,7 +168,7 @@ The dashboard includes quick actions for local demos: **Use VoltStore demo** (`h
 - Dashboard/audit360 helper and API guard coverage added; JS/asset and flow fixes maintained. Pentest report/output error handling and run-start refusal/guard behavior hardened in prior staged commits on this line.
 - **Verification (measured):** `gofmt` clean, `go vet ./...` OK, `go build ./...` OK; package tests and targeted `-race` runs pass in controlled environments (see commit/test evidence). In a local authorized Standard audit with the demo target reachable, the example target measured **100/100** (security/resilience/capacity/evidence 100, 0 findings, Low Risk, sealed report).
 
-**Recent updates (main, unreleased)**
+**Recent updates on the 0.16.x line**
 
 - **360° evidence-based scoring v3:** `sift.audit360-scoring/v3` with split scores plus assessment `coverage` (evidence basis), stronger evidence-driven deductions and transparent notes; every detected security/load/evidence issue is reported as an individual, detailed finding. No-fabrication preserved (untested/unmeasured/refused capacity explicitly reported). The local 100-point demo site (`127.0.0.1:8095`, Standard/authorized) still measures **100/100** (security/resilience/capacity/evidence/coverage 100, 0 findings, Low Risk, sealed) under v3.
 - **Pentest full weakness breakdown:** every discovered weakness is reported individually with full detail across all sources (headers/TLS/CORS, passive/intrusive/deep/sensitive-file, CVE/NVD, OWASP and other checks) — severity, evidence, impact, remediation, location/parameter/CWE/source/confidence as available — consistently in CLI, dashboard, certificates, and JSON/HTML/Markdown/professional reports (not limited to OWASP category summaries). OWASP coverage/status remains separate and `NOT TESTED` is never reported as `PASS`. Scoring/counters/merge/dedupe aligned to the detailed finding set.
@@ -228,7 +239,7 @@ Sift can be installed in multiple ways depending on your environment and operati
 ```bash
 git clone https://github.com/asadbekabdulboqiyev/sift.git
 cd sift
-./scripts/install-local.sh 0.16.6
+./scripts/install-local.sh 0.17.0
 # or: make install
 ```
 This builds all binaries, installs them to `$(go env GOBIN)` (or `$SIFT_INSTALL_DIR`), and performs macOS signing/launch checks.
@@ -242,9 +253,9 @@ sift version
 
 #### Option C: Release installer script (review before running)
 ```bash
-curl -fsSL -o install.sh https://raw.githubusercontent.com/asadbekabdulboqiyev/sift/v0.16.6/scripts/install.sh
+curl -fsSL -o install.sh https://raw.githubusercontent.com/asadbekabdulboqiyev/sift/v0.17.0/scripts/install.sh
 less install.sh
-./install.sh v0.16.6
+./install.sh v0.17.0
 ```
 Notes:
 - The script downloads release archives, verifies checksums (and can verify signatures if `cosign` is installed), installs binaries, and performs macOS signature/launch validation.
@@ -254,7 +265,7 @@ Notes:
 ```bash
 git clone https://github.com/asadbekabdulboqiyev/sift.git
 cd sift
-./scripts/build-all.sh 0.16.6
+./scripts/build-all.sh 0.17.0
 # binaries in ./bin
 ```
 
@@ -264,7 +275,7 @@ cd sift
 ```bash
 git clone https://github.com/asadbekabdulboqiyev/sift.git
 cd sift
-./scripts/install-local.sh 0.16.6
+./scripts/install-local.sh 0.17.0
 # or: make build && copy ./bin/* to a PATH directory
 ```
 
@@ -276,9 +287,9 @@ export PATH="$PATH:$(go env GOPATH)/bin"
 
 #### Option C: Release installer script
 ```bash
-curl -fsSL -o install.sh https://raw.githubusercontent.com/asadbekabdulboqiyev/sift/v0.16.6/scripts/install.sh
+curl -fsSL -o install.sh https://raw.githubusercontent.com/asadbekabdulboqiyev/sift/v0.17.0/scripts/install.sh
 less install.sh
-./install.sh v0.16.6
+./install.sh v0.17.0
 ```
 
 #### Option D: Release archives (manual)
@@ -316,12 +327,12 @@ git clone https://github.com/asadbekabdulboqiyev/sift.git
 cd sift
 
 # Build all binaries for current platform
-./scripts/build-all.sh 0.16.6
+./scripts/build-all.sh 0.17.0
 # or
 make build
 
 # Optional: install locally (with macOS signing/launch checks on Darwin)
-./scripts/install-local.sh 0.16.6
+./scripts/install-local.sh 0.17.0
 ```
 
 Produced binaries (local build): `Sift`, `Sift-dashboard`, `Sift-master`, `Sift-worker`, `Sift-replay`, `Sift-scan` (canonical names). Build/install scripts also create lowercase aliases: `sift`, `sift-dashboard`, `sift-master`, `sift-worker`, `sift-replay`, `sift-scan` for cross-platform CLI usage.
@@ -360,20 +371,20 @@ Always download from the official repository release page and verify integrity b
 #### Build images from source
 ```bash
 # Main/all-in-one image (per Dockerfile)
-docker build -t sift:0.16.6 .
+docker build -t sift:0.17.0 .
 
 # Distributed images
-docker build -f Dockerfile.master -t sift-master:0.16.6 .
-docker build -f Dockerfile.worker -t sift-worker:0.16.6 .
+docker build -f Dockerfile.master -t sift-master:0.17.0 .
+docker build -f Dockerfile.worker -t sift-worker:0.17.0 .
 ```
 
 #### Run examples
 ```bash
 # CLI help
-docker run --rm sift:0.16.6 sift --help
+docker run --rm sift:0.17.0 sift --help
 
 # Dashboard (bind to localhost on host)
-docker run --rm -p 127.0.0.1:8888:8888 sift:0.16.6 sift dashboard -listen 0.0.0.0:8888 --insecure
+docker run --rm -p 127.0.0.1:8888:8888 sift:0.17.0 sift dashboard -listen 0.0.0.0:8888 --insecure
 ```
 
 > Container defaults, entrypoints, and exposed ports may differ by image. Review the corresponding `Dockerfile`/compose configuration before production use.
@@ -469,9 +480,9 @@ sift --help | rg "simulate|xray|bounty"
 # 2) Rebuild and install latest local build (from repo root)
 cd /path/to/sift
 git pull
-./scripts/build-all.sh 0.16.6
-SIFT_INSTALL_DIR="$HOME/.local/bin" ./scripts/install-local.sh 0.16.6
-./scripts/install-local.sh 0.16.6
+./scripts/build-all.sh 0.17.0
+SIFT_INSTALL_DIR="$HOME/.local/bin" ./scripts/install-local.sh 0.17.0
+./scripts/install-local.sh 0.17.0
 
 # 3) Verify again
 sift version
@@ -1226,7 +1237,7 @@ See `docs/DEPLOYMENT-HARDENING.md` for detailed checklists and examples.
 ### Build
 ```bash
 make build
-./scripts/build-all.sh 0.16.6
+./scripts/build-all.sh 0.17.0
 ```
 
 ### Test and Validation
@@ -1267,7 +1278,7 @@ make verifier
 
 ### Latest version or new features not visible (macOS/CLI/dashboard)
 - Check installed binaries and version: `which -a sift && sift version`.
-- Rebuild/reinstall: `./scripts/build-all.sh 0.16.6 && ./scripts/install-local.sh 0.16.6`.
+- Rebuild/reinstall: `./scripts/build-all.sh 0.17.0 && ./scripts/install-local.sh 0.17.0`.
 - If another copy is earlier in `PATH` (e.g. `~/go/bin` vs `~/.local/bin`), update/remove the stale one or adjust `PATH`.
 - For dashboard UI, restart the dashboard process and hard refresh the browser (`Cmd+Shift+R`).
 - Confirm the running dashboard serves latest APIs: `curl -sS http://127.0.0.1:8888/api/version`.

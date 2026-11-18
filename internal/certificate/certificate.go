@@ -467,6 +467,93 @@ func VerifyBytes(data []byte) (*Certificate, error) {
 	return &c, nil
 }
 
+// TrustCheck is the answer to the question Verify cannot answer on its own:
+// who issued this certificate?
+//
+// A certificate carries the public key that signed it, so a passing signature
+// proves the document is self-consistent and nothing more — anyone can mint a
+// keypair and seal any assessment. Status reports whether the signer is one the
+// verifier chose to accept.
+type TrustCheck struct {
+	// Status is pinned, unpinned, untrusted or missing.
+	Status attest.IssuerTrust
+	// Label is the trust-store label of the signer, when pinned.
+	Label string
+	// Key is the signer public key as lowercase hex, echoed for the report.
+	Key string
+}
+
+// Trusted reports whether the signer was positively established.
+func (t TrustCheck) Trusted() bool { return t.Status.Trusted() }
+
+// Fingerprint renders the signer key in the grouped form printed on documents.
+func (t TrustCheck) Fingerprint() string { return attest.FingerprintHex(t.Key) }
+
+// VerifyWithTrust verifies c and then establishes whether its signer is
+// accepted by store.
+//
+// The two questions are kept separate on purpose:
+//
+//   - store == nil — the signature is checked and Status is unpinned. This is
+//     the historical behaviour, so existing callers and certificates keep
+//     working; the report simply stops implying an identity it cannot prove.
+//   - store != nil — a signer that is not in the store fails verification, even
+//     when every byte of the certificate is internally consistent.
+//   - requireAnchor turns "no store configured" into a failure.
+//
+// A returned error never hides the trust verdict: the TrustCheck is populated
+// before verification runs, so a rejection report can name the claimed signer.
+func VerifyWithTrust(c *Certificate, store *attest.TrustStore, requireAnchor bool) (TrustCheck, error) {
+	if c == nil {
+		return TrustCheck{Status: attest.IssuerMissing}, fmt.Errorf("certificate: nil certificate")
+	}
+
+	check := TrustCheck{Key: strings.ToLower(strings.TrimSpace(c.PublicKey))}
+	switch {
+	case check.Key == "":
+		check.Status = attest.IssuerMissing
+	case store == nil:
+		check.Status = attest.IssuerUnpinned
+	default:
+		if entry, ok := store.Lookup(check.Key); ok {
+			check.Status = attest.IssuerPinned
+			check.Label = entry.Label
+		} else {
+			check.Status = attest.IssuerUntrusted
+		}
+	}
+
+	if err := Verify(c); err != nil {
+		return check, err
+	}
+
+	switch {
+	case check.Status == attest.IssuerMissing:
+		return check, fmt.Errorf("certificate: the envelope carries no signer key, so no issuer can be established")
+	case check.Status == attest.IssuerUntrusted:
+		return check, fmt.Errorf("certificate: signer %s is not in the trust store (%d accepted issuers)",
+			check.Fingerprint(), store.Len())
+	case check.Status == attest.IssuerUnpinned && requireAnchor:
+		return check, fmt.Errorf("certificate: signer %s is unpinned and a trust anchor is required",
+			check.Fingerprint())
+	}
+	return check, nil
+}
+
+// VerifyBytesWithTrust parses a JSON certificate, verifies it, and checks its
+// signer against store.
+func VerifyBytesWithTrust(data []byte, store *attest.TrustStore, requireAnchor bool) (*Certificate, TrustCheck, error) {
+	var c Certificate
+	if err := json.Unmarshal(data, &c); err != nil {
+		return nil, TrustCheck{Status: attest.IssuerMissing}, fmt.Errorf("certificate: parse: %w", err)
+	}
+	check, err := VerifyWithTrust(&c, store, requireAnchor)
+	if err != nil {
+		return nil, check, err
+	}
+	return &c, check, nil
+}
+
 // MarshalJSON writes the certificate as JSON.
 func (c *Certificate) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {

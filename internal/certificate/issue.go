@@ -35,5 +35,10 @@ func Issue(kp *attest.Keypair, a Assessment, prevHash string, experimentReferenc
 	cert.ExperimentReference = experimentReference
 	cert.ValidityPeriod = "90 days"
 	cert.CertificateID = CertificateID(cert)
+	// Re-render now that the envelope values exist. Only the seal block changes,
+	// and the seal is excluded from the document hash, so this cannot invalidate
+	// the signature computed above — Verify re-hashes stripSeal(HTML) and gets
+	// the same bytes the signing pass saw.
+	cert.HTML = HTML(cert)
 	return cert, nil
 }
