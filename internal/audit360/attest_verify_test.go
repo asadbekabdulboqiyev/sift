@@ -1,10 +1,14 @@
 package audit360
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/attest"
 )
@@ -209,5 +213,49 @@ func TestVerifyReportAcceptsLegacyEphemeralSeal(t *testing.T) {
 	}
 	if check.CertificateID != rep.CertificateID {
 		t.Fatalf("certificate id = %q, want %q", check.CertificateID, rep.CertificateID)
+	}
+}
+
+// TestRunSealsWithProvidedKey is the end-to-end wiring check: a key handed to
+// Run through Options.SignerKey must be the key the finished report names and
+// verifies against. Without this, the persistent identity could be loaded and
+// then quietly ignored, and every report would look sealed and prove nothing.
+func TestRunSealsWithProvidedKey(t *testing.T) {
+	if testing.Short() {
+		t.Skip("runs the audit pipeline against a local server")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	kp, err := attest.GenerateKeypair()
+	if err != nil {
+		t.Fatalf("GenerateKeypair: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	rep, err := Run(ctx, Options{
+		TargetURL:    srv.URL,
+		MaxDuration:  3 * time.Second,
+		DemoStoreURL: srv.URL,
+		SignerKey:    kp,
+	}, func(string, string, string, string) {})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	want := attest.PublicKeyHex(kp.Public)
+	if got := SignerPublicKey(rep); got != want {
+		t.Fatalf("report signer note = %q, want the configured key", got)
+	}
+	check, err := VerifyReport(rep, want)
+	if err != nil {
+		t.Fatalf("report sealed with the configured key does not verify: %v", err)
+	}
+	if !check.Signed {
+		t.Fatal("report reported unsigned")
 	}
 }
