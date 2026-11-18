@@ -19,7 +19,7 @@ It is designed for engineers, QA teams, and security practitioners who need a un
 
 - [Overview](#overview)
 - [Key Capabilities](#key-capabilities)
-- [What's Included in 0.17.0](#whats-included-in-0166)
+- [What's Included in 0.17.0](#whats-included-in-0170)
 - [Comparison with Paid Alternatives](#comparison-with-paid-alternatives)
 - [System Requirements](#system-requirements)
 - [Installation](#installation)
