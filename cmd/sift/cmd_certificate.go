@@ -313,15 +313,17 @@ func verifyCertificatePDFFile(path string, data []byte, store *attest.TrustStore
 	fmt.Printf("  issuer:    %s\n", certificateIssuerLine(res.Check))
 	fmt.Printf("  signed at: %s\n", displayTime(c.SignedAt))
 	fmt.Printf("  page text: the certificate's own rendering (%s...)\n", firstN(res.RenderedSHA256, 16))
+	fmt.Printf("  page objects: identical to the document this certificate renders (%d objects)\n", res.ObjectsChecked)
 	if quiet {
 		return
 	}
 	fmt.Println()
 	fmt.Println("This PDF carries the signed certificate, and its pages are compared with")
-	fmt.Println("the pages that certificate renders to. Editing the words, or rebuilding")
-	fmt.Println("the file around a real certificate, fails: the page must be the sealed")
-	fmt.Println("document, not merely agree with a digest stored beside it. Verification")
-	fmt.Println("needs no key, no network and no side file.")
+	fmt.Println("the pages that certificate renders to — object by object, so a drawing, a")
+	fmt.Println("hex string or a swapped font is caught along with the words. Editing the")
+	fmt.Println("file, or rebuilding it around a real certificate, fails: the page must be")
+	fmt.Println("the sealed document, not merely agree with a digest stored beside it.")
+	fmt.Println("Verification needs no key, no network and no side file.")
 	if !res.Check.Trusted() {
 		fmt.Println()
 		fmt.Println("Who signed this is not established: the certificate carries its own signer key.")
@@ -381,6 +383,14 @@ type pdfVerifyJSON struct {
 	ExpectedSHA256              string `json:"expected_sha256,omitempty"`
 	RenderedMatches             bool   `json:"rendered_matches"`
 	RenderingMatchesCertificate bool   `json:"rendering_matches_certificate"`
+	// ObjectsMatchesCertificate is the stronger half: every object a reader can
+	// reach is byte-identical to the object the certificate renders to. The
+	// text digest cannot see a drawing operator, a hex string or a swapped
+	// font; this can, because it compares the document, not the words.
+	ObjectsMatchesCertificate bool `json:"objects_match_certificate"`
+	// ObjectsChecked is how many objects were compared, so a reader of the JSON
+	// can tell a one-page pass from a pass over a long annex.
+	ObjectsChecked int `json:"objects_checked,omitempty"`
 }
 
 func emitCertificateVerifyJSON(path string, c *certificate.Certificate, check certificate.TrustCheck, verifyErr error) error {
@@ -406,6 +416,8 @@ func emitCertificatePDFVerifyJSON(path string, res *certificate.PDFVerifyResult,
 		out.PDF.ExpectedSHA256 = res.ExpectedRenderedSHA256
 		out.PDF.RenderedMatches = res.RenderedMatch
 		out.PDF.RenderingMatchesCertificate = res.RenderingMatchesCertificate
+		out.PDF.ObjectsMatchesCertificate = res.ObjectsMatchCertificate
+		out.PDF.ObjectsChecked = res.ObjectsChecked
 	}
 	return writeCertificateVerifyJSON(out)
 }
@@ -639,7 +651,7 @@ WHERE THE CODE LIVES
 // therefore read through a nil check, not dereferenced.
 func renderPDF(a certificate.Assessment, cert *certificate.Certificate) []byte {
 	pdf := certificate.NewPDF()
-	for _, line := range certificate.CertificatePDFLines(a, cert) {
+	for _, line := range certificate.PDFLines(a, cert) {
 		pdf.Text(line)
 	}
 

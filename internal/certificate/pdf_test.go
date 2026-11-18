@@ -13,6 +13,7 @@ package certificate
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -347,7 +348,7 @@ func TestPDFSealRoundTrip(t *testing.T) {
 	// with a real certificate is no longer a valid PDF — that is the point of
 	// the strict check, and TestPDFSealRejectsRebuiltSeal pins it.
 	p := NewPDF()
-	for _, line := range CertificatePDFLines(c.Assessment, c) {
+	for _, line := range PDFLines(c.Assessment, c) {
 		p.Text(line)
 	}
 	doc, err := p.Seal(certJSON).Bytes()
@@ -364,6 +365,9 @@ func TestPDFSealRoundTrip(t *testing.T) {
 	}
 	if !res.RenderingMatchesCertificate {
 		t.Fatalf("page %s is not what the certificate renders to (%s)", res.RenderedSHA256, res.ExpectedRenderedSHA256)
+	}
+	if !res.ObjectsMatchCertificate {
+		t.Fatal("a certificate this package just printed does not match its own objects")
 	}
 	if res.Certificate == nil || res.Certificate.Signature != c.Signature {
 		t.Fatal("verified PDF did not return the embedded certificate")
@@ -427,11 +431,11 @@ func TestPDFSealRejectsRebuiltSeal(t *testing.T) {
 	}
 }
 
-// TestCertificatePDFLinesGolden pins the printed text. Every sealed PDF hashes
+// TestPDFLinesGolden pins the printed text. Every sealed PDF hashes
 // these exact lines, so a wording change silently invalidates every copy already
 // handed to a reader. The digest of this fixture is also the digest a v0.17.0
 // PDF must still re-render to.
-func TestCertificatePDFLinesGolden(t *testing.T) {
+func TestPDFLinesGolden(t *testing.T) {
 	// A literal, not NewFromPentest: that helper stamps SignedAt with the
 	// current time, and a golden that changes every second is not a golden.
 	a := Assessment{
@@ -453,7 +457,7 @@ func TestCertificatePDFLinesGolden(t *testing.T) {
 		Compliance:  []ComplianceResult{{Framework: "OWASP Top 10 (2021)", ID: "A05", Title: "Security Misconfiguration", Status: "FAIL"}},
 	}
 
-	got := strings.Join(CertificatePDFLines(a, nil), "\n")
+	got := strings.Join(PDFLines(a, nil), "\n")
 	want := strings.Join([]string{
 		"Sift - Security Assessment Certificate (ss-cert/v1)",
 		"",
@@ -623,7 +627,7 @@ func TestPDFReadsObjectsThroughXrefNotByScanning(t *testing.T) {
 		t.Fatalf("marshal certificate: %v", err)
 	}
 	p := NewPDF()
-	for _, line := range CertificatePDFLines(c.Assessment, c) {
+	for _, line := range PDFLines(c.Assessment, c) {
 		p.Text(line)
 	}
 	genuine, err := p.Seal(certJSON).Bytes()
@@ -679,7 +683,7 @@ func TestPDFRefusesTamperedXrefOffset(t *testing.T) {
 		t.Fatalf("marshal certificate: %v", err)
 	}
 	p := NewPDF()
-	for _, line := range CertificatePDFLines(c.Assessment, c) {
+	for _, line := range PDFLines(c.Assessment, c) {
 		p.Text(line)
 	}
 	doc, err := p.Seal(certJSON).Bytes()
@@ -706,5 +710,197 @@ func TestPDFRefusesTamperedXrefOffset(t *testing.T) {
 	}
 	if _, err := PDFEvidenceOf(tampered); err == nil {
 		t.Fatal("the seal was read from a file with a broken cross-reference table")
+	}
+}
+
+// pdfRewriteObject replaces one object's body and rebuilds the file with a
+// fresh cross-reference table, so the result stays well formed: a viewer
+// follows the table and reaches the new body.
+//
+// The trailer is carried over verbatim. The attack under test is against what
+// the page draws, not against the parser, so /Root and the catalog's
+// /SiftEvidence reference must still point where they did.
+func pdfRewriteObject(t *testing.T, doc []byte, num int, body string) []byte {
+	t.Helper()
+	objs := pdfParse(t, doc)
+	if _, ok := objs[num]; !ok {
+		t.Fatalf("test setup: no object %d", num)
+	}
+	objs[num] = body
+
+	i := bytes.LastIndex(doc, []byte("trailer\n"))
+	if i < 0 {
+		t.Fatal("test setup: no trailer")
+	}
+	j := bytes.Index(doc[i:], []byte("startxref"))
+	if j < 0 {
+		t.Fatal("test setup: no startxref after the trailer")
+	}
+	trailer := doc[i : i+j]
+
+	max := 0
+	for n := range objs {
+		if n > max {
+			max = n
+		}
+	}
+
+	var b bytes.Buffer
+	b.WriteString("%PDF-1.4\n")
+	offsets := make([]int, max+1)
+	for n := 1; n <= max; n++ {
+		body, ok := objs[n]
+		if !ok {
+			t.Fatalf("test setup: object %d missing from the document", n)
+		}
+		offsets[n] = b.Len()
+		fmt.Fprintf(&b, "%d 0 obj\n", n)
+		b.WriteString(body)
+		b.WriteString("endobj\n")
+	}
+
+	xrefAt := b.Len()
+	b.WriteString("xref\n")
+	fmt.Fprintf(&b, "0 %d\n", max+1)
+	b.WriteString("0000000000 65535 f \n")
+	for n := 1; n <= max; n++ {
+		fmt.Fprintf(&b, "%010d 00000 n \n", offsets[n])
+	}
+	b.Write(trailer)
+	fmt.Fprintf(&b, "startxref\n%d\n%%%%EOF\n", xrefAt)
+	return b.Bytes()
+}
+
+// pdfSealedGenuine prints the verifiable certificate and returns the file, the
+// page-1 content stream and the number of the object that holds it.
+func pdfSealedGenuine(t *testing.T) ([]byte, int, string) {
+	t.Helper()
+	c := verifiableCert(t)
+	certJSON, err := json.Marshal(c)
+	if err != nil {
+		t.Fatalf("marshal certificate: %v", err)
+	}
+	p := NewPDF()
+	for _, line := range PDFLines(c.Assessment, c) {
+		p.Text(line)
+	}
+	doc, err := p.Seal(certJSON).Bytes()
+	if err != nil {
+		t.Fatalf("Bytes: %v", err)
+	}
+	objs := pdfParse(t, doc)
+	contentNum := mustRef(t, reContRef, objs[3], "page 1 contents")
+	body := objs[contentNum]
+	start := strings.Index(body, "stream\n")
+	end := strings.LastIndex(body, "\nendstream")
+	if start < 0 || end < 0 {
+		t.Fatalf("test setup: content object has no stream: %q", body)
+	}
+	return doc, contentNum, body[start+len("stream\n") : end]
+}
+
+// TestPDFRejectsNonTextDrawing is the attack the text digest cannot see.
+//
+// The rendered digest covers the literal strings a page draws: it walks the
+// content streams looking for "(...)" followed by " Tj". Everything else a
+// viewer obeys is outside it. So append to page 1's content stream a filled
+// white rectangle over the grade line and the grade drawn again as a hex
+// string — text, but not in the form the digest collects.
+//
+// Against the released v0.17.0 binary that file verified VALID. Rendered by a
+// viewer, the grade reads A and the "Verdict: PASS" text beside it is painted
+// over: five dark pixels on the genuine page, none on this one.
+//
+// The object check refuses it, and the two text-level checks below still pass —
+// which is the point. They are not wrong, they are just not enough.
+func TestPDFRejectsNonTextDrawing(t *testing.T) {
+	genuine, contentNum, stream := pdfSealedGenuine(t)
+	if !strings.Contains(stream, "Grade: B") {
+		t.Fatalf("test setup: page 1 does not draw the grade: %q", stream)
+	}
+
+	overlay := "\nq\n1 1 1 rg\n50 738 495 16 re f\nQ\n" +
+		"BT\n/F1 10 Tf\n50 744 Td\n<" + hex.EncodeToString([]byte("Grade: A")) + "> Tj\nET\n"
+	newStream := stream + overlay
+	attacked := pdfRewriteObject(t, genuine, contentNum,
+		fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream\n", len(newStream), newStream))
+
+	res, err := VerifyPDF(attacked, nil, false)
+	if err == nil {
+		t.Fatal("a PDF that paints over its grade and redraws it as a hex string verified")
+	}
+	if res == nil {
+		t.Fatal("no result returned for a rejected PDF")
+	}
+	if !res.RenderedMatch {
+		t.Fatal("test setup: the text digest should be unchanged — no new (...) string was added")
+	}
+	if !res.RenderingMatchesCertificate {
+		t.Fatal("test setup: the text still equals the certificate's rendering; that is why it was not enough")
+	}
+	if res.ObjectsMatchCertificate {
+		t.Fatal("the appended drawing was reported as part of the certificate")
+	}
+	if !strings.Contains(err.Error(), "object") {
+		t.Errorf("unhelpful error: %v", err)
+	}
+}
+
+// TestPDFRejectsSwappedFont pins the other half: a font dictionary is not text,
+// so swapping /BaseFont changes how every line looks without changing a byte
+// the digest hashes. It must not verify.
+func TestPDFRejectsSwappedFont(t *testing.T) {
+	genuine, _, _ := pdfSealedGenuine(t)
+	objs := pdfParse(t, genuine)
+	fontNum := mustRef(t, reFontRef, objs[3], "page 1 font")
+	body := objs[fontNum]
+	swapped := strings.Replace(body, "/Helvetica", "/Times-Roman", 1)
+	if swapped == body {
+		t.Fatalf("test setup: font object does not name Helvetica: %q", body)
+	}
+
+	res, err := VerifyPDF(pdfRewriteObject(t, genuine, fontNum, swapped), nil, false)
+	if err == nil {
+		t.Fatal("a PDF whose font was swapped after sealing verified")
+	}
+	if res == nil {
+		t.Fatal("no result returned for a rejected PDF")
+	}
+	if !res.RenderingMatchesCertificate {
+		t.Fatal("test setup: a font swap leaves the text digest unchanged")
+	}
+	if res.ObjectsMatchCertificate {
+		t.Fatal("the swapped font dictionary was reported as part of the certificate")
+	}
+}
+
+// TestPDFRejectsStrayObjectDefinition covers the mirror image of the decoy
+// attack: leave the object the table names untouched and append a second
+// definition of it that says something else. A reader that follows the table
+// shows the genuine grade; a reader that takes the last definition it finds
+// shows the forged one. The file is refused because it has two answers, not
+// because one of them is preferred.
+func TestPDFRejectsStrayObjectDefinition(t *testing.T) {
+	genuine, contentNum, stream := pdfSealedGenuine(t)
+	lie := strings.Replace(stream, "Grade: B", "Grade: A", 1)
+	if lie == stream {
+		t.Fatal("test setup: the page does not draw the grade")
+	}
+	stray := fmt.Sprintf("\n%d 0 obj\n<< /Length %d >>\nstream\n%s\nendstream\nendobj\n",
+		contentNum, len(lie), lie)
+	attacked := append(append([]byte{}, genuine...), stray...)
+
+	res, err := VerifyPDF(attacked, nil, false)
+	if err == nil {
+		t.Fatal("a PDF with a second definition of its content object verified")
+	}
+	if res == nil {
+		t.Fatal("no result returned for a rejected PDF")
+	}
+	if res.ObjectsMatchCertificate {
+		t.Fatal("the stray definition was reported as part of the certificate")
+	}
+	if !strings.Contains(err.Error(), "does not name") {
+		t.Errorf("unhelpful error: %v", err)
 	}
 }

@@ -34,12 +34,12 @@ import (
 	"strings"
 )
 
-// CertificatePDFLines returns the text a certificate PDF draws, in order.
+// PDFLines returns the text a certificate PDF draws, in order.
 //
 // The result depends only on the certificate (plus the two fields the assessment
 // may leave for it to fill in), which is what lets a verifier recompute the
 // expected pages from the embedded JSON alone.
-func CertificatePDFLines(a Assessment, cert *Certificate) []string {
+func PDFLines(a Assessment, cert *Certificate) []string {
 	var certID, validity, signature, publicKey string
 	if cert != nil {
 		// A caller that only has the assessment can pass cert.Assessment and
@@ -119,7 +119,7 @@ func ExpectedPDFRenderedSHA256(c *Certificate) string {
 		return ""
 	}
 	p := NewPDF()
-	for _, line := range CertificatePDFLines(c.Assessment, c) {
+	for _, line := range PDFLines(c.Assessment, c) {
 		p.Text(line)
 	}
 	return pdfRenderedDigest(p.layout())
@@ -151,4 +151,51 @@ func pdfTextList(items []string) string {
 		return "-"
 	}
 	return strings.Join(items, ", ")
+}
+
+// expectedPDFObjects rebuilds the document the certificate should print and
+// returns its objects by number, plus the number the evidence object takes.
+//
+// The writer is deterministic — same lines, same wrapping, same object numbers —
+// so "the PDF this certificate produces" is a value a verifier can compute, not
+// a description it has to approximate. Comparing those objects byte for byte is
+// what makes the printed copy the certificate: a digest over the text alone
+// leaves everything that is not a "(...)" string outside the check.
+//
+// A placeholder seal is used so the writer assigns the evidence object its real
+// number and writes the catalog reference to it. The evidence object itself is
+// excluded by the caller: it carries the seal, and the seal cannot cover itself.
+func expectedPDFObjects(c *Certificate) (map[int][]byte, int, error) {
+	if c == nil {
+		return nil, 0, fmt.Errorf("certificate: no certificate to render")
+	}
+	p := NewPDF()
+	for _, line := range PDFLines(c.Assessment, c) {
+		p.Text(line)
+	}
+	p.Seal([]byte("{}"))
+
+	doc, err := p.Bytes()
+	if err != nil {
+		return nil, 0, fmt.Errorf("certificate: re-render: %w", err)
+	}
+	d, err := parsePDFDoc(doc)
+	if err != nil {
+		return nil, 0, fmt.Errorf("certificate: re-render: %w", err)
+	}
+	pages, err := d.pageContentObjects()
+	if err != nil {
+		return nil, 0, fmt.Errorf("certificate: re-render: %w", err)
+	}
+
+	evObj := 3 + 3*len(pages)
+	out := make(map[int][]byte, evObj-1)
+	for n := 1; n < evObj; n++ {
+		body, err := d.object(n)
+		if err != nil {
+			return nil, 0, fmt.Errorf("certificate: re-render: %w", err)
+		}
+		out[n] = body
+	}
+	return out, evObj, nil
 }

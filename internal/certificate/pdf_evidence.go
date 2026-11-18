@@ -35,7 +35,7 @@ package certificate
 // grade A, and every check the first version made said VALID.
 //
 // So the verifier does not stop at page == seal. It re-renders the pages the
-// embedded certificate is supposed to produce (CertificatePDFLines in
+// embedded certificate is supposed to produce (PDFLines in
 // pdf_certificate.go, the same function the printer calls) and requires the
 // page digest to equal that. The seal becomes redundant evidence rather than the
 // authority: a rebuilt file fails because no issuer signed a page that says A.
@@ -220,6 +220,16 @@ type PDFVerifyResult struct {
 	// the page and the seal both equal it.
 	ExpectedRenderedSHA256      string
 	RenderingMatchesCertificate bool
+
+	// ObjectsMatchCertificate says every object a reader can reach — the
+	// catalog, the page tree, the page dictionaries, the fonts and the content
+	// streams — is byte-identical to the object this certificate renders to.
+	// It is the check that covers what the text digest cannot: anything a viewer
+	// draws that is not a "(...)" string.
+	ObjectsMatchCertificate bool
+	// ObjectsChecked is how many objects that comparison covered, so a report
+	// can say what was actually looked at rather than only that it passed.
+	ObjectsChecked int
 }
 
 // VerifyPDF checks a printed certificate without any side file: the embedded
@@ -268,7 +278,87 @@ func VerifyPDF(data []byte, store *attest.TrustStore, requireAnchor bool) (*PDFV
 	if !res.RenderingMatchesCertificate {
 		return res, fmt.Errorf("certificate: this PDF's seal was written for text that this certificate does not render (page %s, expected %s) — the file was rebuilt after signing, so the page is not the sealed document", shortDigest(got), shortDigest(res.ExpectedRenderedSHA256))
 	}
+
+	objectsMatch, checked, detail, err := documentObjectsMatch(data, c)
+	if err != nil {
+		return res, err
+	}
+	res.ObjectsMatchCertificate = objectsMatch
+	res.ObjectsChecked = checked
+	if !objectsMatch {
+		return res, fmt.Errorf("certificate: %s — the file draws something this certificate does not render", detail)
+	}
 	return res, nil
+}
+
+// documentObjectsMatch requires the document to be the one the certificate
+// renders, object by object.
+//
+// # The hole this closes
+//
+// The rendered-text digest covers the literal strings a page draws: it walks the
+// content streams looking for "(...)" followed by " Tj". Everything else a
+// viewer obeys is outside it — a hex string "<...>", a TJ array, a filled
+// rectangle, a form XObject, a font whose /BaseFont was swapped. So an editor
+// can leave every sealed string in place and still change what the page says.
+//
+// That was not hypothetical. Appending to page 1's content stream a white
+// rectangle over the grade line and the hex string for "Grade: A" produced a
+// file that renders as an A, hides the B, and verified as VALID: the digest was
+// unchanged because no "(...)" string was added, and the re-render check agreed
+// for the same reason. Measured on the rendered page: the "Verdict: PASS" text
+// beside the grade went from five dark pixels to none.
+//
+// # Why equality and not a digest
+//
+// The writer is deterministic, so the verifier can rebuild the exact objects the
+// certificate produces and require them byte for byte. That covers the content
+// streams, the page dictionaries (media box, rotation, resources), the font
+// dictionaries and the page tree, with no parser for drawing operators and no
+// digest stored in the file it describes. The evidence object is the one object
+// excluded: it holds the seal, and a seal cannot cover itself.
+func documentObjectsMatch(data []byte, c *Certificate) (bool, int, string, error) {
+	want, evObj, err := expectedPDFObjects(c)
+	if err != nil {
+		return false, 0, "", err
+	}
+	doc, err := parsePDFDoc(data)
+	if err != nil {
+		return false, 0, "", err
+	}
+
+	// The catalog must be object 1. Otherwise a reader and this verifier could
+	// be looking at different page trees: the objects below could all match while
+	// the trailer points the viewer somewhere else.
+	if doc.root != 1 {
+		return false, 0, fmt.Sprintf("the PDF trailer points at object %d as its catalog, not object 1", doc.root), nil
+	}
+
+	for n := 1; n < evObj; n++ {
+		got, err := doc.object(n)
+		if err != nil {
+			return false, 0, fmt.Sprintf("object %d cannot be read: %v", n, err), nil
+		}
+		if !bytes.Equal(got, want[n]) {
+			return false, 0, fmt.Sprintf("object %d is not the object this certificate renders", n), nil
+		}
+	}
+
+	// Every object definition in the file must be the one the table names. A
+	// second definition — appended after the last object, wedged into the gap
+	// before the table, or written after %%EOF — is invisible to a reader that
+	// follows the cross-reference table and visible to one that takes the last
+	// definition it finds. Either way two readers would disagree about the page,
+	// so a file with two definitions is refused rather than judged by one of them.
+	for _, m := range reObjHeader.FindAllSubmatchIndex(data, -1) {
+		num := string(data[m[2]:m[3]])
+		gen := string(data[m[4]:m[5]])
+		n, err := strconv.Atoi(num)
+		if err != nil || gen != "0" || doc.offsets[n] != m[0] {
+			return false, 0, fmt.Sprintf("the file defines object %s %s at byte %d, which the cross-reference table does not name", num, gen, m[0]), nil
+		}
+	}
+	return true, evObj - 1, "", nil
 }
 
 func shortDigest(s string) string {
@@ -287,6 +377,8 @@ var (
 	reKidsArray    = regexp.MustCompile(`(?s)/Kids\s*\[([^\]]*)\]`)
 	reTrailerSize  = regexp.MustCompile(`/Size\s+(\d+)`)
 	reTrailerRoot  = regexp.MustCompile(`/Root\s+(\d+)\s+0\s+R`)
+	// Any line that claims to define an object, at any generation.
+	reObjHeader = regexp.MustCompile(`(?m)^(\d+) (\d+) obj\r?$`)
 )
 
 // pdfDoc locates objects the way a reader does: through the cross-reference
