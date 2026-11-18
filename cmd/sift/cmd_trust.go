@@ -27,6 +27,7 @@ package main
 import (
 	"crypto/ed25519"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -144,7 +145,13 @@ func trustList(args []string) {
 
 	store, err := attest.LoadTrustStore(*storePath)
 	if err != nil {
-		if os.IsNotExist(err) || strings.Contains(err.Error(), "no such file") {
+		// errors.Is walks the wrap chain and matches the platform's own
+		// "not found" error (os.ErrNotExist is fs.ErrNotExist). os.IsNotExist does not unwrap, so it saw the
+		// fmt.Errorf wrapper and said no; the string fallback then only worked
+		// on Unix, where the message happens to be "no such file". On Windows
+		// it is "The system cannot find the file specified", so `trust list`
+		// on a fresh machine exited 1 instead of reporting an empty store.
+		if errors.Is(err, os.ErrNotExist) {
 			if *asJSON {
 				emitTrustListJSON(*storePath, attest.NewTrustStore())
 				return

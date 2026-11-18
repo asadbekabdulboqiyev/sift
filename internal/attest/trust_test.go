@@ -10,8 +10,10 @@ package attest
 // claim is a lie.
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -187,12 +189,17 @@ func TestTrustStoreSaveLoadRoundTrip(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if perm := info.Mode().Perm(); perm != 0o644 {
-		t.Fatalf("mode = %o, want 644 (public keys are not secret)", perm)
+	// Windows has no POSIX permission bits: Chmod only toggles the read-only
+	// attribute and Stat reports 0666 for every writable file, so the mode
+	// assertion below is a Unix-only claim.
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat: %v", err)
+		}
+		if perm := info.Mode().Perm(); perm != 0o644 {
+			t.Fatalf("mode = %o, want 644 (public keys are not secret)", perm)
+		}
 	}
 
 	loaded, err := LoadTrustStore(path)
@@ -534,5 +541,38 @@ func TestVerifyTrustStoreLoadedFromDisk(t *testing.T) {
 	}
 	if !res.IssuerTrust.Trusted() {
 		t.Fatalf("IssuerTrust = %q, want trusted", res.IssuerTrust)
+	}
+}
+
+// TestLoadTrustStoreMissingIsErrNotExist pins the contract the CLI relies on.
+//
+// `Sift trust list` on a machine that has never pinned an issuer must report an
+// empty store, not fail. It asks LoadTrustStore, and LoadTrustStore wraps the
+// stat error to name the path — which means the plain os.IsNotExist(err) check
+// answers "no" even though the file really is absent, because that function
+// does not unwrap. The first version of the command compensated with a
+// strings.Contains(err, "no such file"), which is Unix wording; on Windows the
+// message is "The system cannot find the file specified", so the command exited
+// 1 on a fresh machine.
+//
+// The test asserts the two facts the fix depends on, on every platform: the
+// error is a not-exist error for errors.Is, and it is not one for os.IsNotExist.
+// If a future change stops wrapping (or starts returning a bare error), this
+// fails here rather than in a Windows CI job nobody watches.
+func TestLoadTrustStoreMissingIsErrNotExist(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "absent", "trust.json")
+
+	_, err := LoadTrustStore(path)
+	if err == nil {
+		t.Fatal("LoadTrustStore loaded a store that does not exist")
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("errors.Is(err, os.ErrNotExist) = false; the CLI cannot tell an empty store from a broken one: %v", err)
+	}
+	if os.IsNotExist(err) {
+		t.Log("os.IsNotExist now unwraps too; the CLI's errors.Is check is still the correct one")
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Errorf("error does not name the path %q: %v", path, err)
 	}
 }
