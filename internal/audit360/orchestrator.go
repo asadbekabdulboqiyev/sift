@@ -26,6 +26,19 @@ type Options struct {
 	DemoStoreURL string
 	Mode         string
 	Now          func() time.Time
+
+	// SignerKey, when set, is the identity that seals the report. A persistent
+	// key makes the seal attributable: a verifier can pin the public key and
+	// answer "did this issuer produce this file?", which an ephemeral per-run
+	// key cannot — anyone can mint one and sign with it.
+	//
+	// Nil keeps the legacy behaviour (fresh keypair per run), so callers that do
+	// not manage a key still produce a self-consistent report.
+	SignerKey *attest.Keypair
+	// SignerKeyErr reports why a configured signer key could not be loaded. It
+	// is recorded in the report notes instead of being dropped, because a run
+	// that silently fell back to an ephemeral key is not attributable.
+	SignerKeyErr error
 }
 
 type progressSink func(stageID, status, detail string, errMsg string)
@@ -207,7 +220,13 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 	// without drift, generate/sign in-place so the noted public key matches the
 	// signing key.
 	var sealErr error
-	kp, kerr := attest.GenerateKeypair()
+	if opt.SignerKeyErr != nil {
+		rep.Notes = append(rep.Notes, "Attestation sealing warning: signer key unavailable: "+opt.SignerKeyErr.Error())
+	}
+	kp, kerr := opt.SignerKey, error(nil)
+	if kp == nil {
+		kp, kerr = attest.GenerateKeypair()
+	}
 	if kerr != nil || kp == nil || len(kp.Private) != ed25519.PrivateKeySize {
 		// Best-effort fallback: preserve a deterministic certificate id bound to
 		// the final payload without claiming a cryptographic signature.
@@ -227,26 +246,16 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 			rep.CertificateID = hex.EncodeToString(digest[:16])
 			rep.VPMPSignature = ""
 		}
-	} else {
-		pubHex := attest.PublicKeyHex(kp.Public)
-		rep.Notes = append(rep.Notes, "VPMP signer public key (hex): "+pubHex)
-		payload, perr := canonicalSealPayload(rep)
-		if perr != nil {
+	} else if _, _, _, serr := SealWithKey(rep, kp); serr != nil {
+		// The key was usable but sealing failed (canonicalization or signing).
+		// Keep the report usable and say so, rather than emitting a signature
+		// that does not check out.
+		rep.VPMPSignature = ""
+		if strings.TrimSpace(rep.CertificateID) == "" {
 			rep.CertificateID = "unavailable"
-			rep.VPMPSignature = ""
-			rep.Notes = append(rep.Notes, "Attestation sealing warning: "+perr.Error())
-			sealErr = perr
-		} else {
-			digest := sha256.Sum256(payload)
-			rep.CertificateID = hex.EncodeToString(digest[:16])
-			if sigb, serr := attest.Sign(kp, digest[:]); serr != nil {
-				rep.VPMPSignature = ""
-				rep.Notes = append(rep.Notes, "Attestation sealing warning: "+serr.Error())
-				sealErr = serr
-			} else {
-				rep.VPMPSignature = hex.EncodeToString(sigb)
-			}
 		}
+		rep.Notes = append(rep.Notes, "Attestation sealing warning: "+serr.Error())
+		sealErr = serr
 	}
 
 	if sealErr != nil && rep.VPMPSignature == "" {

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/attest"
@@ -52,6 +53,48 @@ func Seal(report *Audit360Report) (certID, signature, pubHex string, err error) 
 	return certID, signature, pubHex, nil
 }
 
+// SignerNotePrefix is the note prefix that records the signer's public key
+// inside the report body. It is part of the sealed payload, so the key a
+// verifier reads is the key the signature was made with.
+const SignerNotePrefix = "VPMP signer public key (hex): "
+
+// SealWithKey seals the report in place with kp.
+//
+// The signer's public key is appended to the notes before the payload is
+// canonicalized, so the key is covered by the signature it is used to check.
+// That is what makes verification self-contained; it is also why the key alone
+// proves nothing about identity — pin it out of band (see VerifyReport).
+//
+// Call it once per report: a second call appends a second note and re-signs the
+// changed payload.
+func SealWithKey(report *Audit360Report, kp *attest.Keypair) (certID, signature, pubHex string, err error) {
+	if report == nil {
+		return "", "", "", fmt.Errorf("audit360: cannot seal nil report")
+	}
+	if kp == nil || len(kp.Private) != ed25519.PrivateKeySize {
+		return "", "", "", fmt.Errorf("audit360: sealing requires a valid Ed25519 private key")
+	}
+
+	pubHex = attest.PublicKeyHex(kp.Public)
+	report.Notes = append(report.Notes, SignerNotePrefix+pubHex)
+
+	payload, err := canonicalSealPayload(report)
+	if err != nil {
+		return "", "", pubHex, err
+	}
+	digest := sha256.Sum256(payload)
+	certID = hex.EncodeToString(digest[:16])
+
+	sig, err := attest.Sign(kp, digest[:])
+	if err != nil {
+		return certID, "", pubHex, fmt.Errorf("audit360: sign failed: %w", err)
+	}
+	signature = hex.EncodeToString(sig)
+	report.CertificateID = certID
+	report.VPMPSignature = signature
+	return certID, signature, pubHex, nil
+}
+
 // VerifySeal verifies a VPMP-style Ed25519 signature over the canonical report
 // digest. Returns (valid, reason). Useful for tests and future verification APIs.
 func VerifySeal(report *Audit360Report, signatureHex, pubKeyHex string) (bool, string) {
@@ -84,6 +127,72 @@ func VerifySeal(report *Audit360Report, signatureHex, pubKeyHex string) (bool, s
 		}
 	}
 	return true, "ok"
+}
+
+// SealCheck is the outcome of checking a sealed 360° report.
+type SealCheck struct {
+	// Signed is true when the signature verifies against the key the report
+	// names in its notes and the certificate id matches the sealed payload.
+	Signed bool
+	// SignerKey is the hex public key the report claims signed it, and
+	// Fingerprint the same key rendered for out-of-band comparison.
+	SignerKey   string
+	Fingerprint string
+	// CertificateID is the 128-bit id derived from the sealed payload digest.
+	CertificateID string
+	// Reason explains a failed check.
+	Reason string
+}
+
+// SignerPublicKey returns the public key the report's notes claim signed it.
+//
+// The key lives inside the signed payload, so a verifier that only reads it can
+// prove "this file is internally consistent" — never "this came from Sift". Use
+// VerifyReport with a pinned key for the latter.
+func SignerPublicKey(r *Audit360Report) string {
+	if r == nil {
+		return ""
+	}
+	return extractSignerPublicKey(r.Notes)
+}
+
+// VerifyReport checks a sealed 360° report.
+//
+// pinnedPubKeyHex, when non-empty, requires the seal to be attributable to that
+// exact key; otherwise the check answers only whether the file is intact. A
+// report whose notes carry no key is treated as unsigned, not as valid.
+func VerifyReport(r *Audit360Report, pinnedPubKeyHex string) (*SealCheck, error) {
+	if r == nil {
+		return nil, fmt.Errorf("audit360: nil report")
+	}
+	claimed := SignerPublicKey(r)
+	out := &SealCheck{
+		SignerKey:     claimed,
+		CertificateID: r.CertificateID,
+	}
+	if pub, err := attest.ParsePublicKeyHex(claimed); err == nil {
+		out.Fingerprint = attest.Fingerprint(pub)
+	}
+
+	ok, reason := VerifySeal(r, r.VPMPSignature, claimed)
+	out.Signed = ok
+	out.Reason = reason
+	if !ok {
+		return out, fmt.Errorf("audit360: seal invalid: %s", reason)
+	}
+
+	if pinned := strings.TrimSpace(pinnedPubKeyHex); pinned != "" && !strings.EqualFold(pinned, claimed) {
+		return out, fmt.Errorf("audit360: signer key %s does not match the pinned key", shortKey(claimed))
+	}
+	return out, nil
+}
+
+func shortKey(hexKey string) string {
+	hexKey = strings.TrimSpace(hexKey)
+	if len(hexKey) <= 16 {
+		return hexKey
+	}
+	return hexKey[:16] + "..."
 }
 
 type sealPayload struct {

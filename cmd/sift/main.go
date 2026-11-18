@@ -21,7 +21,7 @@ var knownCommands = []string{
 	"demo-store", "pentest", "simulate", "xray", "bounty",
 	"fuzz", "dirbust", "jwt", "graphql", "websocket",
 	"crawl", "subdomain", "portscan", "sslscan",
-	"authorize", "audit", "healthcheck", "keygen", "trust", "verify", "certificate", "admin", "help", "version",
+	"authorize", "audit", "healthcheck", "keygen", "trust", "verify", "certificate", "audit360", "admin", "help", "version",
 }
 
 func main() {
@@ -111,6 +111,9 @@ func main() {
 		case "certificate":
 			cmdCertificate()
 			return
+		case "audit360":
+			cmdAudit360()
+			return
 		case "admin":
 			cmdAdmin()
 			return
@@ -190,6 +193,7 @@ Sift %s — Ultra-Fast Load Testing & Security Suite
    trust       Manage the issuer trust store (pin who you believe)
    verify      Verify a Sift (vpmp/v1) evidence bundle
    certificate Issue/verify an Ed25519-signed security assessment certificate
+   audit360    Verify a sealed Sift 360° audit report
    admin       Local admin area: code, status, unlock/lock the bypass switch
    help        Show this help
    version     Show version

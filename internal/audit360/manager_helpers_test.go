@@ -1,6 +1,9 @@
 package audit360
 
 import (
+	"crypto/ed25519"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -100,5 +103,52 @@ func TestApplyStageUpdateAndMarkAllDone(t *testing.T) {
 		if st.Stages[i].EndedAt.IsZero() {
 			t.Errorf("stage[%d].EndedAt not set", i)
 		}
+	}
+}
+
+// TestManagerSignerKeypairPersists is the difference between an attributable
+// seal and a self-consistent one: the key is created once, kept on disk, and
+// reused, so every report from this install names the same identity.
+func TestManagerSignerKeypairPersists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit360-key.pem")
+	m := NewManagerWithSignerKey(path)
+
+	first, err := m.signerKeypair()
+	if err != nil {
+		t.Fatalf("signerKeypair: %v", err)
+	}
+	if first == nil || len(first.Private) != ed25519.PrivateKeySize {
+		t.Fatal("signerKeypair did not return a usable key")
+	}
+	if info, err := os.Stat(path); err != nil {
+		t.Fatalf("key file not created: %v", err)
+	} else if info.Mode().Perm() != 0o600 {
+		t.Fatalf("key file mode = %o, want 0600", info.Mode().Perm())
+	}
+
+	second, err := m.signerKeypair()
+	if err != nil {
+		t.Fatalf("signerKeypair (cached): %v", err)
+	}
+	if !first.Public.Equal(second.Public) {
+		t.Fatal("second call returned a different identity")
+	}
+
+	// A fresh manager over the same path must load the same key, not mint one.
+	reopened, err := NewManagerWithSignerKey(path).signerKeypair()
+	if err != nil {
+		t.Fatalf("signerKeypair (reopen): %v", err)
+	}
+	if !first.Public.Equal(reopened.Public) {
+		t.Fatal("reopened manager minted a new identity instead of loading the stored one")
+	}
+}
+
+// TestManagerWithoutSignerKeyKeepsLegacyBehaviour: a manager built with
+// NewManager has no path, so it seals with a per-run key exactly as before.
+func TestManagerWithoutSignerKeyKeepsLegacyBehaviour(t *testing.T) {
+	kp, err := NewManager().signerKeypair()
+	if err != nil || kp != nil {
+		t.Fatalf("signerKeypair without a path = (%v,%v), want (nil,nil)", kp, err)
 	}
 }

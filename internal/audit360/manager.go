@@ -6,12 +6,20 @@ import (
 	"encoding/hex"
 	"sync"
 	"time"
+
+	"github.com/asadbekabdulboqiyev/sift/internal/attest"
 )
 
 // Manager runs and tracks Sift 360° jobs.
 type Manager struct {
 	mu   sync.RWMutex
 	jobs map[string]*job
+
+	// signerPath, when set, is the persistent Ed25519 key every report is
+	// sealed with, so the seal names a stable identity a verifier can pin.
+	signerMu   sync.Mutex
+	signerPath string
+	signer     *attest.Keypair
 }
 
 type job struct {
@@ -26,6 +34,40 @@ type job struct {
 
 func NewManager() *Manager {
 	return &Manager{jobs: make(map[string]*job)}
+}
+
+// NewManagerWithSignerKey seals every report with the key stored at path,
+// creating it on first use (mode 0600).
+//
+// Without this the manager mints a throwaway key per run, and the public key
+// travels inside the signed payload — so verification can only show that a file
+// is self-consistent, not who produced it. A persistent key is what makes
+// `sift audit360 verify --key <hex>` meaningful.
+func NewManagerWithSignerKey(path string) *Manager {
+	m := NewManager()
+	m.signerPath = path
+	return m
+}
+
+// signerKeypair returns the configured signing identity, loading it once.
+// A nil keypair with a non-nil error means the caller asked for a persistent
+// identity but it could not be loaded; the run still seals, and the report
+// records why it fell back to an ephemeral key.
+func (m *Manager) signerKeypair() (*attest.Keypair, error) {
+	if m.signerPath == "" {
+		return nil, nil
+	}
+	m.signerMu.Lock()
+	defer m.signerMu.Unlock()
+	if m.signer != nil {
+		return m.signer, nil
+	}
+	kp, _, err := attest.LoadOrCreateKeypairPEM(m.signerPath)
+	if err != nil {
+		return nil, err
+	}
+	m.signer = kp
+	return kp, nil
 }
 
 func (m *Manager) Start(ctx context.Context, target string, maxDur time.Duration, demoStoreURL, mode string) (string, error) {
@@ -119,7 +161,8 @@ func (m *Manager) run(ctx context.Context, j *job, target string, maxDur time.Du
 	})
 	j.publishStatus()
 
-	rep, err := Run(ctx, Options{TargetURL: target, MaxDuration: maxDur, DemoStoreURL: j.demoStore, Mode: j.mode}, func(stageID, status, detail, errMsg string) {
+	kp, kerr := m.signerKeypair()
+	rep, err := Run(ctx, Options{TargetURL: target, MaxDuration: maxDur, DemoStoreURL: j.demoStore, Mode: j.mode, SignerKey: kp, SignerKeyErr: kerr}, func(stageID, status, detail, errMsg string) {
 		j.update(func(s *JobStatus) {
 			applyStageUpdate(s, stageID, status, detail, errMsg)
 		})

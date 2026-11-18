@@ -779,6 +779,23 @@ Quick actions: **Use VoltStore demo** (`http://127.0.0.1:8090`) and **Test 100-p
 
 Live progress: SSE (`/api/audit-360/stream?job_id=`) with polling fallback (`/api/audit-360/status?job_id=`). Safety/no-fabrication: cross-origin state-changing requests rejected, Standard requires authorization, unavailable metrics explicitly labeled. If a target refuses load traffic, capacity is reported as not measurable (see below).
 
+#### Verifying a sealed 360° report
+
+A downloaded report is sealed with Ed25519 over a SHA-256 digest of a canonical payload (`sift.audit360/v2`); the certificate id is the first 16 bytes of that digest. The dashboard seals every run with a persistent identity at `$SIFT_HOME/audit360-key.pem` (created on first use, mode `0600`), so all reports from one install name the same key.
+
+```bash
+# Intact? Recomputes the digest and checks the signature from the report alone.
+sift audit360 verify report.json
+
+# Intact and attributable? Also requires the signer to be the key you trust.
+sift audit360 verify report.json --key <signer-pubkey-hex>
+
+sift audit360 verify report.json --json     # machine-readable verdict
+sift audit360 verify report.json --quiet    # exit code only
+```
+
+Any edit to a score, a finding, a note or the timestamp changes the payload and fails the check (exit `1`). The signer public key travels **inside** the signed payload, so without `--key` the answer is "this file is intact" — not "this came from Sift". Pin the key out of band to get attribution; the CLI prints that caveat instead of implying more than it proved. Reports sealed by earlier releases (per-run keys) still verify, because the payload and signature format are unchanged.
+
 Start the dashboard:
 ```bash
 sift dashboard

@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/audit360"
+	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 )
 
 const audit360MaxBody = 16 << 10
@@ -17,9 +19,18 @@ func (s *Server) ensureAudit360Manager() *audit360.Manager {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.audit360 == nil {
-		s.audit360 = audit360.NewManager()
+		// Seal with the persistent 360° identity, not a throwaway key: a report
+		// a customer downloads must be attributable to this install, which is
+		// what lets `sift audit360 verify --key <hex>` mean something.
+		s.audit360 = audit360.NewManagerWithSignerKey(audit360SigningKeyPath())
 	}
 	return s.audit360
+}
+
+// audit360SigningKeyPath is the same home the certificate key lives in, so one
+// backup covers every identity the install issues with.
+func audit360SigningKeyPath() string {
+	return filepath.Join(authz.ConfigHome(), "audit360-key.pem")
 }
 
 func (s *Server) demoStoreTargetURL() string {

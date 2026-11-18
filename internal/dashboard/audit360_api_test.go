@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -178,5 +179,19 @@ func TestAudit360Helpers(t *testing.T) {
 	}
 	if got := sanitizeAudit360DownloadID("sift360/abc:def"); got != "sift360_abc_def" {
 		t.Fatalf("sanitizeAudit360DownloadID = %q, want sift360_abc_def", got)
+	}
+}
+
+// TestAudit360SigningKeyPathUsesSiftHome pins the identity location: the 360°
+// signing key lives beside the certificate key, so one backup covers every
+// identity the install issues with, and an isolated SIFT_HOME keeps a test run
+// out of the real keyring.
+func TestAudit360SigningKeyPathUsesSiftHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("SIFT_HOME", home)
+
+	want := filepath.Join(home, "audit360-key.pem")
+	if got := audit360SigningKeyPath(); got != want {
+		t.Fatalf("audit360SigningKeyPath() = %q, want %q", got, want)
 	}
 }
