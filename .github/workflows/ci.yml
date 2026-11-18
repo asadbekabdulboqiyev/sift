@@ -314,14 +314,19 @@ jobs:
         include:
           - target: FuzzParseHTTPStream
             package: ./internal/replay/
+            corpus: internal/replay
           - target: FuzzParseHARBytes
             package: ./internal/replay/
+            corpus: internal/replay
           - target: FuzzAnalyzeJWT
             package: ./internal/scanner/
+            corpus: internal/scanner
           - target: FuzzPassiveParseSetCookie
             package: ./internal/scanner/
+            corpus: internal/scanner
           - target: FuzzPassiveParseCSP
             package: ./internal/scanner/
+            corpus: internal/scanner
     steps:
       - uses: actions/checkout@v4
 
@@ -332,10 +337,16 @@ jobs:
 
       # Restore the corpus this target accumulated on earlier runs. Without it
       # every run re-discovers the same inputs and the 30s budget is wasted.
+      #
+      # Go keeps a fuzz corpus in $GOCACHE/fuzz/<import path>/<target>, and
+      # GOCACHE is ~/.cache/go-build on the ubuntu runner. This step used to
+      # cache ~/.cache/go-fuzz, which Go never writes, so it restored nothing and
+      # every run did start from the seed set — the comment above was true for
+      # the wrong reason.
       - name: Restore corpus
         uses: actions/cache@v4
         with:
-          path: ~/.cache/go-fuzz/${{ matrix.target }}
+          path: ~/.cache/go-build/fuzz/github.com/asadbekabdulboqiyev/sift/${{ matrix.corpus }}/${{ matrix.target }}
           key: fuzz-${{ matrix.target }}-${{ github.run_id }}
           restore-keys: |
             fuzz-${{ matrix.target }}-
