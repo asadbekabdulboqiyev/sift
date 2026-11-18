@@ -342,12 +342,14 @@ func TestPDFSealRoundTrip(t *testing.T) {
 		t.Fatalf("marshal certificate: %v", err)
 	}
 
-	doc, err := NewPDF().
-		Text("Sift - Security Assessment Certificate (ss-cert/v1)").
-		Text("Grade: B   Verdict: PASS").
-		Text("A line long enough to wrap onto a second physical line so the digest covers wrapped text too: " + strings.Repeat("x", 200)).
-		Seal(certJSON).
-		Bytes()
+	// Print the certificate the way the CLI prints it. An arbitrary page sealed
+	// with a real certificate is no longer a valid PDF — that is the point of
+	// the strict check, and TestPDFSealRejectsRebuiltSeal pins it.
+	p := NewPDF()
+	for _, line := range CertificatePDFLines(c.Assessment, c) {
+		p.Text(line)
+	}
+	doc, err := p.Seal(certJSON).Bytes()
 	if err != nil {
 		t.Fatalf("Bytes: %v", err)
 	}
@@ -359,6 +361,9 @@ func TestPDFSealRoundTrip(t *testing.T) {
 	if !res.RenderedMatch {
 		t.Fatalf("rendered digest %s does not match seal %s", res.RenderedSHA256, res.SealRenderedSHA256)
 	}
+	if !res.RenderingMatchesCertificate {
+		t.Fatalf("page %s is not what the certificate renders to (%s)", res.RenderedSHA256, res.ExpectedRenderedSHA256)
+	}
 	if res.Certificate == nil || res.Certificate.Signature != c.Signature {
 		t.Fatal("verified PDF did not return the embedded certificate")
 	}
@@ -368,6 +373,119 @@ func TestPDFSealRoundTrip(t *testing.T) {
 	}
 	if direct != res.SealRenderedSHA256 {
 		t.Fatalf("digest read twice differs: %s vs %s", direct, res.SealRenderedSHA256)
+	}
+}
+
+// TestPDFSealRejectsRebuiltSeal is the attack the digest alone could not stop.
+//
+// Take a genuinely signed certificate for grade B. Draw a page that says grade
+// A. Seal it with that page's own digest — the writer will happily compute it —
+// and leave the embedded certificate untouched. Signature checks pass, the page
+// matches the seal, and every check the v0.17.0 verifier made says VALID. The
+// page is still a lie, because no issuer signed a page that says A.
+//
+// The verifier now re-renders the expected pages from the embedded certificate
+// and requires the page to equal that, so this file is refused.
+func TestPDFSealRejectsRebuiltSeal(t *testing.T) {
+	c := verifiableCert(t)
+	if c.Assessment.Grade != "B" {
+		t.Fatalf("test setup: grade is %q, want B", c.Assessment.Grade)
+	}
+	certJSON, err := json.Marshal(c)
+	if err != nil {
+		t.Fatalf("marshal certificate: %v", err)
+	}
+
+	// The forged page: an upgraded grade, sealed with its own digest.
+	forged, err := NewPDF().
+		Text("Sift - Security Assessment Certificate (ss-cert/v1)").
+		Text("").
+		Text("Target: https://example.com").
+		Text("Grade: A   Verdict: PASS   Risk: 0/100").
+		Seal(certJSON).
+		Bytes()
+	if err != nil {
+		t.Fatalf("Bytes: %v", err)
+	}
+
+	res, err := VerifyPDF(forged, nil, false)
+	if err == nil {
+		t.Fatal("a PDF whose page was rebuilt around a real certificate verified")
+	}
+	if res == nil {
+		t.Fatal("no result returned for a rejected PDF")
+	}
+	if !res.RenderedMatch {
+		t.Fatal("test setup: the forged page should match its own rewritten seal")
+	}
+	if res.RenderingMatchesCertificate {
+		t.Fatal("the forged page was reported as the certificate's own rendering")
+	}
+	if !strings.Contains(err.Error(), "rebuilt after signing") {
+		t.Errorf("unhelpful error: %v", err)
+	}
+}
+
+// TestCertificatePDFLinesGolden pins the printed text. Every sealed PDF hashes
+// these exact lines, so a wording change silently invalidates every copy already
+// handed to a reader. The digest of this fixture is also the digest a v0.17.0
+// PDF must still re-render to.
+func TestCertificatePDFLinesGolden(t *testing.T) {
+	// A literal, not NewFromPentest: that helper stamps SignedAt with the
+	// current time, and a golden that changes every second is not a golden.
+	a := Assessment{
+		Tool:        "Sift",
+		ToolVersion: "0.17.0",
+		Target:      "https://example.com",
+		Scope:       "full scope",
+		Started:     "2026-11-07T08:00:00Z",
+		Ended:       "2026-11-07T08:01:00Z",
+		Duration:    "1m0s",
+		RiskScore:   12,
+		Grade:       "B",
+		Verdict:     "PASS",
+		Counts:      Counts{Medium: 1},
+		DocumentSHA: strings.Repeat("ab", 32),
+		Issuer:      "QA Lead",
+		SignedAt:    "2026-11-07T08:01:00Z",
+		Findings:    []Finding{{ID: "F-001", Severity: "medium", Title: "Missing CSP", Evidence: "no CSP on /"}},
+		Compliance:  []ComplianceResult{{Framework: "OWASP Top 10 (2021)", ID: "A05", Title: "Security Misconfiguration", Status: "FAIL"}},
+	}
+
+	got := strings.Join(CertificatePDFLines(a, nil), "\n")
+	want := strings.Join([]string{
+		"Sift - Security Assessment Certificate (ss-cert/v1)",
+		"",
+		"Target: https://example.com",
+		"Grade: B   Verdict: PASS   Risk: 12/100",
+		"Findings: 1 (critical 0, high 0, medium 1, low 0, info 0)",
+		"Scope: full scope",
+		"Started: 2026-11-07T08:00:00Z   Ended: 2026-11-07T08:01:00Z",
+		"Duration: 1m0s",
+		"Issuer: QA Lead   Issued: 2026-11-07T08:01:00Z",
+		"Tool: Sift 0.17.0",
+		"Scanner families: -",
+		"Certificate ID: -",
+		"Validity: -",
+		"",
+		"Findings",
+		"[MEDIUM] Missing CSP - no CSP on / (F-001)",
+		"",
+		"Compliance mapping",
+		"[FAIL] OWASP Top 10 (2021) A05 - Security Misconfiguration",
+		"",
+		"Signature (Ed25519, over canonical assessment JSON):",
+		"-",
+		"Signer public key:",
+		"-",
+		"Document SHA-256: " + strings.Repeat("ab", 32),
+		"",
+		"This document is tamper-evident, not a warranty: it proves that the",
+		"assessment above was sealed by the key named here, and that this page",
+		"is the one that was sealed. Verify with: sift certificate cert.pdf",
+	}, "\n")
+	if got != want {
+		t.Fatalf("printed text changed; every sealed PDF re-renders differently now:\n--- got ---\n%s\n--- want ---\n%s", got, want)
 	}
 }
 

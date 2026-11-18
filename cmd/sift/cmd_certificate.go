@@ -312,15 +312,16 @@ func verifyCertificatePDFFile(path string, data []byte, store *attest.TrustStore
 	fmt.Printf("  signer:    %s...\n", firstN(c.PublicKey, 16))
 	fmt.Printf("  issuer:    %s\n", certificateIssuerLine(res.Check))
 	fmt.Printf("  signed at: %s\n", displayTime(c.SignedAt))
-	fmt.Printf("  page text: matches the seal (%s...)\n", firstN(res.RenderedSHA256, 16))
+	fmt.Printf("  page text: the certificate's own rendering (%s...)\n", firstN(res.RenderedSHA256, 16))
 	if quiet {
 		return
 	}
 	fmt.Println()
-	fmt.Println("This PDF carries the signed certificate and a digest of its own pages.")
-	fmt.Println("Editing the words on the page changes the digest, so the printed copy")
-	fmt.Println("fails even when the embedded JSON is untouched. Verification needs no")
-	fmt.Println("key, no network and no side file.")
+	fmt.Println("This PDF carries the signed certificate, and its pages are compared with")
+	fmt.Println("the pages that certificate renders to. Editing the words, or rebuilding")
+	fmt.Println("the file around a real certificate, fails: the page must be the sealed")
+	fmt.Println("document, not merely agree with a digest stored beside it. Verification")
+	fmt.Println("needs no key, no network and no side file.")
 	if !res.Check.Trusted() {
 		fmt.Println()
 		fmt.Println("Who signed this is not established: the certificate carries its own signer key.")
@@ -372,9 +373,14 @@ type certificateVerifyJSON struct {
 
 // pdfVerifyJSON reports the page-text binding for a printed certificate.
 type pdfVerifyJSON struct {
-	RenderedSHA256  string `json:"rendered_sha256,omitempty"`
-	SealSHA256      string `json:"seal_sha256,omitempty"`
-	RenderedMatches bool   `json:"rendered_matches"`
+	RenderedSHA256 string `json:"rendered_sha256,omitempty"`
+	SealSHA256     string `json:"seal_sha256,omitempty"`
+	// ExpectedSHA256 is what the embedded certificate renders to, computed by
+	// the verifier. A page can match its seal and still differ from this: that
+	// is a rebuilt file, not an intact one.
+	ExpectedSHA256              string `json:"expected_sha256,omitempty"`
+	RenderedMatches             bool   `json:"rendered_matches"`
+	RenderingMatchesCertificate bool   `json:"rendering_matches_certificate"`
 }
 
 func emitCertificateVerifyJSON(path string, c *certificate.Certificate, check certificate.TrustCheck, verifyErr error) error {
@@ -397,7 +403,9 @@ func emitCertificatePDFVerifyJSON(path string, res *certificate.PDFVerifyResult,
 	if res != nil {
 		out.PDF.RenderedSHA256 = res.RenderedSHA256
 		out.PDF.SealSHA256 = res.SealRenderedSHA256
+		out.PDF.ExpectedSHA256 = res.ExpectedRenderedSHA256
 		out.PDF.RenderedMatches = res.RenderedMatch
+		out.PDF.RenderingMatchesCertificate = res.RenderingMatchesCertificate
 	}
 	return writeCertificateVerifyJSON(out)
 }
@@ -630,64 +638,10 @@ WHERE THE CODE LIVES
 // a signed document is not an acceptable failure mode. Every envelope value is
 // therefore read through a nil check, not dereferenced.
 func renderPDF(a certificate.Assessment, cert *certificate.Certificate) []byte {
-	var certID, validity, signature, publicKey string
-	if cert != nil {
-		if strings.TrimSpace(a.DocumentSHA) == "" {
-			a.DocumentSHA = cert.Assessment.DocumentSHA
-		}
-		if strings.TrimSpace(a.SignedAt) == "" {
-			a.SignedAt = cert.Assessment.SignedAt
-		}
-		certID = cert.CertificateID
-		validity = cert.ValidityPeriod
-		signature = cert.Signature
-		publicKey = cert.PublicKey
+	pdf := certificate.NewPDF()
+	for _, line := range certificate.CertificatePDFLines(a, cert) {
+		pdf.Text(line)
 	}
-	total := a.Counts.Critical + a.Counts.High + a.Counts.Medium + a.Counts.Low + a.Counts.Info
-	pdf := certificate.NewPDF().
-		Text("Sift - Security Assessment Certificate (ss-cert/v1)").
-		Text("").
-		Text("Target: " + displayOrDash(a.Target)).
-		Text("Grade: " + displayOrDash(a.Grade) + "   Verdict: " + displayOrDash(a.Verdict) + "   Risk: " + fmt.Sprintf("%d", a.RiskScore) + "/100").
-		Text(fmt.Sprintf("Findings: %d (critical %d, high %d, medium %d, low %d, info %d)", total, a.Counts.Critical, a.Counts.High, a.Counts.Medium, a.Counts.Low, a.Counts.Info)).
-		Text("Scope: " + displayOrDash(a.Scope)).
-		Text("Started: " + displayTime(a.Started) + "   Ended: " + displayTime(a.Ended)).
-		Text("Duration: " + displayOrDash(a.Duration)).
-		Text("Issuer: " + displayOrDash(a.Issuer) + "   Issued: " + displayTime(a.SignedAt)).
-		Text("Tool: " + displayOrDash(strings.TrimSpace(a.Tool+" "+a.ToolVersion))).
-		Text("Scanner families: " + displayList(a.Covered)).
-		Text("Certificate ID: " + displayOrDash(certID)).
-		Text("Validity: " + displayOrDash(validity))
-
-	// The findings and the compliance mapping belong in the printed copy too: a
-	// PDF that only carries the header is not a certificate, it is a stub.
-	if len(a.Findings) > 0 {
-		pdf.Text("").Text("Findings")
-		for _, f := range a.Findings {
-			pdf.Text(fmt.Sprintf("[%s] %s - %s (%s)",
-				strings.ToUpper(displayOrDash(f.Severity)), displayOrDash(f.Title),
-				displayOrDash(f.Evidence), displayOrDash(f.ID)))
-		}
-	}
-	if len(a.Compliance) > 0 {
-		pdf.Text("").Text("Compliance mapping")
-		for _, c := range a.Compliance {
-			pdf.Text(fmt.Sprintf("[%s] %s %s - %s",
-				strings.ToUpper(displayOrDash(c.Status)), displayOrDash(c.Framework),
-				displayOrDash(c.ID), displayOrDash(c.Title)))
-		}
-	}
-
-	pdf.Text("").
-		Text("Signature (Ed25519, over canonical assessment JSON):").
-		Text(displayOrDash(signature)).
-		Text("Signer public key:").
-		Text(displayOrDash(publicKey)).
-		Text("Document SHA-256: " + displayOrDash(a.DocumentSHA)).
-		Text("").
-		Text("This document is tamper-evident, not a warranty: it proves that the").
-		Text("assessment above was sealed by the key named here, and that this page").
-		Text("is the one that was sealed. Verify with: sift certificate cert.pdf")
 
 	// Seal the printable copy: the signed JSON goes inside the file and the
 	// rendered text is hashed into it, so `sift certificate cert.pdf` answers

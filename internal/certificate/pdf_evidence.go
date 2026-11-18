@@ -26,6 +26,20 @@ package certificate
 // layout engine, no HTML parser. A PDF whose visible text was altered fails,
 // even though its embedded JSON is untouched.
 //
+// # Why the digest alone is not enough
+//
+// A digest stored in the file is only as trustworthy as the file. An editor who
+// rewrites the page can rewrite the digest next to it, and then the page agrees
+// with its own seal. That is not a hypothetical: with the certificate left
+// untouched, a signed grade-B certificate could be printed onto a page claiming
+// grade A, and every check the first version made said VALID.
+//
+// So the verifier does not stop at page == seal. It re-renders the pages the
+// embedded certificate is supposed to produce (CertificatePDFLines in
+// pdf_certificate.go, the same function the printer calls) and requires the
+// page digest to equal that. The seal becomes redundant evidence rather than the
+// authority: a rebuilt file fails because no issuer signed a page that says A.
+//
 // # What this does not prove
 //
 // The digest covers text, because text is what this writer draws. A future
@@ -183,11 +197,28 @@ type PDFVerifyResult struct {
 	RenderedSHA256     string
 	SealRenderedSHA256 string
 	RenderedMatch      bool
+
+	// ExpectedRenderedSHA256 is the digest the embedded certificate renders to,
+	// computed here rather than read from the file. RenderedMatch only compares
+	// the page with the seal, and a seal can be rewritten by whoever rewrote the
+	// page; this is the value that cannot be. RenderingMatchesCertificate says
+	// the page and the seal both equal it.
+	ExpectedRenderedSHA256      string
+	RenderingMatchesCertificate bool
 }
 
 // VerifyPDF checks a printed certificate without any side file: the embedded
 // certificate must pass signature and document-hash verification, and the text
-// drawn on the pages must hash to the value in the seal.
+// drawn on the pages must be the text that certificate renders to.
+//
+// Two comparisons are made, and the second is the one that matters:
+//
+//   - page digest == seal digest — the page is the page the seal describes. On
+//     its own this is weak: an editor can rewrite both.
+//   - page digest == digest re-rendered from the embedded certificate — the page
+//     is this certificate, not merely self-consistent. Without this, a signed
+//     grade-B certificate could be printed onto a page claiming grade A with a
+//     matching seal, and every signature check would still pass.
 func VerifyPDF(data []byte, store *attest.TrustStore, requireAnchor bool) (*PDFVerifyResult, error) {
 	ev, err := PDFEvidenceOf(data)
 	if err != nil {
@@ -210,8 +241,17 @@ func VerifyPDF(data []byte, store *attest.TrustStore, requireAnchor bool) (*PDFV
 	if verifyErr != nil {
 		return res, verifyErr
 	}
+
+	res.ExpectedRenderedSHA256 = ExpectedPDFRenderedSHA256(c)
+	res.RenderingMatchesCertificate = res.ExpectedRenderedSHA256 != "" &&
+		got == res.ExpectedRenderedSHA256 &&
+		res.SealRenderedSHA256 == res.ExpectedRenderedSHA256
+
 	if !res.RenderedMatch {
 		return res, fmt.Errorf("certificate: the visible text of this PDF does not match the sealed rendering (page %s, seal %s) — the printed copy was altered after signing", shortDigest(got), shortDigest(res.SealRenderedSHA256))
+	}
+	if !res.RenderingMatchesCertificate {
+		return res, fmt.Errorf("certificate: this PDF's seal was written for text that this certificate does not render (page %s, expected %s) — the file was rebuilt after signing, so the page is not the sealed document", shortDigest(got), shortDigest(res.ExpectedRenderedSHA256))
 	}
 	return res, nil
 }
