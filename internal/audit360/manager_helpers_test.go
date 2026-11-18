@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -120,10 +121,16 @@ func TestManagerSignerKeypairPersists(t *testing.T) {
 	if first == nil || len(first.Private) != ed25519.PrivateKeySize {
 		t.Fatal("signerKeypair did not return a usable key")
 	}
-	if info, err := os.Stat(path); err != nil {
+	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("key file not created: %v", err)
-	} else if info.Mode().Perm() != 0o600 {
-		t.Fatalf("key file mode = %o, want 0600", info.Mode().Perm())
+	}
+	// Windows does not carry POSIX permission bits, so a mode assertion there
+	// would fail for a file that is correctly created; the same policy applies
+	// to the rest of the suite.
+	if runtime.GOOS != "windows" {
+		if info, err := os.Stat(path); err == nil && info.Mode().Perm() != 0o600 {
+			t.Fatalf("key file mode = %o, want 0600", info.Mode().Perm())
+		}
 	}
 
 	second, err := m.signerKeypair()

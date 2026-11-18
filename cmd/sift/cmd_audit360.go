@@ -152,7 +152,7 @@ func readAudit360Report(path string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read report: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	data, err := io.ReadAll(io.LimitReader(f, maxAudit360ReportBytes+1))
 	if err != nil {
