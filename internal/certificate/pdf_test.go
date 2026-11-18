@@ -381,6 +381,38 @@ func TestPDFSealRoundTrip(t *testing.T) {
 	}
 }
 
+// TestRenderPDFIsVerifiable pins the shared printer: whatever RenderPDF emits
+// must pass the verifier unchanged. The dashboard download used to build its own
+// page, so it looked like a certificate and failed verification with "no
+// envelope"; routing every caller through one function is what closes that gap.
+func TestRenderPDFIsVerifiable(t *testing.T) {
+	c := verifiableCert(t)
+	doc, err := RenderPDF(c)
+	if err != nil {
+		t.Fatalf("RenderPDF: %v", err)
+	}
+	res, err := VerifyPDF(doc, nil, false)
+	if err != nil {
+		t.Fatalf("VerifyPDF: %v", err)
+	}
+	if !res.ObjectsMatchCertificate || !res.RenderingMatchesCertificate {
+		t.Fatalf("rendered pdf not bound to certificate: objects=%v rendering=%v",
+			res.ObjectsMatchCertificate, res.RenderingMatchesCertificate)
+	}
+	if res.Certificate == nil || res.Certificate.CertificateID != c.CertificateID {
+		t.Fatal("verified pdf did not return the certificate it was rendered from")
+	}
+}
+
+// TestRenderPDFNilCertificate is the guard for the "no certificate, nothing to
+// seal" path: it must return an error rather than a page that pretends to be
+// sealed.
+func TestRenderPDFNilCertificate(t *testing.T) {
+	if _, err := RenderPDF(nil); err == nil {
+		t.Fatal("RenderPDF(nil) must fail")
+	}
+}
+
 // TestPDFSealRejectsRebuiltSeal is the attack the digest alone could not stop.
 //
 // Take a genuinely signed certificate for grade B. Draw a page that says grade

@@ -202,6 +202,21 @@ func TestCertificateDownloadFormats(t *testing.T) {
 	if len(w.Body.Bytes()) == 0 {
 		t.Fatal("pdf body empty")
 	}
+	// The download must be the sealed document, not a lookalike: the same
+	// verifier the CLI runs has to accept it. A PDF that only draws the right
+	// words would pass a text check and still be unverifiable, which is the
+	// defect this guards against.
+	pdfRes, err := certificate.VerifyPDF(w.Body.Bytes(), nil, false)
+	if err != nil {
+		t.Fatalf("dashboard pdf does not verify: %v", err)
+	}
+	if !pdfRes.ObjectsMatchCertificate || !pdfRes.RenderingMatchesCertificate {
+		t.Fatalf("dashboard pdf not bound to certificate: objects=%v rendering=%v",
+			pdfRes.ObjectsMatchCertificate, pdfRes.RenderingMatchesCertificate)
+	}
+	if pdfRes.Certificate == nil || pdfRes.Certificate.CertificateID != cert.CertificateID {
+		t.Fatalf("dashboard pdf carries a different certificate")
+	}
 
 	req = httptest.NewRequest(http.MethodGet, "/api/certificate/download/"+cert.CertificateID, nil)
 	w = httptest.NewRecorder()

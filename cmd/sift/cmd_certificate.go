@@ -649,58 +649,28 @@ WHERE THE CODE LIVES
 // have an assessment to print, and a crash while writing the "readable copy" of
 // a signed document is not an acceptable failure mode. Every envelope value is
 // therefore read through a nil check, not dereferenced.
+// renderPDF returns the printable copy of a certificate.
+//
+// It delegates to certificate.RenderPDF so the CLI, the dashboard and the
+// verifier share one printer. Without a certificate there is nothing to seal;
+// the PDF stays printable and verification says so instead of guessing.
 func renderPDF(a certificate.Assessment, cert *certificate.Certificate) []byte {
+	if cert != nil {
+		out, err := certificate.RenderPDF(cert)
+		if err != nil {
+			fatal(fmt.Errorf("render pdf: %w", err))
+		}
+		return out
+	}
 	pdf := certificate.NewPDF()
-	for _, line := range certificate.PDFLines(a, cert) {
+	for _, line := range certificate.PDFLines(a, nil) {
 		pdf.Text(line)
 	}
-
-	// Seal the printable copy: the signed JSON goes inside the file and the
-	// rendered text is hashed into it, so `sift certificate cert.pdf` answers
-	// both "is the evidence intact?" and "is this the page that was sealed?".
-	// Without a certificate there is nothing to seal; the PDF stays printable
-	// and verification says so instead of guessing.
-	if cert != nil {
-		raw, err := certJSONBytes(cert)
-		if err != nil {
-			fatal(fmt.Errorf("render pdf: seal: %w", err))
-		}
-		pdf.Seal(raw)
-	}
-
 	out, err := pdf.Bytes()
 	if err != nil {
 		fatal(fmt.Errorf("render pdf: %w", err))
 	}
 	return out
-}
-
-// certJSONBytes serializes the certificate in the exact ss-cert/v1 shape that
-// certificate.VerifyBytes accepts.
-func certJSONBytes(c *certificate.Certificate) ([]byte, error) {
-	return json.MarshalIndent(struct {
-		Assessment              certificate.Assessment `json:"assessment"`
-		Signature               string                 `json:"signature"`
-		PublicKey               string                 `json:"public_key"`
-		SignedAt                string                 `json:"signed_at"`
-		Version                 string                 `json:"version"`
-		HTML                    string                 `json:"html"`
-		CertificateID           string                 `json:"certificate_id"`
-		PreviousCertificateHash string                 `json:"previous_certificate_hash"`
-		ExperimentReference     string                 `json:"experiment_reference"`
-		ValidityPeriod          string                 `json:"validity_period"`
-	}{
-		Assessment:              c.Assessment,
-		Signature:               c.Signature,
-		PublicKey:               c.PublicKey,
-		SignedAt:                c.SignedAt,
-		Version:                 c.Version,
-		HTML:                    c.HTML,
-		CertificateID:           c.CertificateID,
-		PreviousCertificateHash: c.PreviousCertificateHash,
-		ExperimentReference:     c.ExperimentReference,
-		ValidityPeriod:          c.ValidityPeriod,
-	}, "", "  ")
 }
 
 // binaryVersion is the build version stamped into issued certificates.

@@ -30,6 +30,7 @@ package certificate
 // pdf_certificate_test.go is there to make that a deliberate act.
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -106,6 +107,39 @@ func PDFLines(a Assessment, cert *Certificate) []string {
 		"is the one that was sealed. Verify with: sift certificate cert.pdf",
 	)
 	return lines
+}
+
+// RenderPDF returns the sealed printable copy of a certificate.
+//
+// It is the one printer: the CLI, the dashboard download and any other caller
+// go through here, so a file handed to a reader is always the document the
+// verifier recomputes. Two renderers would drift, and the drift shows up as a
+// PDF that carries a valid certificate but fails verification — which is
+// exactly the bug this replaced: the dashboard used to draw its own lines and
+// never embedded the certificate, so `sift certificate` answered
+// "no envelope".
+//
+// The page text comes from PDFLines and the seal is the ss-cert/v1 JSON of the
+// certificate itself, so `VerifyPDF` can re-render the expected objects and
+// compare them byte for byte.
+func RenderPDF(c *Certificate) ([]byte, error) {
+	if c == nil {
+		return nil, fmt.Errorf("certificate: no certificate to render")
+	}
+	p := NewPDF()
+	for _, line := range PDFLines(c.Assessment, c) {
+		p.Text(line)
+	}
+	raw, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("certificate: marshal for seal: %w", err)
+	}
+	p.Seal(raw)
+	doc, err := p.Bytes()
+	if err != nil {
+		return nil, fmt.Errorf("certificate: render pdf: %w", err)
+	}
+	return doc, nil
 }
 
 // ExpectedPDFRenderedSHA256 is the digest a certificate PDF must carry, derived
