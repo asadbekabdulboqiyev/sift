@@ -486,8 +486,17 @@ func TestVerifyMissingIssuerKey(t *testing.T) {
 	if res.IssuerTrust != IssuerMissing {
 		t.Fatalf("IssuerTrust = %q, want %q", res.IssuerTrust, IssuerMissing)
 	}
-	if _, ok := findErr(res, "issuer-trust"); !ok {
-		t.Fatalf("no issuer-trust failure recorded: %v", res.ErrorLines())
+	// No trust store was configured, so the issuer check stays out of the check
+	// list: the check list is a contract shared with the independent JavaScript
+	// verifier, which has no store to consult. A keyless bundle is already
+	// rejected by bundle-schema and bundle-signature, which is what makes the
+	// verdict invalid; IssuerTrust above is the "who could have signed this?"
+	// answer, reported without pretending a check ran.
+	if _, ok := findErr(res, "issuer-trust"); ok {
+		t.Fatalf("an issuer-trust check ran with no trust store configured: %v", res.ErrorLines())
+	}
+	if _, ok := findErr(res, "bundle-signature"); !ok {
+		t.Fatalf("a keyless bundle was not rejected by the signature check: %v", res.ErrorLines())
 	}
 }
 

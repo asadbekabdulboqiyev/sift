@@ -474,20 +474,34 @@ func (v *verifier) verifyIntegrity(b Bundle) {
 func (v *verifier) verifyIssuerTrust(b Bundle) {
 	raw := strings.ToLower(strings.TrimSpace(b.Signature.Key))
 	v.res.IssuerKey = raw
+
+	store := v.opts.TrustStore
+
+	// Without a trust store and without an anchor requirement there is nothing
+	// this check can decide: the signature check already answers "the key that
+	// signed this is the key inside it". Recording a passing check here would
+	// change the check list every existing consumer reads, and would make this
+	// verifier disagree with the independent JavaScript one, which has no store
+	// to consult. The status is still reported (IssuerTrust, and the CLI's
+	// "issuer:" line); the check itself is not emitted.
+	if store == nil && !v.opts.RequireTrustAnchor {
+		if raw == "" {
+			v.res.IssuerTrust = IssuerMissing
+		} else {
+			v.res.IssuerTrust = IssuerUnpinned
+		}
+		return
+	}
+
 	if raw == "" {
 		v.res.IssuerTrust = IssuerMissing
 		v.globalFail("issuer-trust", "bundle carries no signing key, so no issuer can be established")
 		return
 	}
 
-	store := v.opts.TrustStore
 	if store == nil {
 		v.res.IssuerTrust = IssuerUnpinned
-		if v.opts.RequireTrustAnchor {
-			v.globalFail("issuer-trust", fmt.Sprintf("issuer %s is unpinned and a trust anchor is required", FingerprintHex(raw)))
-			return
-		}
-		v.globalPass("issuer-trust", "no trust store configured: issuer is unpinned (self-signed evidence)")
+		v.globalFail("issuer-trust", fmt.Sprintf("issuer %s is unpinned and a trust anchor is required", FingerprintHex(raw)))
 		return
 	}
 
