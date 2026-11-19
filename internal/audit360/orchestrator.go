@@ -336,9 +336,24 @@ func runSecurityScan(ctx context.Context, targetURL string, control func(network
 		}}, true, []string{"Security scan skipped: invalid target URL."}
 	}
 
+	// Cancellation means the caller no longer wants this run (retention eviction,
+	// shutdown, user abort). Check before starting any traffic: launching the
+	// scanner goroutine and dialing the target after this point would send
+	// packets the caller already withdrew consent for. Run() rejects a cancelled
+	// run before it can be scored or sealed.
+	if err := ctx.Err(); err != nil {
+		return nil, true, []string{"Security scan skipped: run context was cancelled before any traffic was sent."}
+	}
+
 	// 1) Core scan (TLS/HTTP/WAF/security headers) - reuse existing scanner.
 	scanCh := make(chan *scanner.ScanResult, 1)
 	go func() {
+		// Re-check after scheduling: cancellation may have landed between the
+		// caller's check above and this goroutine actually running.
+		if ctx.Err() != nil {
+			scanCh <- nil
+			return
+		}
 		res, _ := scanner.ScanWithControl(host, port, control)
 		scanCh <- res
 	}()
@@ -354,7 +369,7 @@ func runSecurityScan(ctx context.Context, targetURL string, control func(network
 	targetReachable := false
 	dialAddr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	dialer := net.Dialer{Timeout: 2 * time.Second, Control: control}
-	if conn, derr := dialer.Dial("tcp", dialAddr); derr == nil {
+	if conn, derr := dialer.DialContext(ctx, "tcp", dialAddr); derr == nil {
 		targetReachable = true
 		_ = conn.Close()
 	}
@@ -710,13 +725,19 @@ func runLightweightOWASP(ctx context.Context, targetURL string, control func(net
 
 func runStressTest(ctx context.Context, targetURL string, budget time.Duration, control func(network, address string, c syscall.RawConn) error) StressOutcome {
 	out := StressOutcome{Notes: []string{}}
+	// A cancelled run must not send its reachability probe: the caller has
+	// already withdrawn consent for traffic to this target.
+	if err := ctx.Err(); err != nil {
+		out.Notes = append(out.Notes, "Stress test skipped: run context was cancelled before any traffic was sent.")
+		return out
+	}
 	if _, _, _, err := ParseTargetHostPort(targetURL); err != nil {
 		out.Notes = append(out.Notes, "Stress test skipped: invalid target URL.")
 		return out
 	}
 
 	// Quick reachability probe (no fabricated metrics if unreachable).
-	if !probeReachable(targetURL, 1500*time.Millisecond, control) {
+	if !probeReachableContext(ctx, targetURL, 1500*time.Millisecond, control) {
 		out.Notes = append(out.Notes, "Stress test unavailable: target not reachable from this environment.")
 		return out
 	}
@@ -952,14 +973,24 @@ func rejectionLabel(code int) string {
 	}
 }
 
+// probeReachable is the context-free form used by callers that do not track a
+// run lifecycle (and by tests). Production callers must use probeReachableContext
+// so a cancelled run cannot dial the target.
 func probeReachable(targetURL string, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) bool {
+	return probeReachableContext(context.Background(), targetURL, timeout, control)
+}
+
+func probeReachableContext(ctx context.Context, targetURL string, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) bool {
+	if ctx.Err() != nil {
+		return false
+	}
 	host, port, _, err := ParseTargetHostPort(targetURL)
 	if err != nil {
 		return false
 	}
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	dialer := net.Dialer{Timeout: timeout, Control: control}
-	conn, err := dialer.Dial("tcp", addr)
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return false
 	}
