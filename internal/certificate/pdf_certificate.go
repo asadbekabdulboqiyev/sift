@@ -42,7 +42,14 @@ import (
 // expected pages from the embedded JSON alone.
 func PDFLines(a Assessment, cert *Certificate) []string {
 	var certID, validity, signature, publicKey string
+	// The printed title names the format the seal actually uses. A v1
+	// certificate keeps the original wording, so every PDF already handed to a
+	// reader re-renders to the same bytes.
+	format := Version
 	if cert != nil {
+		if strings.TrimSpace(cert.Version) != "" {
+			format = cert.Version
+		}
 		// A caller that only has the assessment can pass cert.Assessment and
 		// still get the signed values printed: they are part of the signature,
 		// so dropping them would make the page disagree with the seal.
@@ -60,7 +67,7 @@ func PDFLines(a Assessment, cert *Certificate) []string {
 	total := a.Counts.Critical + a.Counts.High + a.Counts.Medium + a.Counts.Low + a.Counts.Info
 
 	lines := []string{
-		"Sift - Security Assessment Certificate (ss-cert/v1)",
+		"Sift - Security Assessment Certificate (" + format + ")",
 		"",
 		"Target: " + pdfTextOrDash(a.Target),
 		"Grade: " + pdfTextOrDash(a.Grade) + "   Verdict: " + pdfTextOrDash(a.Verdict) + "   Risk: " + fmt.Sprintf("%d", a.RiskScore) + "/100",

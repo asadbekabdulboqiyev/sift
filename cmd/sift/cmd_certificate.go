@@ -1,7 +1,7 @@
 package main
 
 // cmdCertificate implements `Sift certificate` — issue and verify
-// Ed25519-signed security assessment certificates (ss-cert/v1, pure English).
+// Ed25519-signed security assessment certificates (ss-cert/v1 and v2, pure English).
 //
 // The command is zero-flag by design: point it at a file and it works out what
 // the file is.
@@ -241,7 +241,7 @@ func verifyCertificateFile(path string, quiet bool, trustPath string, requireAnc
 
 	a := c.Assessment
 	total := a.Counts.Critical + a.Counts.High + a.Counts.Medium + a.Counts.Low + a.Counts.Info
-	fmt.Println("VALID — ss-cert/v1 Ed25519 certificate")
+	fmt.Printf("VALID — %s Ed25519 certificate\n", c.Version)
 	fmt.Printf("  target:    %s\n", a.Target)
 	fmt.Printf("  grade:     %s\n", a.Grade)
 	fmt.Printf("  verdict:   %s\n", a.Verdict)
@@ -302,7 +302,7 @@ func verifyCertificatePDFFile(path string, data []byte, store *attest.TrustStore
 	c := res.Certificate
 	a := c.Assessment
 	total := a.Counts.Critical + a.Counts.High + a.Counts.Medium + a.Counts.Low + a.Counts.Info
-	fmt.Println("VALID — ss-cert/v1 Ed25519 certificate (printed copy)")
+	fmt.Printf("VALID — %s Ed25519 certificate (printed copy)\n", c.Version)
 	fmt.Printf("  target:    %s\n", a.Target)
 	fmt.Printf("  grade:     %s\n", a.Grade)
 	fmt.Printf("  verdict:   %s\n", a.Verdict)

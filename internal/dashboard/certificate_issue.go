@@ -57,7 +57,7 @@ func loadDashboardSealingKey() (*attest.Keypair, bool, error) {
 // stores it in the local certificate store.
 //
 // Request body: {"report": <pentest json>, "issuer": "..."} or bare pentest json.
-// Response: the ss-cert/v1 certificate JSON, including its printable HTML.
+// Response: the certificate JSON (ss-cert/v2), including its printable HTML.
 func (s *Server) handleCertificateIssue(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)

@@ -145,8 +145,8 @@ func TestCertificateIssueProducesSignedCertificate(t *testing.T) {
 	if cert.Signature == "" || cert.PublicKey == "" {
 		t.Errorf("seal missing: %+v", cert)
 	}
-	if cert.Version != certificate.Version {
-		t.Errorf("version = %q", cert.Version)
+	if cert.Version != certificate.VersionV2 {
+		t.Errorf("version = %q, want %q", cert.Version, certificate.VersionV2)
 	}
 
 	if got := w.Header().Get("X-Certificate-ID"); got != cert.CertificateID {

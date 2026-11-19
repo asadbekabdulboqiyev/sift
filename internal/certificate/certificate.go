@@ -12,7 +12,8 @@
 // body (the signature seal block is excluded). Thus both the assessment data
 // AND its rendered presentation are cryptographically tamper-evident.
 //
-// Format: ss-cert/v1
+// Format: ss-cert/v1 and ss-cert/v2 (v2 also signs the envelope and binds
+// the rendered seal; v1 certificates keep verifying as issued).
 package certificate
 
 import (
@@ -28,8 +29,14 @@ import (
 	"github.com/asadbekabdulboqiyev/sift/internal/attest"
 )
 
-// Version is the ss-cert envelope format.
+// Version is the original ss-cert envelope format. This build issues VersionV2;
+// v1 certificates are still accepted so documents already issued keep verifying.
 const Version = "ss-cert/v1"
+
+// VersionV2 signs the envelope as well as the assessment: validity, chain link,
+// source reference, envelope signing time and signer key are covered by the
+// signature, and the rendered seal must match the signed values exactly.
+const VersionV2 = "ss-cert/v2"
 
 // Finding is one assessed defect.
 type Finding struct {
@@ -93,10 +100,10 @@ type Assessment struct {
 // during verification.
 type Certificate struct {
 	Assessment              Assessment `json:"assessment"`
-	Signature               string     `json:"signature"`  // hex Ed25519 over canonical assessment JSON
+	Signature               string     `json:"signature"`  // hex Ed25519 over the signed payload (v1: assessment, v2: assessment + envelope)
 	PublicKey               string     `json:"public_key"` // hex Ed25519 signer public key
 	SignedAt                string     `json:"signed_at"`
-	Version                 string     `json:"version"`                   // ss-cert/v1
+	Version                 string     `json:"version"`                   // ss-cert/v1 or ss-cert/v2
 	HTML                    string     `json:"html"`                      // full rendered document (signature seal included)
 	CertificateID           string     `json:"certificate_id"`            // unique per-certificate id
 	PreviousCertificateHash string     `json:"previous_certificate_hash"` // sha256 of previous certificate JSON
@@ -263,10 +270,14 @@ func documentSHA(html string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// Sign seals assessment with the keypair and returns a self-verifying
-// Certificate (ss-cert/v1). boundHTML is the rendered document body whose
-// SHA-256 is bound into the signed assessment (DocumentSHA). The seal block is
-// excluded from the hash, so the caller may render the final seal afterward.
+// Sign seals an assessment with the keypair and returns a self-verifying
+// ss-cert/v1 Certificate. boundHTML is the rendered document body whose SHA-256
+// is bound into the signed assessment (DocumentSHA). The seal block is excluded
+// from the hash, so the caller may render the final seal afterward.
+//
+// Deprecated: v1 leaves the envelope (validity, previous link, source
+// reference, envelope signing time) outside the signature. Use Issue or SignV2
+// for new certificates.
 func Sign(kp *attest.Keypair, a Assessment, boundHTML string) (*Certificate, error) {
 	if kp == nil || len(kp.Private) != ed25519.PrivateKeySize {
 		return nil, fmt.Errorf("certificate: signing requires a valid Ed25519 private key")
@@ -290,25 +301,137 @@ func Sign(kp *attest.Keypair, a Assessment, boundHTML string) (*Certificate, err
 	}, nil
 }
 
-// Verify checks the certificate's Ed25519 signature over its own assessment,
+// Envelope carries the certificate fields that ss-cert/v2 signs together with
+// the assessment. In v1 these lived only in the envelope, outside the
+// signature: changing the validity, the chain link or the source reference and
+// then recomputing the derived certificate id produced a certificate that still
+// verified. v2 makes them signed facts.
+type Envelope struct {
+	// SignedAt is the envelope signing time. Empty means the assessment's
+	// SignedAt, which is what v1 did implicitly.
+	SignedAt string
+	// ValidityPeriod is the human-readable validity shown in the seal and PDF.
+	ValidityPeriod string
+	// PreviousCertificateHash links this certificate to the one before it.
+	PreviousCertificateHash string
+	// ExperimentReference names the source experiment/run.
+	ExperimentReference string
+}
+
+// SignV2 seals an assessment together with its envelope (ss-cert/v2).
+//
+// The signed payload is the canonical assessment plus the envelope fields and
+// the signer's public key, so the rendered seal — issuer, fingerprint, sealed
+// time, validity, previous link — describes signed values rather than fields a
+// holder can edit. boundHTML is the rendered document body whose SHA-256 is
+// bound into the assessment (DocumentSHA); the seal block stays outside that
+// hash so the real signature can be rendered into it afterward.
+func SignV2(kp *attest.Keypair, a Assessment, boundHTML string, env Envelope) (*Certificate, error) {
+	if kp == nil || len(kp.Private) != ed25519.PrivateKeySize {
+		return nil, fmt.Errorf("certificate: signing requires a valid Ed25519 private key")
+	}
+	a.DocumentSHA = documentSHA(boundHTML)
+	signedAt := strings.TrimSpace(env.SignedAt)
+	if signedAt == "" {
+		signedAt = a.SignedAt
+	}
+	c := &Certificate{
+		Assessment:              a,
+		PublicKey:               hex.EncodeToString(kp.Public),
+		SignedAt:                signedAt,
+		Version:                 VersionV2,
+		HTML:                    boundHTML,
+		PreviousCertificateHash: env.PreviousCertificateHash,
+		ExperimentReference:     env.ExperimentReference,
+		ValidityPeriod:          env.ValidityPeriod,
+	}
+	msg, err := canonicalV2(c)
+	if err != nil {
+		return nil, fmt.Errorf("certificate: canonicalize envelope: %w", err)
+	}
+	sig, err := attest.Sign(kp, msg)
+	if err != nil {
+		return nil, fmt.Errorf("certificate: sign: %w", err)
+	}
+	c.Signature = hex.EncodeToString(sig)
+	return c, nil
+}
+
+// canonicalV2 is the ss-cert/v2 signed payload: the canonical assessment plus
+// every envelope field that the rendered document displays. Marshaling a
+// json.RawMessage keeps the assessment's canonical byte form (sorted findings,
+// compliance and coverage) instead of re-encoding it with map ordering.
+func canonicalV2(c *Certificate) ([]byte, error) {
+	if c == nil {
+		return nil, fmt.Errorf("certificate: nil certificate")
+	}
+	assessment, err := canonical(c.Assessment)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(struct {
+		Version                 string          `json:"version"`
+		SignedAt                string          `json:"signed_at"`
+		ValidityPeriod          string          `json:"validity_period"`
+		PreviousCertificateHash string          `json:"previous_certificate_hash"`
+		ExperimentReference     string          `json:"experiment_reference"`
+		PublicKey               string          `json:"public_key"`
+		Assessment              json.RawMessage `json:"assessment"`
+	}{
+		Version:                 c.Version,
+		SignedAt:                c.SignedAt,
+		ValidityPeriod:          c.ValidityPeriod,
+		PreviousCertificateHash: c.PreviousCertificateHash,
+		ExperimentReference:     c.ExperimentReference,
+		PublicKey:               c.PublicKey,
+		Assessment:              assessment,
+	})
+}
+
+// Verify checks the certificate's Ed25519 signature over its signed payload,
 // recomputes the document SHA-256 from the embedded HTML, and validates that
 // the signed assessment/envelope do not contain contradictory or impossible
 // values. It returns nil when the certificate is valid.
+//
+// v1 and v2 are both accepted. v1 certificates were signed over the assessment
+// alone, so their envelope fields remain outside the signature; requiring the
+// v2 rules would reject certificates already issued. Everything this build
+// issues is v2.
 func Verify(c *Certificate) error {
 	if c == nil {
 		return fmt.Errorf("certificate: nil certificate")
 	}
-	if c.Version != Version {
+	pub, sig, err := decodeSignature(c)
+	if err != nil {
+		return err
+	}
+
+	switch c.Version {
+	case Version:
+		return verifyV1(c, pub, sig)
+	case VersionV2:
+		return verifyV2(c, pub, sig)
+	default:
 		return fmt.Errorf("certificate: unsupported version %q", c.Version)
 	}
+}
+
+// decodeSignature decodes the public key and signature an envelope carries.
+func decodeSignature(c *Certificate) (ed25519.PublicKey, []byte, error) {
 	pub, err := hex.DecodeString(c.PublicKey)
 	if err != nil || len(pub) != ed25519.PublicKeySize {
-		return fmt.Errorf("certificate: malformed public key")
+		return nil, nil, fmt.Errorf("certificate: malformed public key")
 	}
 	sig, err := hex.DecodeString(c.Signature)
 	if err != nil || len(sig) != ed25519.SignatureSize {
-		return fmt.Errorf("certificate: malformed signature")
+		return nil, nil, fmt.Errorf("certificate: malformed signature")
 	}
+	return pub, sig, nil
+}
+
+// verifyV1 keeps the original ss-cert/v1 contract byte for byte so certificates
+// issued before v2 continue to verify.
+func verifyV1(c *Certificate, pub ed25519.PublicKey, sig []byte) error {
 	msg, err := canonical(c.Assessment)
 	if err != nil {
 		return fmt.Errorf("certificate: canonicalize assessment: %w", err)
@@ -316,8 +439,26 @@ func Verify(c *Certificate) error {
 	if !attest.VerifySig(pub, msg, sig) {
 		return fmt.Errorf("certificate: signature invalid — assessment or signature was altered")
 	}
-	// Bound-document integrity: the rendered body (seal excluded) must hash to
-	// the DocumentSHA recorded in the signed assessment.
+	if got := documentSHA(c.HTML); got != c.Assessment.DocumentSHA {
+		return fmt.Errorf("certificate: document hash mismatch — rendered body was altered")
+	}
+	if err := validateAssessment(c.Assessment); err != nil {
+		return err
+	}
+	return validateEnvelope(c)
+}
+
+// verifyV2 checks the signed payload that covers the assessment and the
+// envelope, then requires the embedded page to be exactly what this certificate
+// renders.
+func verifyV2(c *Certificate, pub ed25519.PublicKey, sig []byte) error {
+	msg, err := canonicalV2(c)
+	if err != nil {
+		return fmt.Errorf("certificate: canonicalize envelope: %w", err)
+	}
+	if !attest.VerifySig(pub, msg, sig) {
+		return fmt.Errorf("certificate: signature invalid — assessment, envelope or signature was altered")
+	}
 	if got := documentSHA(c.HTML); got != c.Assessment.DocumentSHA {
 		return fmt.Errorf("certificate: document hash mismatch — rendered body was altered")
 	}
@@ -326,6 +467,15 @@ func Verify(c *Certificate) error {
 	}
 	if err := validateEnvelope(c); err != nil {
 		return err
+	}
+	// The seal block sits outside the document hash by construction (it holds
+	// the signature, which cannot cover itself). That left the values the seal
+	// displays — issuer, key fingerprint, sealed time, validity, previous link —
+	// editable on their own. v2 closes that by requiring the stored page to be
+	// the page this certificate renders: any edit inside the seal changes the
+	// bytes and fails here.
+	if strings.TrimSpace(c.HTML) != "" && c.HTML != HTML(c) {
+		return fmt.Errorf("certificate: rendered document does not match the sealed certificate — the seal block was altered")
 	}
 	return nil
 }
@@ -439,6 +589,14 @@ func validateEnvelope(c *Certificate) error {
 		}
 		if _, err := hex.DecodeString(c.PreviousCertificateHash); err != nil {
 			return fmt.Errorf("certificate: previous_certificate_hash is not hex: %w", err)
+		}
+	}
+	if c.Version == VersionV2 {
+		// Both values are signed in v2, so this is a consistency rule rather
+		// than a security boundary: the seal and the assessment must not claim
+		// two different signing times.
+		if c.SignedAt != c.Assessment.SignedAt {
+			return fmt.Errorf("certificate: signed_at does not match the assessment")
 		}
 	}
 	return nil

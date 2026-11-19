@@ -29,8 +29,8 @@ func TestCertificateSignVerifyRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Issue: %v", err)
 	}
-	if c.Version != Version {
-		t.Fatalf("version = %q", c.Version)
+	if c.Version != VersionV2 {
+		t.Fatalf("version = %q, want %q", c.Version, VersionV2)
 	}
 	if c.PublicKey == "" || c.Signature == "" {
 		t.Fatal("empty signature or public key")
@@ -102,7 +102,7 @@ func TestCertificateRejectsTamper(t *testing.T) {
 
 	// Wrong version -> fail.
 	badVer := *c
-	badVer.Version = "ss-cert/v2"
+	badVer.Version = "ss-cert/v3"
 	if err := Verify(&badVer); err == nil {
 		t.Fatal("wrong version verified")
 	}

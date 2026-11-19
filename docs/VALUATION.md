@@ -57,8 +57,8 @@ ladder (weights, six grade bands, verdict sentences) used by both the CLI and
 the dashboard; compliance mapping for OWASP, PCI DSS v4.0 and ISO 27001:2022;
 baseline comparison; SLA evaluation.
 
-**Verifiable output.** Ed25519-signed assessment certificates (`ss-cert/v1`)
-with a certificate history chain; attestation bundles with sample data;
+**Verifiable output.** Ed25519-signed assessment certificates (`ss-cert/v2`;
+`ss-cert/v1` certificates are still accepted) with a certificate history chain; attestation bundles with sample data;
 `internal/verigate` — a verification service; an audit DB; an honesty gate that
 refuses to certify a scan as CLEAN when findings exist.
 
@@ -214,7 +214,7 @@ Buyers and what they would pay:
 
 ### 4.4 IP basis (spec and protocol value)
 
-`vpmp/v1` + `ss-cert/v1` + the scoring/honesty rules are the parts that survive
+`vpmp/v1` + `ss-cert/v2` + the scoring/honesty rules are the parts that survive
 a rewrite of the code:
 
 - As a standalone spec package with the reference implementation: **$15k–$40k**.
