@@ -138,7 +138,10 @@ func (s *Server) handleAudit360Start(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mgr := s.ensureAudit360Manager()
-	jobID, err := mgr.Start(context.Background(), target, maxDur, demoURL, mode)
+	// Re-apply the gate decision at dial time: the socket may resolve the target
+	// to a different class than the gate did, so audit360's scan, engine and
+	// OWASP dials must carry the same class boundary the gate approved.
+	jobID, err := mgr.StartWithControl(context.Background(), target, maxDur, demoURL, mode, authz.DialControl(decision.ClassValue))
 	if err != nil {
 		writeAudit360JSON(w, http.StatusInternalServerError, audit360.StartResponse{OK: false, Error: err.Error()})
 		return

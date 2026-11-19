@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"syscall"
 	"time"
 
 	utls "github.com/refraction-networking/utls"
@@ -27,16 +28,26 @@ var checkRedirect = func(req *http.Request, via []*http.Request) error {
 	return nil
 }
 
-// baseTransport shares the common transport configuration. When tlsFP names a
-// fingerprint, outgoing connections present that ClientHello instead of Go's
-// default one, so the engine can mimic a real browser or platform at the TLS
-// layer (measurable via JA3).
+// baseTransport is the compatibility wrapper for callers that do not install a
+// dial-time authorization hook (tests and direct library use).
 func baseTransport(keepAlive bool, tlsFP fingerprint.Profile) *http.Transport {
+	return baseTransportWithControl(keepAlive, tlsFP, nil)
+}
+
+// baseTransportWithControl shares the common transport configuration. When
+// tlsFP names a fingerprint, outgoing connections present that ClientHello
+// instead of Go's default one, so the engine can mimic a real browser or
+// platform at the TLS layer (measurable via JA3). control, when non-nil, is
+// installed on every underlying TCP dial, including the uTLS path, so an
+// authorization decision can still refuse the address a socket reaches after
+// DNS resolution.
+func baseTransportWithControl(keepAlive bool, tlsFP fingerprint.Profile, control func(network, address string, c syscall.RawConn) error) *http.Transport {
 	tr := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
 			Timeout:   10 * time.Second,
 			KeepAlive: 30 * time.Second,
+			Control:   control,
 		}).DialContext,
 		ForceAttemptHTTP2:     true,
 		IdleConnTimeout:       90 * time.Second,
@@ -64,6 +75,9 @@ func baseTransport(keepAlive bool, tlsFP fingerprint.Profile) *http.Transport {
 		tr.TLSClientConfig.NextProtos = []string{"http/1.1"}
 		tr.DialTLSContext = fingerprint.NewDialer(fingerprint.Options{
 			Fingerprint: tlsFP,
+			// The TCP leg of the uTLS dial carries the same socket-level hook
+			// as the plain HTTP dialer; Options.resolved fills in its timeouts.
+			Dialer: net.Dialer{Control: control},
 			// Keep session resumption working when masquerading: uTLS keeps
 			// its own cache, so repeated connections skip most of the
 			// handshake just like the standard stack.
@@ -95,19 +109,26 @@ func applyHTTP2Preference(tr *http.Transport, enabled bool) {
 	}
 }
 
-// newTransport builds the shared connection transport. One instance is reused
-// by every HTTP client (including per-user cookie-jar clients), so pooled
-// sockets, TLS sessions and HTTP/2 state stay shared. An explicit http2=false
-// in the profile is applied by the caller via applyHTTP2Preference after
-// fingerprint dialing is configured (fingerprinting re-pins NextProtos).
+// newTransport is the compatibility wrapper used by existing callers and
+// tests. New code that has an authorization hook must use the WithControl form.
 func newTransport(keepAlive bool, maxConnsPerHost int, tlsFP fingerprint.Profile) *http.Transport {
+	return newTransportWithControl(keepAlive, maxConnsPerHost, tlsFP, nil)
+}
+
+// newTransportWithControl builds the shared connection transport. One instance
+// is reused by every HTTP client (including per-user cookie-jar clients), so
+// pooled sockets, TLS sessions and HTTP/2 state stay shared. An explicit
+// http2=false in the profile is applied by the caller via
+// applyHTTP2Preference after fingerprint dialing is configured (fingerprinting
+// re-pins NextProtos).
+func newTransportWithControl(keepAlive bool, maxConnsPerHost int, tlsFP fingerprint.Profile, control func(network, address string, c syscall.RawConn) error) *http.Transport {
 	if maxConnsPerHost < 256 {
 		maxConnsPerHost = 256
 	}
 	if maxConnsPerHost > maxConnsPerHostCap {
 		maxConnsPerHost = maxConnsPerHostCap
 	}
-	tr := baseTransport(keepAlive, tlsFP)
+	tr := baseTransportWithControl(keepAlive, tlsFP, control)
 	// Idle pool is sized generously (4x): MaxConnsPerHost caps live
 	// connections, and idle sockets need headroom so a burst of HTTP/1.1
 	// keep-alive requests never sits behind a fresh dial.

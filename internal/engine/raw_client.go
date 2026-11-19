@@ -41,7 +41,7 @@ func (e *Engine) rawClientForUser(userIndex int, ctx context.Context, network, t
 		conn = e.takeTCPConn(userIndex)
 	}
 	if conn == nil {
-		dialer := &net.Dialer{Timeout: timeout}
+		dialer := &net.Dialer{Timeout: timeout, Control: e.dialControl}
 		c, err := dialer.DialContext(ctx, network, target)
 		if err != nil {
 			return classifyNetError(err, time.Since(start)), nil

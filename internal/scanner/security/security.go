@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"syscall"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
 )
@@ -152,7 +153,12 @@ var SecurityHeaders = []struct {
 
 // ScanSecurity checks security headers against the target URL.
 func ScanSecurity(target string) (*core.SecurityInfo, error) {
-	resp, err := core.SendProbe(target, "GET", "/", nil)
+	return ScanSecurityWithControl(target, nil)
+}
+
+// ScanSecurityWithControl is ScanSecurity with a dial-time check on its probe.
+func ScanSecurityWithControl(target string, control func(network, address string, c syscall.RawConn) error) (*core.SecurityInfo, error) {
+	resp, err := core.SendProbeWithControl(target, "GET", "/", nil, control)
 	if err != nil {
 		return nil, fmt.Errorf("probe failed: %w", err)
 	}

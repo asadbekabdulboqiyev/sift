@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -101,6 +102,16 @@ func (e *Engine) sharedGRPCConn(ctx context.Context, host string, useTLS bool, t
 			Timeout:             grpcKeepAliveTimeout,
 			PermitWithoutStream: true,
 		}),
+	}
+	if e.dialControl != nil {
+		// gRPC resolves the target itself; the custom dialer receives the
+		// concrete address and re-applies the socket-level authorization hook
+		// before the connection is made. Without a hook the stock dialer stays
+		// in place so existing behavior is unchanged.
+		control := e.dialControl
+		opts = append(opts, grpc.WithContextDialer(func(dialCtx context.Context, addr string) (net.Conn, error) {
+			return (&net.Dialer{Control: control}).DialContext(dialCtx, "tcp", addr)
+		}))
 	}
 	if useTLS {
 		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12})))

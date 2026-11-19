@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"syscall"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
 )
@@ -33,6 +34,11 @@ type CORSInfo struct {
 
 // ScanHTTP performs HTTP fingerprinting against the target URL.
 func ScanHTTP(target string) (*core.HTTPInfo, error) {
+	return ScanHTTPWithControl(target, nil)
+}
+
+// ScanHTTPWithControl is ScanHTTP with a dial-time check on every probe.
+func ScanHTTPWithControl(target string, control func(network, address string, c syscall.RawConn) error) (*core.HTTPInfo, error) {
 	info := &core.HTTPInfo{
 		Technologies: make([]string, 0),
 		Headers:      make(map[string]string),
@@ -40,7 +46,7 @@ func ScanHTTP(target string) (*core.HTTPInfo, error) {
 		Methods:      make([]string, 0),
 	}
 
-	resp, err := core.SendProbe(target, "GET", "/", nil)
+	resp, err := core.SendProbeWithControl(target, "GET", "/", nil, control)
 	if err != nil {
 		return info, fmt.Errorf("probe failed: %w", err)
 	}
@@ -73,7 +79,7 @@ func ScanHTTP(target string) (*core.HTTPInfo, error) {
 
 	info.Technologies = DetectTechnologies(resp)
 
-	optResp, err := core.SendProbe(target, "OPTIONS", "/", nil)
+	optResp, err := core.SendProbeWithControl(target, "OPTIONS", "/", nil, control)
 	if err == nil {
 		_ = optResp.Body.Close()
 		allow := optResp.Header.Get("Allow")

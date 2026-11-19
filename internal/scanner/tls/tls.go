@@ -10,6 +10,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
@@ -49,7 +50,16 @@ var secureVersions = []string{"TLS 1.3", "TLS 1.2"}
 
 // ScanTLS performs a full TLS scan on the target host:port.
 func ScanTLS(host string, port int) (*core.TLSInfo, error) {
+	return ScanTLSWithControl(host, port, nil)
+}
+
+// ScanTLSWithControl is ScanTLS with a dial-time check on every TLS handshake.
+// Every dialer used by the scan carries the control, including session-resumption
+// retries, so an address the authorization check did not approve cannot be
+// reached by any part of the TLS phase.
+func ScanTLSWithControl(host string, port int, control func(network, address string, c syscall.RawConn) error) (*core.TLSInfo, error) {
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	dialer := &net.Dialer{Timeout: 5 * time.Second, Control: control}
 
 	info := &core.TLSInfo{
 		SupportedVersions: make([]string, 0),
@@ -75,10 +85,7 @@ func ScanTLS(host string, port int) (*core.TLSInfo, error) {
 			MaxVersion:         tv.max,
 		}
 
-		conn, err := tls.DialWithDialer(
-			&net.Dialer{Timeout: 5 * time.Second},
-			"tcp", addr, config,
-		)
+		conn, err := tls.DialWithDialer(dialer, "tcp", addr, config)
 		if err != nil {
 			continue
 		}
@@ -133,10 +140,10 @@ func ScanTLS(host string, port int) (*core.TLSInfo, error) {
 		InsecureSkipVerify: true, // #nosec G402 -- authorized pentest targets may use self-signed certificates
 		ClientSessionCache: tls.NewLRUClientSessionCache(1),
 	}
-	conn1, err := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", addr, resumeCfg)
+	conn1, err := tls.DialWithDialer(dialer, "tcp", addr, resumeCfg)
 	if err == nil {
 		_ = conn1.Close()
-		conn2, err := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp", addr, resumeCfg)
+		conn2, err := tls.DialWithDialer(dialer, "tcp", addr, resumeCfg)
 		if err == nil {
 			info.SessionResumption = conn2.ConnectionState().DidResume
 			_ = conn2.Close()

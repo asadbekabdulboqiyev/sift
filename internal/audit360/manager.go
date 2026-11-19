@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/attest"
@@ -70,7 +71,16 @@ func (m *Manager) signerKeypair() (*attest.Keypair, error) {
 	return kp, nil
 }
 
+// Start starts an audit with no dial control. It keeps the original API for
+// callers that do not enforce authz on the resolved socket address.
 func (m *Manager) Start(ctx context.Context, target string, maxDur time.Duration, demoStoreURL, mode string) (string, error) {
+	return m.StartWithControl(ctx, target, maxDur, demoStoreURL, mode, nil)
+}
+
+// StartWithControl starts an audit and installs control on every dial the run
+// makes, so the gate can refuse a socket whose resolved peer address falls
+// outside the approved target class. Nil keeps the original dial behaviour.
+func (m *Manager) StartWithControl(ctx context.Context, target string, maxDur time.Duration, demoStoreURL, mode string, control func(network, address string, c syscall.RawConn) error) (string, error) {
 	id := newJobID()
 	stages := defaultStages()
 	now := time.Now()
@@ -144,11 +154,11 @@ func (m *Manager) Start(ctx context.Context, target string, maxDur time.Duration
 	m.jobs[id] = j
 	m.mu.Unlock()
 
-	go m.run(runCtx, j, target, maxDur)
+	go m.run(runCtx, j, target, maxDur, control)
 	return id, nil
 }
 
-func (m *Manager) run(ctx context.Context, j *job, target string, maxDur time.Duration) {
+func (m *Manager) run(ctx context.Context, j *job, target string, maxDur time.Duration, control func(network, address string, c syscall.RawConn) error) {
 	// Release the per-job context when the run ends, whichever way it ends.
 	// `job.cancel` was stored but never called, so every finished audit left a
 	// live cancel func and a child context attached to the caller's context
@@ -162,7 +172,7 @@ func (m *Manager) run(ctx context.Context, j *job, target string, maxDur time.Du
 	j.publishStatus()
 
 	kp, kerr := m.signerKeypair()
-	rep, err := Run(ctx, Options{TargetURL: target, MaxDuration: maxDur, DemoStoreURL: j.demoStore, Mode: j.mode, SignerKey: kp, SignerKeyErr: kerr}, func(stageID, status, detail, errMsg string) {
+	rep, err := Run(ctx, Options{TargetURL: target, MaxDuration: maxDur, DemoStoreURL: j.demoStore, Mode: j.mode, DialControl: control, SignerKey: kp, SignerKeyErr: kerr}, func(stageID, status, detail, errMsg string) {
 		j.update(func(s *JobStatus) {
 			applyStageUpdate(s, stageID, status, detail, errMsg)
 		})

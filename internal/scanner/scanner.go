@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/auth"
@@ -105,6 +106,14 @@ func NewOWASPChecker(target string) *OWASPChecker {
 
 // Scan performs a full scan on target:port (TLS, HTTP, WAF, Security).
 func Scan(target string, port int) (*ScanResult, error) {
+	return ScanWithControl(target, port, nil)
+}
+
+// ScanWithControl is Scan with a dial-time check threaded into every phase.
+// The control sees the resolved peer address before connect, so a caller that
+// approved a target by class can refuse a rebind to a more restricted address.
+// Nil keeps the original behaviour exactly.
+func ScanWithControl(target string, port int, control func(network, address string, c syscall.RawConn) error) (*ScanResult, error) {
 	start := time.Now()
 
 	result := &ScanResult{
@@ -113,26 +122,26 @@ func Scan(target string, port int) (*ScanResult, error) {
 	}
 
 	// TLS scan
-	tlsInfo, err := tls.ScanTLS(target, port)
+	tlsInfo, err := tls.ScanTLSWithControl(target, port, control)
 	if err == nil {
 		result.TLS = tlsInfo
 	}
 
 	// HTTP scan
 	httpTarget := fmt.Sprintf("http://%s", target)
-	httpInfo, err := http.ScanHTTP(httpTarget)
+	httpInfo, err := http.ScanHTTPWithControl(httpTarget, control)
 	if err == nil {
 		result.HTTP = httpInfo
 	}
 
 	// WAF scan
-	wafInfo, err := waf.ScanWAF(httpTarget)
+	wafInfo, err := waf.ScanWAFWithControl(httpTarget, control)
 	if err == nil {
 		result.WAF = wafInfo
 	}
 
 	// Security scan
-	secInfo, err := security.ScanSecurity(httpTarget)
+	secInfo, err := security.ScanSecurityWithControl(httpTarget, control)
 	if err == nil {
 		result.Security = secInfo
 	}

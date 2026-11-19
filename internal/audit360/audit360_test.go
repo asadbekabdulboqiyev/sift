@@ -211,7 +211,7 @@ func TestRunStressTest_DetectsTargetRejection(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	out := runStressTest(context.Background(), srv.URL, 6*time.Second)
+	out := runStressTest(context.Background(), srv.URL, 6*time.Second, nil)
 
 	if !out.RejectedByTarget {
 		t.Fatalf("expected RejectedByTarget, notes: %v", out.Notes)

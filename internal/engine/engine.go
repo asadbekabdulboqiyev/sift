@@ -162,7 +162,12 @@ type Engine struct {
 	transport *http.Transport
 	timeout   time.Duration
 	keepAlive bool
-	limiter   *tokenBucket
+	// dialControl is the socket-level authorization hook. It is threaded into
+	// every dial the engine opens (HTTP, uTLS, raw TCP/UDP, WebSocket, gRPC and
+	// pre-warm) so the decision made before a run is re-applied to the address
+	// a socket actually reaches, which closes the DNS-rebind gap.
+	dialControl func(network, address string, c syscall.RawConn) error
+	limiter     *tokenBucket
 	// co enables coordinated-omission correction: when the generator is paced
 	// and falls behind its own arrival schedule, the accumulated skew is added
 	// to the first request of each iteration so a saturated target is not
@@ -216,7 +221,19 @@ type Engine struct {
 	poolIdx atomic.Int64
 }
 
+// New builds an Engine without a dial-time authorization hook. It keeps the
+// original signature for library callers; security-sensitive callers must use
+// NewWithControl.
 func New(scenario *config.Scenario) (*Engine, error) {
+	return NewWithControl(scenario, nil)
+}
+
+// NewWithControl builds an Engine and installs control on every socket it
+// opens. The hook runs after the kernel has chosen the remote address but
+// before the connection is established, so an authorization decision can
+// refuse a DNS-rebound address that differed from the one checked up front.
+// A nil control leaves all dial paths at their previous behavior.
+func NewWithControl(scenario *config.Scenario, control func(network, address string, c syscall.RawConn) error) (*Engine, error) {
 	if err := scenario.Normalize(); err != nil {
 		return nil, err
 	}
@@ -229,7 +246,7 @@ func New(scenario *config.Scenario) (*Engine, error) {
 		keepAlive = *scenario.Profile.KeepAlive
 	}
 	maxConns := profile.MaxConcurrency() * 2
-	transport := newTransport(keepAlive, maxConns, fingerprint.Profile(scenario.Profile.TLSFingerprint))
+	transport := newTransportWithControl(keepAlive, maxConns, fingerprint.Profile(scenario.Profile.TLSFingerprint), control)
 	// Explicit http2: false (or --no-http2) pins the transport to HTTP/1.1.
 	applyHTTP2Preference(transport, scenario.Profile.HTTP2Enabled())
 
@@ -252,14 +269,15 @@ func New(scenario *config.Scenario) (*Engine, error) {
 			Timeout:       time.Duration(scenario.Profile.Timeout) * time.Second,
 			CheckRedirect: checkRedirect,
 		},
-		transport: transport,
-		timeout:   time.Duration(scenario.Profile.Timeout) * time.Second,
-		keepAlive: keepAlive,
-		limiter:   limiter,
-		co:        scenario.Profile.CoordinatedOmission,
-		signal:    newBroadcast(),
-		startGate: make(chan struct{}),
-		gate:      scenario.Profile.Gate,
+		transport:   transport,
+		timeout:     time.Duration(scenario.Profile.Timeout) * time.Second,
+		keepAlive:   keepAlive,
+		dialControl: control,
+		limiter:     limiter,
+		co:          scenario.Profile.CoordinatedOmission,
+		signal:      newBroadcast(),
+		startGate:   make(chan struct{}),
+		gate:        scenario.Profile.Gate,
 	}
 	e.stepStats = make([]*metrics.StepStats, len(scenario.Steps))
 	for i, step := range scenario.Steps {
@@ -303,7 +321,10 @@ func (e *Engine) preWarmConnections(count int) {
 		return
 	}
 	host := parsed.Host
-	conn, err := net.DialTimeout("tcp", host, 10*time.Second)
+	conn, err := (&net.Dialer{
+		Timeout: 10 * time.Second,
+		Control: e.dialControl,
+	}).Dial("tcp", host)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Pre-warm: cannot reach %s: %v\n", host, err)
 		return
@@ -319,7 +340,7 @@ func (e *Engine) preWarmConnections(count int) {
 		go func(idx int) {
 			defer func() { <-sem; done <- struct{}{} }()
 
-			transport := baseTransport(true, fingerprint.Profile(e.scenario.Profile.TLSFingerprint))
+			transport := baseTransportWithControl(true, fingerprint.Profile(e.scenario.Profile.TLSFingerprint), e.dialControl)
 			transport.MaxIdleConns = 1
 			transport.MaxIdleConnsPerHost = 1
 			transport.MaxConnsPerHost = 1

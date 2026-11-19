@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/url"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/attest"
@@ -26,6 +27,13 @@ type Options struct {
 	DemoStoreURL string
 	Mode         string
 	Now          func() time.Time
+
+	// DialControl, when set, is installed on every dialer this run creates.
+	// The gate uses it to refuse a connection whose resolved peer address was
+	// not covered by the authorization decision, closing the gap between a
+	// public-target approval and a socket that reaches a private address.
+	// Nil keeps the original dial behaviour.
+	DialControl func(network, address string, c syscall.RawConn) error
 
 	// SignerKey, when set, is the identity that seals the report. A persistent
 	// key makes the seal attributable: a verifier can pin the public key and
@@ -88,7 +96,7 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 	// Stage 1: Security scan (lightweight, time-bounded)
 	emit(StageScan, StatusRunning, "Scanning headers, TLS/SSL, and OWASP surface...", "")
 	secCtx, secCancel := stageContext(budgetCtx, deadline, 8*time.Second, 3*time.Second)
-	secFindings, secPartial, secNotes := runSecurityScan(secCtx, opt.TargetURL)
+	secFindings, secPartial, secNotes := runSecurityScan(secCtx, opt.TargetURL, opt.DialControl)
 	// Capture the context error before cancel(): after secCancel() the error is
 	// always context.Canceled, which would falsely report a timeout.
 	secErr := secCtx.Err()
@@ -126,7 +134,7 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 		}
 		plannedStressDurSec, plannedStressMaxUsers = stressRunConfig(stressBudget)
 		stressCtx, stressCancel := stageContext(budgetCtx, deadline, stressBudget, 2*time.Second)
-		stress = runStressTest(stressCtx, opt.TargetURL, stressBudget)
+		stress = runStressTest(stressCtx, opt.TargetURL, stressBudget, opt.DialControl)
 		stressCancel()
 		notes = append(notes, stress.Notes...)
 		stress = normalizeStressOutcome(stress)
@@ -311,7 +319,7 @@ func stageContext(parent context.Context, globalDeadline time.Time, want, min ti
 	return context.WithTimeout(parent, want)
 }
 
-func runSecurityScan(ctx context.Context, targetURL string) ([]Finding, bool, []string) {
+func runSecurityScan(ctx context.Context, targetURL string, control func(network, address string, c syscall.RawConn) error) ([]Finding, bool, []string) {
 	var findings []Finding
 	var notes []string
 	partial := false
@@ -331,7 +339,7 @@ func runSecurityScan(ctx context.Context, targetURL string) ([]Finding, bool, []
 	// 1) Core scan (TLS/HTTP/WAF/security headers) - reuse existing scanner.
 	scanCh := make(chan *scanner.ScanResult, 1)
 	go func() {
-		res, _ := scanner.Scan(host, port)
+		res, _ := scanner.ScanWithControl(host, port, control)
 		scanCh <- res
 	}()
 	var scanRes *scanner.ScanResult
@@ -345,7 +353,8 @@ func runSecurityScan(ctx context.Context, targetURL string) ([]Finding, bool, []
 	hasObservableSecurityEvidence := false
 	targetReachable := false
 	dialAddr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
-	if conn, derr := net.DialTimeout("tcp", dialAddr, 2*time.Second); derr == nil {
+	dialer := net.Dialer{Timeout: 2 * time.Second, Control: control}
+	if conn, derr := dialer.Dial("tcp", dialAddr); derr == nil {
 		targetReachable = true
 		_ = conn.Close()
 	}
@@ -380,7 +389,7 @@ func runSecurityScan(ctx context.Context, targetURL string) ([]Finding, bool, []
 	}
 
 	// 2) Lightweight OWASP/passive checks (safe categories only; non-intrusive).
-	owaspFindings, owaspPartial, owaspNote := runLightweightOWASP(ctx, targetURL)
+	owaspFindings, owaspPartial, owaspNote := runLightweightOWASP(ctx, targetURL, control)
 	if owaspNote != "" {
 		notes = append(notes, owaspNote)
 	}
@@ -666,13 +675,14 @@ func headerImpact(header, status string) string {
 	return base
 }
 
-func runLightweightOWASP(ctx context.Context, targetURL string) ([]Finding, bool, string) {
+func runLightweightOWASP(ctx context.Context, targetURL string, control func(network, address string, c syscall.RawConn) error) ([]Finding, bool, string) {
 	// Run passive/safe categories directly (non-intrusive). Intrusive OWASP
 	// categories send payloads and require explicit intrusive authorization/gating;
 	// this 360° stage intentionally remains lightweight and non-intrusive.
 	done := make(chan *owasp.OWASPReport, 1)
 	go func() {
 		c := owasp.NewOWASPChecker(targetURL)
+		c.DialControl = control
 		report := &owasp.OWASPReport{Categories: make(map[string]*owasp.OWASPCategory)}
 		// Passive categories in checker implementation: A01, A02, A04, A06, A08, A09.
 		// Call CheckAll() would also trigger intrusive categories via runIntrusive paths
@@ -698,7 +708,7 @@ func runLightweightOWASP(ctx context.Context, targetURL string) ([]Finding, bool
 	}
 }
 
-func runStressTest(ctx context.Context, targetURL string, budget time.Duration) StressOutcome {
+func runStressTest(ctx context.Context, targetURL string, budget time.Duration, control func(network, address string, c syscall.RawConn) error) StressOutcome {
 	out := StressOutcome{Notes: []string{}}
 	if _, _, _, err := ParseTargetHostPort(targetURL); err != nil {
 		out.Notes = append(out.Notes, "Stress test skipped: invalid target URL.")
@@ -706,7 +716,7 @@ func runStressTest(ctx context.Context, targetURL string, budget time.Duration) 
 	}
 
 	// Quick reachability probe (no fabricated metrics if unreachable).
-	if !probeReachable(targetURL, 1500*time.Millisecond) {
+	if !probeReachable(targetURL, 1500*time.Millisecond, control) {
 		out.Notes = append(out.Notes, "Stress test unavailable: target not reachable from this environment.")
 		return out
 	}
@@ -733,7 +743,7 @@ func runStressTest(ctx context.Context, targetURL string, budget time.Duration) 
 		return out
 	}
 
-	eng, err := engine.New(sc)
+	eng, err := engine.NewWithControl(sc, control)
 	if err != nil {
 		out.Notes = append(out.Notes, "Stress test unavailable: engine init error: "+err.Error())
 		return out
@@ -942,13 +952,14 @@ func rejectionLabel(code int) string {
 	}
 }
 
-func probeReachable(targetURL string, timeout time.Duration) bool {
+func probeReachable(targetURL string, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) bool {
 	host, port, _, err := ParseTargetHostPort(targetURL)
 	if err != nil {
 		return false
 	}
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
-	conn, err := net.DialTimeout("tcp", addr, timeout)
+	dialer := net.Dialer{Timeout: timeout, Control: control}
+	conn, err := dialer.Dial("tcp", addr)
 	if err != nil {
 		return false
 	}

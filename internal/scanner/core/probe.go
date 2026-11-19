@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"syscall"
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/fingerprint"
@@ -27,6 +28,14 @@ func SetFingerprint(p fingerprint.Profile) {
 // SendProbe sends a single HTTP request and returns the response.
 // It is used by all scanner subpackages (tls, waf, http, security).
 func SendProbe(target, method, path string, headers http.Header) (*http.Response, error) {
+	return SendProbeWithControl(target, method, path, headers, nil)
+}
+
+// SendProbeWithControl is SendProbe with a dial-time check. The control runs
+// with the peer address already resolved, so a caller that approved a target
+// by class can refuse a connection that resolved to a more restrictive address.
+// Nil keeps the original behaviour exactly.
+func SendProbeWithControl(target, method, path string, headers http.Header, control func(network, address string, c syscall.RawConn) error) (*http.Response, error) {
 	u, err := url.Parse(target)
 	if err != nil {
 		return nil, err
@@ -47,7 +56,7 @@ func SendProbe(target, method, path string, headers http.Header) (*http.Response
 	}
 	ApplyHeaders(req, DefaultFingerprint)
 
-	client := NewHTTPClient(DefaultFingerprint, 10*time.Second, false)
+	client := NewHTTPClientWithControl(DefaultFingerprint, 10*time.Second, false, control)
 
 	return client.Do(req)
 }

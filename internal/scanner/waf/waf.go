@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"syscall"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
 )
@@ -87,12 +88,17 @@ var WAFSignatures = map[string]WAFSignature{
 
 // ScanWAF performs WAF fingerprinting against the target URL.
 func ScanWAF(target string) (*core.WAFInfo, error) {
+	return ScanWAFWithControl(target, nil)
+}
+
+// ScanWAFWithControl is ScanWAF with a dial-time check on its probe.
+func ScanWAFWithControl(target string, control func(network, address string, c syscall.RawConn) error) (*core.WAFInfo, error) {
 	waf := &core.WAFInfo{
 		Headers:    make(map[string]string),
 		Indicators: make([]string, 0),
 	}
 
-	resp, err := core.SendProbe(target, "GET", "/<script>alert(1)</script>", nil)
+	resp, err := core.SendProbeWithControl(target, "GET", "/<script>alert(1)</script>", nil, control)
 	if err != nil {
 		return waf, fmt.Errorf("probe failed: %w", err)
 	}

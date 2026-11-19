@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -19,13 +20,15 @@ const wsReadLimit = 8 << 10 // 8 KiB
 const wsWriteWait = 5 * time.Second
 
 // newWSDialer builds a websocket.Dialer honoring the step timeout and the
-// ambient context (so Ctrl+C cancels an in-progress handshake).
-func newWSDialer(ctx context.Context, timeout time.Duration) *websocket.Dialer {
+// ambient context (so Ctrl+C cancels an in-progress handshake). control is
+// passed down to the underlying TCP dial so the authorization decision also
+// covers the socket used by the WebSocket upgrade.
+func newWSDialer(ctx context.Context, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) *websocket.Dialer {
 	return &websocket.Dialer{
 		Proxy:            http.ProxyFromEnvironment,
 		HandshakeTimeout: timeout,
 		NetDialContext: func(netCtx context.Context, network, addr string) (net.Conn, error) {
-			d := &net.Dialer{Timeout: timeout}
+			d := &net.Dialer{Timeout: timeout, Control: control}
 			return d.DialContext(netCtx, network, addr)
 		},
 	}
@@ -39,7 +42,7 @@ func (e *Engine) wsDial(ctx context.Context, rawURL string, step config.Step, va
 	}
 	dialCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	conn, resp, err := newWSDialer(ctx, timeout).DialContext(dialCtx, rawURL, header)
+	conn, resp, err := newWSDialer(ctx, timeout, e.dialControl).DialContext(dialCtx, rawURL, header)
 	if err != nil {
 		status := 0
 		if resp != nil {
