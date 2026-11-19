@@ -17,12 +17,45 @@ import (
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
 )
 
+// TLSVerifyWarning is the exact warning surfaced in reports when certificate
+// verification has been explicitly disabled for an authorized lab.
+const TLSVerifyWarning = "TLS verify OFF - authorized lab mode"
+
+// Options configures TLS behaviour inside the OWASP checker. Use
+// DefaultOptions for the secure-by-default configuration.
+type Options struct {
+	// TLSVerify enables x509 certificate chain and hostname verification.
+	// It is ON by default. Disabling it is an explicit, authorized lab opt-out.
+	TLSVerify bool
+}
+
+// DefaultOptions returns the secure-by-default OWASP TLS configuration.
+func DefaultOptions() Options {
+	return Options{TLSVerify: true}
+}
+
+// Default is the configuration used by the legacy NewOWASPChecker entry point.
+// Only set TLSVerify=false in an authorized lab where self-signed certificates
+// must be accepted.
+var Default = DefaultOptions()
+
+// TLSVerifyEnabled reports the process-wide default. It is deliberately a pure
+// read of Default: a per-checker opt-out lives on that checker and its report,
+// so it cannot leak into another scan or report.
+func TLSVerifyEnabled() bool {
+	return Default.TLSVerify
+}
+
 // OWASPChecker performs automated OWASP Top 10 checks
 type OWASPChecker struct {
 	Target    string
 	Client    *http.Client
 	Results   *OWASPReport
 	Transport *http.Transport
+
+	// InsecureTLS is true only for a checker built with an explicit opt-out.
+	// It is copied to the report so Render() warns about this scan alone.
+	InsecureTLS bool
 
 	// Requester, when set, is the safety gate every probe goes through. This
 	// is the difference between a sanctioned assessment and an attack: it
@@ -81,6 +114,10 @@ type OWASPReport struct {
 	Categories map[string]*OWASPCategory
 	Score      int    // 0-100 (100 = fully compliant)
 	Grade      string // A-F
+
+	// InsecureTLS is copied from the checker that produced this report. Zero
+	// means verification was ON; reports use it to emit the lab-mode warning.
+	InsecureTLS bool
 }
 
 // OWASPCategory represents one OWASP category
@@ -106,21 +143,20 @@ var owaspCategories = map[string]string{
 	"A10": "Server-Side Request Forgery (SSRF)",
 }
 
-// NewOWASPChecker creates a new OWASP checker for the given target.
-//
-// NOTE: TLS certificate verification is intentionally disabled
-// (InsecureSkipVerify) because pentest targets frequently use self-signed,
-// expired, or internally-CA-signed certificates that must still be audited.
-// This is standard behavior for security scanners (nmap, Nessus, Burp).
-//
-// Default: InsecureSkipVerify=true — intentional for a pentest tool. There is
-// no --insecure opt-in flag: skipping verification is the tools' standard
-// mode, so authorization of the target (not configuration) is the control.
-// Only use against targets you are authorized to test.
+// NewOWASPChecker creates a new OWASP checker for the given target using
+// Default, which verifies TLS certificates by default. Authorization of the
+// target is still required before any probe is sent.
 func NewOWASPChecker(target string) *OWASPChecker {
+	return NewOWASPCheckerWithOptions(target, Default)
+}
+
+// NewOWASPCheckerWithOptions creates a checker with an explicit TLS
+// configuration. It is the single implementation; NewOWASPChecker only
+// supplies Default.
+func NewOWASPCheckerWithOptions(target string, opts Options) *OWASPChecker {
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true, // #nosec G402 -- authorized pentest targets may use self-signed certificates
+			InsecureSkipVerify: !opts.TLSVerify, // #nosec G402 -- only when explicitly disabled for an authorized lab
 		},
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 10 * time.Second,
@@ -135,16 +171,18 @@ func NewOWASPChecker(target string) *OWASPChecker {
 	}
 
 	return &OWASPChecker{
-		Target:    target,
-		Client:    client,
-		Transport: transport,
+		Target:      target,
+		Client:      client,
+		Transport:   transport,
+		InsecureTLS: !opts.TLSVerify,
 	}
 }
 
 // CheckAll runs all OWASP Top 10 checks and returns the report
 func (c *OWASPChecker) CheckAll() *OWASPReport {
 	report := &OWASPReport{
-		Categories: make(map[string]*OWASPCategory),
+		Categories:  make(map[string]*OWASPCategory),
+		InsecureTLS: c.InsecureTLS,
 	}
 
 	report.Categories["A01"] = c.checkA01()
@@ -480,7 +518,7 @@ func (c *OWASPChecker) checkA02() *OWASPCategory {
 			{"TLS 1.1", tls.VersionTLS11, tls.VersionTLS11},
 		} {
 			config := &tls.Config{
-				InsecureSkipVerify: true, // #nosec G402 -- authorized pentest targets may use self-signed certificates
+				InsecureSkipVerify: c.InsecureTLS, // #nosec G402 -- only when this checker explicitly opted out
 				MinVersion:         tv.min,
 				MaxVersion:         tv.max,
 			}
@@ -1462,6 +1500,10 @@ func (c *OWASPChecker) Render() string {
 		b.WriteString(fmt.Sprintf(" SUMMARY: ✅ %d PASS  ⚠️  %d WARNING  ❌ %d FAIL\n", passCount, warnCount, failCount))
 	}
 	b.WriteString(fmt.Sprintf(" OVERALL SCORE: %d/100  GRADE: %s\n", r.Score, gradeDisplay))
+	// Warn only for this checker's own opt-out, never for a global setting.
+	if c.Results.InsecureTLS || c.InsecureTLS {
+		b.WriteString(" " + TLSVerifyWarning + "\n")
+	}
 	b.WriteString("════════════════════════════════════════════════════════════════\n")
 
 	return b.String()

@@ -12,10 +12,97 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"net/url"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
+
+// SSLVerifyWarning is the exact warning surfaced in reports when certificate
+// verification has been explicitly disabled for an authorized lab.
+const SSLVerifyWarning = "TLS verify OFF - authorized lab mode"
+
+// SSLOptions configures SSL/TLS scans. Use SSLDefaultOptions for the
+// secure-by-default configuration.
+type SSLOptions struct {
+	// TLSVerify enables x509 certificate chain and hostname verification.
+	// It is ON by default. Disabling it is an explicit, authorized lab opt-out.
+	TLSVerify bool
+}
+
+// SSLDefaultOptions returns the secure-by-default SSL scan configuration.
+func SSLDefaultOptions() SSLOptions {
+	return SSLOptions{TLSVerify: true}
+}
+
+// SSLDefault is the configuration used by the legacy ScanSSL and
+// ScanSSLWithControl entry points. Only set TLSVerify=false in an authorized
+// lab where self-signed certificates must be accepted.
+var SSLDefault = SSLDefaultOptions()
+
+// SSLVerifyEnabled reports the process-wide default. It is deliberately a pure
+// read of SSLDefault: a per-call opt-out is recorded on that scan's result, so
+// it cannot leak into an unrelated scan or report.
+func SSLVerifyEnabled() bool {
+	return SSLDefault.TLSVerify
+}
+
+// sslLabOptOut holds at most one target-scoped lab opt-out. It is a one-shot
+// registration: the first SSL scan for the matching target consumes it and
+// clears it. SSLDefault is never touched, so verification stays ON for every
+// later scan and report.
+var sslLabOptOut = struct {
+	sync.Mutex
+	target string
+}{}
+
+// AllowInsecureSSLForTarget opts out of certificate verification for the next
+// SSL scan of target. target may be a URL (https://host:port) or a host[:port]
+// string; both are normalized to host:port. The registration is consumed by
+// that single scan, cannot be reused, and never changes SSLDefault. It exists
+// for authorized lab tests against self-signed endpoints that must complete a
+// handshake and expose the peer certificate.
+func AllowInsecureSSLForTarget(target string) {
+	key := normalizeSSLTarget(target)
+	sslLabOptOut.Lock()
+	sslLabOptOut.target = key
+	sslLabOptOut.Unlock()
+}
+
+// consumeInsecureSSLForTarget reports and clears a matching one-shot opt-out.
+func consumeInsecureSSLForTarget(target string) bool {
+	key := normalizeSSLTarget(target)
+	sslLabOptOut.Lock()
+	defer sslLabOptOut.Unlock()
+	if sslLabOptOut.target != "" && sslLabOptOut.target == key {
+		sslLabOptOut.target = ""
+		return true
+	}
+	return false
+}
+
+// normalizeSSLTarget renders a URL or host[:port] as the host:port form SSL
+// scans dial. It keeps the lab opt-out key identical to the handler's target.
+func normalizeSSLTarget(target string) string {
+	if strings.Contains(target, "://") {
+		if u, err := url.Parse(target); err == nil {
+			port := u.Port()
+			if port == "" {
+				port = "443"
+				if u.Scheme == "http" {
+					port = "80"
+				}
+			}
+			return net.JoinHostPort(u.Hostname(), port)
+		}
+	}
+	host, port, err := net.SplitHostPort(target)
+	if err != nil {
+		return net.JoinHostPort(target, "443")
+	}
+	return net.JoinHostPort(host, port)
+}
 
 // SSLResult is the output of an SSL/TLS scan.
 type SSLResult struct {
@@ -31,12 +118,16 @@ type SSLResult struct {
 	Version   string        `json:"version,omitempty"`
 	Issues    []string      `json:"issues,omitempty"`
 	Duration  time.Duration `json:"duration"`
+
+	// InsecureTLS is true only when this scan explicitly disabled certificate
+	// verification. Reports use it to emit the lab-mode warning for this scan.
+	InsecureTLS bool `json:"insecure_tls,omitempty"`
 }
 
 // ScanSSL performs a TLS handshake against host:port (default 443) and
-// reports certificate and configuration weaknesses.
+// reports certificate and configuration weaknesses using SSLDefault.
 func ScanSSL(ctx context.Context, target string) *SSLResult {
-	return ScanSSLWithControl(ctx, target, nil)
+	return ScanSSLWithOptions(ctx, target, nil, SSLDefault)
 }
 
 // ScanSSLWithControl is ScanSSL with a dial-time check installed on the
@@ -44,14 +135,23 @@ func ScanSSL(ctx context.Context, target string) *SSLResult {
 // can refuse an address the authorization decision did not approve; nil behaves
 // exactly like ScanSSL.
 func ScanSSLWithControl(ctx context.Context, target string, control func(network, address string, c syscall.RawConn) error) *SSLResult {
-	res := &SSLResult{Target: target}
-	start := time.Now()
+	return ScanSSLWithOptions(ctx, target, control, SSLDefault)
+}
 
+// ScanSSLWithOptions is ScanSSLWithControl with an explicit SSL configuration.
+// It is the single implementation; the legacy entry points only supply SSLDefault.
+func ScanSSLWithOptions(ctx context.Context, target string, control func(network, address string, c syscall.RawConn) error, opts SSLOptions) *SSLResult {
 	host, port, err := net.SplitHostPort(target)
 	if err != nil {
 		host = target
 		port = "443"
 	}
+
+	// A target-scoped one-shot lab opt-out is consumed here and recorded on this
+	// result only. SSLDefault is untouched, so later scans stay verified.
+	insecure := !opts.TLSVerify || consumeInsecureSSLForTarget(net.JoinHostPort(host, port))
+	res := &SSLResult{Target: target, InsecureTLS: insecure}
+	start := time.Now()
 
 	dialer := &net.Dialer{Timeout: 5 * time.Second, Control: control}
 	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, port))
@@ -64,7 +164,7 @@ func ScanSSLWithControl(ctx context.Context, target string, control func(network
 
 	config := &tls.Config{
 		// nolint:gosec
-		InsecureSkipVerify: true, // #nosec G402 -- authorized pentest targets may use self-signed certificates
+		InsecureSkipVerify: insecure, // #nosec G402 -- only for this scan's explicit authorized-lab opt-out
 		ServerName:         host,
 		MinVersion:         tls.VersionTLS10,
 	}

@@ -22,7 +22,9 @@ func TestScanTLS(t *testing.T) {
 	}
 	port := mustAtoi(portStr)
 
-	info, err := ScanTLS(host, port)
+	// The self-signed test certificate is an authorized lab fixture: opt out of
+	// verification for this call only, without changing the package default.
+	info, err := ScanTLSWithOptions(host, port, nil, Options{TLSVerify: false})
 	if err != nil {
 		t.Fatalf("ScanTLS: %v", err)
 	}

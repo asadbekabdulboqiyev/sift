@@ -11,6 +11,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/asadbekabdulboqiyev/sift/internal/scanner"
 )
 
 func postTo(t *testing.T, h http.HandlerFunc, path, body string, headers map[string]string) *httptest.ResponseRecorder {
@@ -75,6 +77,9 @@ func TestHandleSSLScanTLSHost(t *testing.T) {
 	defer target.Close()
 
 	s := owaspTestServer(t)
+	// The self-signed fixture is an authorized lab target: consume a one-shot
+	// opt-out for this exact target. Verification stays ON globally.
+	scanner.AllowInsecureSSLForTarget(target.URL)
 	rec := postTo(t, s.handleSSLScan, "/api/sslscan", `{"target":"`+target.URL+`"}`, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (%s)", rec.Code, rec.Body.String())

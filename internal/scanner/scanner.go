@@ -112,8 +112,18 @@ func Scan(target string, port int) (*ScanResult, error) {
 // ScanWithControl is Scan with a dial-time check threaded into every phase.
 // The control sees the resolved peer address before connect, so a caller that
 // approved a target by class can refuse a rebind to a more restricted address.
-// Nil keeps the original behaviour exactly.
+// Nil keeps the original behaviour exactly. It scans with the default TLS
+// configuration (certificate verification ON).
 func ScanWithControl(target string, port int, control func(network, address string, c syscall.RawConn) error) (*ScanResult, error) {
+	return ScanWithControlWithOptions(target, port, control, tls.Default)
+}
+
+// ScanWithControlWithOptions is ScanWithControl with an explicit TLS
+// configuration. It lets an authorized lab accept a self-signed certificate
+// through tls.Options{TLSVerify: false} without mutating the package default,
+// so one scan's opt-out cannot leak into another scan. All four phases still
+// receive the same dial-time control.
+func ScanWithControlWithOptions(target string, port int, control func(network, address string, c syscall.RawConn) error, opts tls.Options) (*ScanResult, error) {
 	start := time.Now()
 
 	result := &ScanResult{
@@ -122,7 +132,7 @@ func ScanWithControl(target string, port int, control func(network, address stri
 	}
 
 	// TLS scan
-	tlsInfo, err := tls.ScanTLSWithControl(target, port, control)
+	tlsInfo, err := tls.ScanTLSWithOptions(target, port, control, opts)
 	if err == nil {
 		result.TLS = tlsInfo
 	}

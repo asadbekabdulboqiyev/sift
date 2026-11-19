@@ -649,9 +649,13 @@ func (s *Server) handleOWASPScan(w http.ResponseWriter, r *http.Request) {
 	names := make(map[string]string, len(owaspCategoryIDs))
 	coverage := make(map[string]int, len(owaspCategoryIDs))
 
+	var scanInsecureTLS bool
 	for _, base := range bases {
 		checker := newBoundOWASPChecker(base, gate)
 		report := checker.CheckAll()
+		if report.InsecureTLS || checker.InsecureTLS {
+			scanInsecureTLS = true
+		}
 		for _, id := range owaspCategoryIDs {
 			cat, ok := report.Categories[id]
 			if !ok {
@@ -732,6 +736,17 @@ func (s *Server) handleOWASPScan(w http.ResponseWriter, r *http.Request) {
 		notes = append(notes, fmt.Sprintf(
 			"NOT TESTED: %s — no probe reached the server for these categories (gate refusal, dry run, or connection failure). Score covers %d of %d categories.",
 			strings.Join(notTested, ", "), tested, len(owaspCategoryIDs)))
+	}
+
+	// Confidence summary: regroup the confidence already carried by findings.
+	// No new findings are created; empty/unknown values count as unchecked.
+	confidences := make([]string, 0, len(allFindings))
+	for _, f := range allFindings {
+		confidences = append(confidences, f.Confidence)
+	}
+	notes = append(notes, dashboardConfidenceSummary(confidences))
+	if warn := dashboardTLSVerifyWarning(scanInsecureTLS); warn != "" {
+		notes = append(notes, warn)
 	}
 
 	st := gate.Stats()

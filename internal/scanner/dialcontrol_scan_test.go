@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/authz"
+	"github.com/asadbekabdulboqiyev/sift/internal/scanner/tls"
 )
 
 // errScanRefused is the sentinel returned by a refusing dial hook.
@@ -190,12 +191,16 @@ func TestScanWithControlTLSDialUsesTheHook(t *testing.T) {
 	defer srv.Close()
 	host, port := hostPortOf(t, srv)
 
+	// The self-signed test certificate is an authorized lab fixture: opt out of
+	// verification for these calls only, leaving the package default untouched.
+	labTLS := tls.Options{TLSVerify: false}
+
 	// Act: permissive pass.
 	var allowed atomic.Int64
-	okResult, okErr := ScanWithControl(host, port, func(_ string, _ string, _ syscall.RawConn) error {
+	okResult, okErr := ScanWithControlWithOptions(host, port, func(_ string, _ string, _ syscall.RawConn) error {
 		allowed.Add(1)
 		return nil
-	})
+	}, labTLS)
 
 	// Assert: permissive pass.
 	if okErr != nil {
@@ -210,10 +215,10 @@ func TestScanWithControlTLSDialUsesTheHook(t *testing.T) {
 
 	// Act: refusing pass over the same live TLS server.
 	var denied atomic.Int64
-	blockedResult, deniedErr := ScanWithControl(host, port, func(_ string, _ string, _ syscall.RawConn) error {
+	blockedResult, deniedErr := ScanWithControlWithOptions(host, port, func(_ string, _ string, _ syscall.RawConn) error {
 		denied.Add(1)
 		return errScanRefused
-	})
+	}, labTLS)
 
 	// Assert: refusing pass.
 	if deniedErr != nil {

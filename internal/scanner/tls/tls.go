@@ -16,6 +16,44 @@ import (
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
 )
 
+// TLSVerifyWarning is the exact warning surfaced in reports when certificate
+// verification has been explicitly disabled for an authorized lab.
+const TLSVerifyWarning = "TLS verify OFF - authorized lab mode"
+
+// Options configures TLS scans. The zero value is not used directly; callers
+// should use DefaultOptions for the secure-by-default configuration.
+type Options struct {
+	// TLSVerify enables x509 certificate chain and hostname verification.
+	// It is ON by default. Disabling it is an explicit, authorized lab opt-out.
+	TLSVerify bool
+}
+
+// DefaultOptions returns the secure-by-default TLS scan configuration.
+func DefaultOptions() Options {
+	return Options{TLSVerify: true}
+}
+
+// Default is the configuration used by the legacy ScanTLS and
+// ScanTLSWithControl entry points. Only set TLSVerify=false in an authorized
+// lab where self-signed certificates must be accepted.
+var Default = DefaultOptions()
+
+// TLSVerifyEnabled reports the process-wide default. It is deliberately a pure
+// read of Default: an explicit per-call opt-out is recorded on that scan's
+// result, never here, so it cannot leak into an unrelated scan or report.
+func TLSVerifyEnabled() bool {
+	return Default.TLSVerify
+}
+
+// ScanResult pairs a TLS scan with the verification state used for that one
+// call. InsecureTLS is true only when the caller explicitly disabled
+// verification; reports use it to emit the lab-mode warning for that scan.
+// Keeping it on the result avoids process-wide "sticky" opt-out state.
+type ScanResult struct {
+	Info        *core.TLSInfo
+	InsecureTLS bool
+}
+
 // KnownCiphers lists known TLS cipher suites.
 var KnownCiphers = map[uint16]core.CipherInfo{
 	// TLS 1.3
@@ -48,9 +86,9 @@ var InsecurePatterns = []string{
 // Secure TLS versions.
 var secureVersions = []string{"TLS 1.3", "TLS 1.2"}
 
-// ScanTLS performs a full TLS scan on the target host:port.
+// ScanTLS performs a full TLS scan on the target host:port using Default.
 func ScanTLS(host string, port int) (*core.TLSInfo, error) {
-	return ScanTLSWithControl(host, port, nil)
+	return ScanTLSWithOptions(host, port, nil, Default)
 }
 
 // ScanTLSWithControl is ScanTLS with a dial-time check on every TLS handshake.
@@ -58,6 +96,12 @@ func ScanTLS(host string, port int) (*core.TLSInfo, error) {
 // retries, so an address the authorization check did not approve cannot be
 // reached by any part of the TLS phase.
 func ScanTLSWithControl(host string, port int, control func(network, address string, c syscall.RawConn) error) (*core.TLSInfo, error) {
+	return ScanTLSWithOptions(host, port, control, Default)
+}
+
+// ScanTLSWithOptions is ScanTLSWithControl with an explicit TLS configuration.
+// It is the single implementation; the legacy entry points only supply Default.
+func ScanTLSWithOptions(host string, port int, control func(network, address string, c syscall.RawConn) error, opts Options) (*core.TLSInfo, error) {
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	dialer := &net.Dialer{Timeout: 5 * time.Second, Control: control}
 
@@ -80,7 +124,7 @@ func ScanTLSWithControl(host string, port int, control func(network, address str
 
 	for _, tv := range tlsVersions {
 		config := &tls.Config{
-			InsecureSkipVerify: true, // #nosec G402 -- authorized pentest targets may use self-signed certificates
+			InsecureSkipVerify: !opts.TLSVerify, // #nosec G402 -- only when explicitly disabled for an authorized lab
 			MinVersion:         tv.min,
 			MaxVersion:         tv.max,
 		}
@@ -137,7 +181,7 @@ func ScanTLSWithControl(host string, port int, control func(network, address str
 	// Session resumption check: only report true when the handshake actually
 	// resumed a previous session/ticket, not merely when a second connect succeeds.
 	resumeCfg := &tls.Config{
-		InsecureSkipVerify: true, // #nosec G402 -- authorized pentest targets may use self-signed certificates
+		InsecureSkipVerify: !opts.TLSVerify, // #nosec G402 -- only when explicitly disabled for an authorized lab
 		ClientSessionCache: tls.NewLRUClientSessionCache(1),
 	}
 	conn1, err := tls.DialWithDialer(dialer, "tcp", addr, resumeCfg)
@@ -151,6 +195,18 @@ func ScanTLSWithControl(host string, port int, control func(network, address str
 	}
 
 	return info, nil
+}
+
+// ScanTLSWithOptionsResult is ScanTLSWithOptions plus the verification state
+// of that one call. Use it when the caller needs to report whether an
+// authorized lab opt-out was used; unlike a package flag, the state cannot
+// affect any other scan.
+func ScanTLSWithOptionsResult(host string, port int, control func(network, address string, c syscall.RawConn) error, opts Options) (*ScanResult, error) {
+	info, err := ScanTLSWithOptions(host, port, control, opts)
+	if err != nil {
+		return nil, err
+	}
+	return &ScanResult{Info: info, InsecureTLS: !opts.TLSVerify}, nil
 }
 
 func extractCertInfo(cert *x509.Certificate) core.CertInfo {
