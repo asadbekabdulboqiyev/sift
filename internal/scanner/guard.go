@@ -41,6 +41,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/fingerprint"
@@ -110,6 +111,13 @@ type GuardConfig struct {
 	// InsecureSkipVerify is passed through to the TLS client when Fingerprint
 	// is set. Off by default; only flip it for self-signed lab targets.
 	InsecureSkipVerify bool
+
+	// DialControl, when set, is installed on the client's dialer. It runs with
+	// the peer address already resolved, so a caller can re-apply the
+	// authorization decision to the address actually dialed: the gate resolves
+	// the target name, the dialer resolves it again, and DNS may answer
+	// differently the second time. Nil leaves the dialer unchanged.
+	DialControl func(network, address string, c syscall.RawConn) error
 }
 
 // Defaults. Exported so a caller can build a matching budget report.
@@ -222,7 +230,7 @@ func NewGuard(cfg GuardConfig) (*Guard, error) {
 		limiter:  newRateLimiter(rps, burst),
 	}
 	if cfg.Fingerprint != fingerprint.Default {
-		g.client = core.NewHTTPClient(cfg.Fingerprint, cfg.Timeout, cfg.InsecureSkipVerify)
+		g.client = core.NewHTTPClientWithControl(cfg.Fingerprint, cfg.Timeout, cfg.InsecureSkipVerify, cfg.DialControl)
 	} else {
 		g.client = &http.Client{
 			Timeout: cfg.Timeout,
@@ -233,11 +241,38 @@ func NewGuard(cfg GuardConfig) (*Guard, error) {
 			},
 		}
 	}
+	if cfg.DialControl != nil {
+		installDialControl(g.client, cfg.Timeout, cfg.DialControl)
+	}
 	return g, nil
+}
+
+// installDialControl puts control on the client's dialer, creating a transport
+// when the client is using the package default. Proxy settings are preserved so
+// an operator behind a proxy keeps working.
+func installDialControl(client *http.Client, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) {
+	tr, ok := client.Transport.(*http.Transport)
+	if !ok || tr == nil {
+		tr = &http.Transport{Proxy: http.ProxyFromEnvironment}
+		client.Transport = tr
+	}
+	dialer := &net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second, Control: control}
+	tr.DialContext = dialer.DialContext
 }
 
 // Config returns the effective configuration (after defaults).
 func (g *Guard) Config() GuardConfig { return g.cfg }
+
+// DialControl returns the dial-time check this Guard installed on its HTTP
+// client, or nil when none was configured.
+//
+// A scanner is not only HTTP: port, TLS and WebSocket probes dial sockets of
+// their own. Handing them this hook keeps one authorization decision behind
+// every connection the scan makes, instead of one for HTTP and a separate,
+// unchecked path for the rest.
+func (g *Guard) DialControl() func(network, address string, c syscall.RawConn) error {
+	return g.cfg.DialControl
+}
 
 // Stats returns a snapshot of the counters.
 func (g *Guard) Stats() GuardStats {

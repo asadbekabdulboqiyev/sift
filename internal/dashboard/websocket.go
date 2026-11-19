@@ -86,7 +86,7 @@ func (s *Server) handleWebSocketScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := scanner.TestWebSocket(context.Background(), req.URL, nil)
+	result := scanner.TestWebSocketWithControl(context.Background(), req.URL, nil, authz.DialControl(decision.ClassValue))
 	result.Duration = time.Since(start).Seconds()
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(WebSocketScanResult{OK: true, URL: result.URL, Connected: result.Connected, Subprotocol: result.Subprotocol, Issues: result.Issues, Messages: result.Messages, Duration: result.Duration})

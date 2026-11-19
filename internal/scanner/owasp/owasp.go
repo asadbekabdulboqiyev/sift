@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
@@ -31,6 +32,14 @@ type OWASPChecker struct {
 	// it the checker falls back to its own unrestricted client, which is
 	// test-only behaviour.
 	Requester core.Requester
+
+	// DialControl, when set, is installed on the dialers this checker uses
+	// outside the Requester path — today the deprecated-TLS probe, which has
+	// to open its own connection to offer an old protocol version. It runs
+	// with the peer address already resolved, so the authorization decision
+	// still applies to the address actually dialed. Nil leaves those dials
+	// unchanged.
+	DialControl func(network, address string, c syscall.RawConn) error
 
 	// intrusiveNow marks the category currently running as intrusive. Set by
 	// runIntrusive only; controls whether makeRequest reports the probe as
@@ -476,7 +485,7 @@ func (c *OWASPChecker) checkA02() *OWASPCategory {
 				MaxVersion:         tv.max,
 			}
 			conn, err := tls.DialWithDialer(
-				&net.Dialer{Timeout: 5 * time.Second},
+				&net.Dialer{Timeout: 5 * time.Second, Control: c.DialControl},
 				"tcp", addr, config,
 			)
 			if err == nil {

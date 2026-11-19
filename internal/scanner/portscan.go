@@ -14,6 +14,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
@@ -46,6 +47,14 @@ var commonPorts = []int{
 
 // ScanPorts scans the given ports on target (host or host:port).
 func ScanPorts(ctx context.Context, target string, ports []int, req core.Requester) *PortScanResult {
+	return ScanPortsWithControl(ctx, target, ports, req, nil)
+}
+
+// ScanPortsWithControl is ScanPorts with a dial-time check installed on every
+// connection. control runs with the peer address already resolved, so a caller
+// can refuse an address the authorization decision did not approve; nil behaves
+// exactly like ScanPorts.
+func ScanPortsWithControl(ctx context.Context, target string, ports []int, req core.Requester, control func(network, address string, c syscall.RawConn) error) *PortScanResult {
 	res := &PortScanResult{Target: target}
 	start := time.Now()
 
@@ -75,7 +84,7 @@ func ScanPorts(ctx context.Context, target string, ports []int, req core.Request
 			defer func() { <-sem }()
 
 			addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
-			entry := scanOne(ctx, addr, port)
+			entry := scanOneWithControl(ctx, addr, port, control)
 			mu.Lock()
 			if entry.State == "open" {
 				res.Opened++
@@ -94,7 +103,12 @@ func ScanPorts(ctx context.Context, target string, ports []int, req core.Request
 
 // scanOne attempts a TCP connect and banner grab.
 func scanOne(ctx context.Context, addr string, port int) *PortEntry {
-	d := net.Dialer{Timeout: 3 * time.Second}
+	return scanOneWithControl(ctx, addr, port, nil)
+}
+
+// scanOneWithControl is scanOne with a dial-time check on the connection.
+func scanOneWithControl(ctx context.Context, addr string, port int, control func(network, address string, c syscall.RawConn) error) *PortEntry {
+	d := net.Dialer{Timeout: 3 * time.Second, Control: control}
 	conn, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return &PortEntry{Port: port, State: "closed", Protocol: "tcp"}

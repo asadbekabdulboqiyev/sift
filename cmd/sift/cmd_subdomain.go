@@ -52,14 +52,14 @@ func cmdSubdomain() {
 	}
 
 	// Authorization gate: subdomain enumeration is an OpScan operation.
-	enforceAuthz(authz.OpScan, []string{parsed.String()}, os.Args, sf.gate)
+	authzOut := enforceAuthz(authz.OpScan, []string{parsed.String()}, os.Args, sf.gate)
 
 	scanWarning("subdomain")
 	announceScanScope("subdomain", parsed, sf)
 
 	// Built only to validate --allow/--rate/--budget; the DNS/crt.sh dials
 	// bypass it.
-	if _, err := buildScanGuard(parsed, sf, false, scanner.DefaultTimeout); err != nil {
+	if _, err := buildScanGuard(parsed, sf, false, scanner.DefaultTimeout, authzOut.ClassValue); err != nil {
 		scanUsageExit(sf, err)
 	}
 	hostname := parsed.Hostname()

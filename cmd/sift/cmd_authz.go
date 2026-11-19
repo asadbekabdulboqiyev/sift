@@ -76,10 +76,14 @@ func defaultAuditPath() string {
 type authzOutcome struct {
 	Allowed bool
 	Class   string
-	Rule    string
-	Reason  string
-	Targets []string
-	IPs     []string
+	// ClassValue is the same class as Class, kept typed so callers can hand it
+	// to authz.DialControl and have the decision re-applied to the address the
+	// socket actually connects to.
+	ClassValue authz.Class
+	Rule       string
+	Reason     string
+	Targets    []string
+	IPs        []string
 }
 
 // evaluateAuthz classifies every target and applies the policy. A denial is an
@@ -169,14 +173,15 @@ func evaluateAuthz(op authz.Operation, targets []string, g gateOptions) (authzOu
 		}
 	}
 	out.Class = worst.String()
+	out.ClassValue = worst
 	return out, nil
 }
 
 // enforceAuthz gates a run: it classifies the targets, writes an audit record,
 // and either returns or terminates with the denial exit code.
-func enforceAuthz(op authz.Operation, targets []string, argv []string, g gateOptions) {
+func enforceAuthz(op authz.Operation, targets []string, argv []string, g gateOptions) authzOutcome {
 	if len(targets) == 0 {
-		return
+		return authzOutcome{Allowed: true, ClassValue: authz.ClassPublic}
 	}
 	out := authzDecision(op, targets, argv, g)
 
@@ -193,11 +198,12 @@ func enforceAuthz(op authz.Operation, targets []string, argv []string, g gateOpt
 		} else {
 			fmt.Fprintf(os.Stderr, "authorization: ok (class=%s)\n", out.Class)
 		}
-		return
+		return out
 	}
 
 	printAuthzDenial(targets, out)
 	exitProcess(authzDeniedExitCode)
+	return authzOutcome{}
 }
 
 // authzDecision evaluates the policy and appends the audit record, without

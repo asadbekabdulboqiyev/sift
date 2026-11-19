@@ -52,12 +52,12 @@ func cmdDirBust() {
 
 	// Authorization gate: dirbust is an OpScan operation, like the dashboard's
 	// /api/dirbust. The refusal is recorded before any probe is sent.
-	enforceAuthz(authz.OpScan, []string{parsed.String()}, os.Args, sf.gate)
+	authzOut := enforceAuthz(authz.OpScan, []string{parsed.String()}, os.Args, sf.gate)
 
 	scanWarning("dirbust")
 	announceScanScope("dirbust", parsed, sf)
 
-	gate, err := buildScanGuard(parsed, sf, false, scanner.DefaultTimeout)
+	gate, err := buildScanGuard(parsed, sf, false, scanner.DefaultTimeout, authzOut.ClassValue)
 	if err != nil {
 		scanUsageExit(sf, err)
 	}

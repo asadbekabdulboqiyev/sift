@@ -79,13 +79,13 @@ func cmdCrawl() {
 
 	// Authorization gate: crawl is an OpScan operation. The decision is
 	// recorded before the first page is fetched.
-	enforceAuthz(authz.OpScan, []string{parsed.String()}, os.Args, sf.gate)
+	authzOut := enforceAuthz(authz.OpScan, []string{parsed.String()}, os.Args, sf.gate)
 
 	scanWarning("crawl")
 	announceScanScope("crawl", parsed, sf)
 
 	timeoutDur := time.Duration(timeout) * time.Second
-	gate, err := buildScanGuard(parsed, sf, false, timeoutDur)
+	gate, err := buildScanGuard(parsed, sf, false, timeoutDur, authzOut.ClassValue)
 	if err != nil {
 		scanUsageExit(sf, err)
 	}

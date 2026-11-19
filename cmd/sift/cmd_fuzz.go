@@ -83,12 +83,12 @@ func cmdFuzz() {
 	// Authorization gate: fuzz is an OpScan operation in the dashboard
 	// (/api/fuzz/scan), so a named ticket is optional but the policy is still
 	// enforced and the decision is recorded before a single byte is sent.
-	enforceAuthz(authz.OpScan, []string{parsed.String()}, os.Args, sf.gate)
+	authzOut := enforceAuthz(authz.OpScan, []string{parsed.String()}, os.Args, sf.gate)
 
 	scanWarning("fuzz")
 	announceScanScope("fuzz", parsed, sf)
 	timeoutDur := time.Duration(timeout) * time.Second
-	gate, err := buildScanGuard(parsed, sf, intrusive, timeoutDur)
+	gate, err := buildScanGuard(parsed, sf, intrusive, timeoutDur, authzOut.ClassValue)
 	if err != nil {
 		scanUsageExit(sf, err)
 	}

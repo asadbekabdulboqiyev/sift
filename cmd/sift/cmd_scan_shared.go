@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner"
 )
 
@@ -177,7 +178,7 @@ func scanScopeLabel(parsed *url.URL, sf *scanFlags) string {
 // intrusion is the intrusive opt-in: false for the passive scanners
 // (dirbust, graphql, crawl, subdomain, portscan, sslscan) and the operator's
 // --intrusive for fuzz, which can mutate server state.
-func buildScanGuard(parsed *url.URL, sf *scanFlags, intrusive bool, timeout time.Duration) (*scanner.Guard, error) {
+func buildScanGuard(parsed *url.URL, sf *scanFlags, intrusive bool, timeout time.Duration, approved authz.Class) (*scanner.Guard, error) {
 	g, err := scanner.NewGuard(scanner.GuardConfig{
 		Allow:       scanScope(parsed, sf),
 		AllowAll:    sf.allowAll,
@@ -186,6 +187,7 @@ func buildScanGuard(parsed *url.URL, sf *scanFlags, intrusive bool, timeout time
 		MaxRequests: sf.budget,
 		Timeout:     timeout,
 		DryRun:      sf.dryRun,
+		DialControl: authz.DialControl(approved),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("invalid probe policy: %w", err)
@@ -413,7 +415,7 @@ func scanDryRunSkip(name, target string, sf *scanFlags) (bool, error) {
 // thing; silently implying the gate covered the dial would not be.
 func scanDirectDialNote(name, target string) {
 	fmt.Fprintf(os.Stderr,
-		"note: %s dials %s directly, outside the probe gate; scope/rate/budget are validated but NOT enforced on those sockets\n",
+		"note: %s dials %s directly, outside the probe gate; scope/rate/budget are validated but NOT enforced on those sockets. The dial-time address check still applies.\n",
 		name, target)
 }
 

@@ -58,13 +58,15 @@ func cmdWebSocket() {
 
 	// Authorization gate: websocket is an OpScan operation, like the dashboard's
 	// /api/websocket/scan. A ws:// URL classifies fine (authz parses the host).
-	enforceAuthz(authz.OpScan, []string{raw}, os.Args, sf.gate)
+	authzOut := enforceAuthz(authz.OpScan, []string{raw}, os.Args, sf.gate)
 
 	scanWarning("websocket")
 	announceScanScope("websocket", parsed, sf)
 
-	// Built only to validate --allow/--rate/--budget; the dial bypasses it.
-	if _, err := buildScanGuard(parsed, sf, false, scanner.DefaultTimeout); err != nil {
+	// The WebSocket client dials on its own, so the guard's dial-time address
+	// check is handed to it instead of being dropped.
+	gate, err := buildScanGuard(parsed, sf, false, scanner.DefaultTimeout, authzOut.ClassValue)
+	if err != nil {
 		scanUsageExit(sf, err)
 	}
 	scanDirectDialNote("websocket", raw)
@@ -75,7 +77,7 @@ func cmdWebSocket() {
 		return
 	}
 
-	result := scanner.TestWebSocket(context.Background(), raw, nil)
+	result := scanner.TestWebSocketWithControl(context.Background(), raw, nil, gate.DialControl())
 
 	if err := emitScanDirectDialJSON("websocket", raw, result, sf); err != nil {
 		scanRuntimeExit(sf, err)
@@ -105,9 +107,11 @@ func printWebSocketHelp(fs *flag.FlagSet) {
 	fmt.Fprintf(w, " Connects without an Origin header and reports structural weaknesses:\n")
 	fmt.Fprintf(w, " missing origin validation, absent subprotocol negotiation, and whether\n")
 	fmt.Fprintf(w, " the server answers an unsolicited probe.\n\n")
-	fmt.Fprintf(w, " The dial is performed by the WebSocket client and bypasses the probe\n")
+	fmt.Fprintf(w, " The dial is performed by the WebSocket client, outside the probe\n")
 	fmt.Fprintf(w, " gate: scope/rate/budget are validated but not enforced on the socket.\n")
-	fmt.Fprintf(w, " Use --dry-run to see the intent without opening a connection.\n\n")
+	fmt.Fprintf(w, " The dial-time address check still applies, so the socket cannot reach\n")
+	fmt.Fprintf(w, " an address the authorization decision did not approve. Use --dry-run\n")
+	fmt.Fprintf(w, " to see the intent without opening a connection.\n\n")
 	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
 	fmt.Fprintf(w, " FLAGS\n")
 	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")

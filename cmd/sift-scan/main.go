@@ -222,7 +222,7 @@ Examples:
 	// ── authorization gate (OpScan): before ANY network work ────────────────
 	// The TLS/HTTP/WAF/security phases dial the target directly, so the gate
 	// must run first, exactly like the main binary.
-	enforceScanAuthz(baseURL, scanGateOptions{
+	approvedClass := enforceScanAuthz(baseURL, scanGateOptions{
 		policyPath: *policyPath,
 		auditPath:  *auditLog,
 		authorized: *authorized,
@@ -261,6 +261,7 @@ Examples:
 		MaxRequests: *budget,
 		Timeout:     time.Duration(*timeoutSec) * time.Second,
 		DryRun:      *dryRun,
+		DialControl: authz.DialControl(approvedClass),
 	}
 	guard, guardErr := scanner.NewGuard(guardCfg)
 	if guardErr != nil {
@@ -563,6 +564,7 @@ func runOWASPScan(bases []string, g *scanner.Guard, tlsInfo *scanner.TLSInfo, se
 	for _, base := range bases {
 		checker := scanner.NewOWASPChecker(base)
 		checker.Requester = g
+		checker.DialControl = g.DialControl()
 		report := checker.CheckAll()
 		coverage := checker.ProbeCoverage()
 
@@ -1119,7 +1121,9 @@ type scanGateOptions struct {
 // enforceScanAuthz classifies the target, applies the policy, records an audit
 // record when --audit-log is set, and either returns or terminates with the
 // denial exit code. A denial is an outcome, not an error.
-func enforceScanAuthz(targetURL string, opts scanGateOptions) {
+// enforceScanAuthz returns the class the policy approved, so the dialer can
+// re-apply the decision to the address actually connected to.
+func enforceScanAuthz(targetURL string, opts scanGateOptions) authz.Class {
 	policyPath := strings.TrimSpace(opts.policyPath)
 	if policyPath == "" {
 		policyPath = defaultPolicyPath()
@@ -1182,7 +1186,7 @@ func enforceScanAuthz(targetURL string, opts scanGateOptions) {
 		} else {
 			fmt.Fprintf(os.Stderr, "authorization: ok (class=%s)\n", tgt.Class().String())
 		}
-		return
+		return tgt.Class()
 	}
 
 	fmt.Fprintf(os.Stderr, "\nBLOCKED by authorization policy\n")
@@ -1193,6 +1197,7 @@ func enforceScanAuthz(targetURL string, opts scanGateOptions) {
 	fmt.Fprintln(os.Stderr, "then re-run with --authorized <id>.")
 	cancel()
 	os.Exit(authzDeniedExitCode)
+	return authz.ClassPublic
 }
 
 // recordScanAuthz appends one decision to the audit log, warning (never

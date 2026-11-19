@@ -137,9 +137,14 @@ type owaspDeny struct {
 type owaspGateOutcome struct {
 	Allowed bool
 	Class   string
-	Rule    string
-	Reason  string
-	IPs     []string
+	// ClassValue is the same class as Class, kept as the typed value so a
+	// handler can hand it to authz.DialControl and have the decision re-applied
+	// to the address the socket actually connects to. Classify resolves the
+	// name once; the dialer resolves it again, and DNS may answer differently.
+	ClassValue authz.Class
+	Rule       string
+	Reason     string
+	IPs        []string
 }
 
 // owaspStatus applies the coverage-honesty rule.
@@ -410,7 +415,7 @@ func owaspGate(op authz.Operation, target, ticket string) (owaspGateOutcome, err
 		return owaspGateOutcome{}, err
 	}
 
-	out := owaspGateOutcome{Allowed: true, Class: tgt.Class().String()}
+	out := owaspGateOutcome{Allowed: true, Class: tgt.Class().String(), ClassValue: tgt.Class()}
 	for _, ip := range tgt.IPs {
 		out.IPs = append(out.IPs, ip.String())
 	}
@@ -598,6 +603,7 @@ func (s *Server) handleOWASPScan(w http.ResponseWriter, r *http.Request) {
 		MaxRequests: budget,
 		Timeout:     timeout,
 		DryRun:      req.DryRun,
+		DialControl: authz.DialControl(decision.ClassValue),
 	})
 	if err != nil {
 		owaspWriteError(w, http.StatusBadRequest, "invalid probe policy: "+err.Error())
@@ -635,6 +641,7 @@ func (s *Server) handleOWASPScan(w http.ResponseWriter, r *http.Request) {
 	for _, base := range bases {
 		checker := scanner.NewOWASPChecker(base)
 		checker.Requester = gate
+		checker.DialControl = gate.DialControl()
 		report := checker.CheckAll()
 		for _, id := range owaspCategoryIDs {
 			cat, ok := report.Categories[id]

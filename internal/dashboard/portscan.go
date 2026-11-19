@@ -120,13 +120,14 @@ func (s *Server) handlePortScan(w http.ResponseWriter, r *http.Request) {
 		MaxRequests: scanner.DefaultMaxRequests,
 		Timeout:     scanner.DefaultTimeout,
 		DryRun:      false,
+		DialControl: authz.DialControl(decision.ClassValue),
 	})
 	if err != nil {
 		owaspWriteError(w, http.StatusBadRequest, "invalid probe policy: "+err.Error())
 		return
 	}
 
-	result := scanner.ScanPorts(context.Background(), parsed.Hostname(), ports, gate)
+	result := scanner.ScanPortsWithControl(context.Background(), parsed.Hostname(), ports, gate, gate.DialControl())
 	st := gate.Stats()
 	var notes []string
 	if st.RequestsRefused > 0 {

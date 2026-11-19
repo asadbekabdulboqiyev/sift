@@ -12,8 +12,10 @@ package scanner
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
@@ -32,6 +34,14 @@ type WebSocketResult struct {
 
 // TestWebSocket connects to url and runs passive checks.
 func TestWebSocket(ctx context.Context, url string, req core.Requester) *WebSocketResult {
+	return TestWebSocketWithControl(ctx, url, req, nil)
+}
+
+// TestWebSocketWithControl is TestWebSocket with a dial-time check installed on
+// the connection the WebSocket library makes. The library performs its own
+// dial, so the check has to be handed to it; nil behaves exactly like
+// TestWebSocket.
+func TestWebSocketWithControl(ctx context.Context, url string, req core.Requester, control func(network, address string, c syscall.RawConn) error) *WebSocketResult {
 	res := &WebSocketResult{URL: url}
 	start := nowSeconds()
 
@@ -39,6 +49,9 @@ func TestWebSocket(ctx context.Context, url string, req core.Requester) *WebSock
 		HandshakeTimeout: 5 * time.Second,
 		ReadBufferSize:   4096,
 		WriteBufferSize:  4096,
+	}
+	if control != nil {
+		dialer.NetDialContext = (&net.Dialer{Timeout: 5 * time.Second, Control: control}).DialContext
 	}
 
 	// core.Requester gate is applied to the HTTP upgrade: if we have a core.Requester,

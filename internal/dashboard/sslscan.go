@@ -108,7 +108,7 @@ func (s *Server) handleSSLScan(w http.ResponseWriter, r *http.Request) {
 		scanTarget = net.JoinHostPort(parsed.Hostname(), "80")
 	}
 
-	result := scanner.ScanSSL(context.Background(), scanTarget)
+	result := scanner.ScanSSLWithControl(context.Background(), scanTarget, authz.DialControl(decision.ClassValue))
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(SSLScanResult{OK: true, Target: target, Valid: result.Valid, Issuer: result.Issuer, Subject: result.Subject, NotBefore: result.NotBefore, NotAfter: result.NotAfter, Expired: result.Expired, SANs: result.SANs, Cipher: result.Cipher, Version: result.Version, Issues: result.Issues, Duration: result.Duration.Seconds()})
 }

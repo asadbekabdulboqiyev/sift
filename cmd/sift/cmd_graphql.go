@@ -48,12 +48,12 @@ func cmdGraphQL() {
 
 	// Authorization gate: graphql is an OpScan operation, like the dashboard's
 	// /api/graphql/scan. The decision is recorded before the query is sent.
-	enforceAuthz(authz.OpScan, []string{parsed.String()}, os.Args, sf.gate)
+	authzOut := enforceAuthz(authz.OpScan, []string{parsed.String()}, os.Args, sf.gate)
 
 	scanWarning("graphql")
 	announceScanScope("graphql", parsed, sf)
 
-	gate, err := buildScanGuard(parsed, sf, false, scanner.DefaultTimeout)
+	gate, err := buildScanGuard(parsed, sf, false, scanner.DefaultTimeout, authzOut.ClassValue)
 	if err != nil {
 		scanUsageExit(sf, err)
 	}

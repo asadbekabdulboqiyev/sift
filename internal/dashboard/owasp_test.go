@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner"
 )
 
@@ -752,5 +753,34 @@ func TestOWASPScanResolvesCLIPolicyPath(t *testing.T) {
 	// The audit trail must land next to the policy, in the same home.
 	if _, err := os.Stat(filepath.Join(dir, "audit.jsonl")); err != nil {
 		t.Errorf("audit log not written to %s: %v", dir, err)
+	}
+}
+
+// TestOWASPGateReturnsTheTypedClass pins the value the dial-time check is built
+// from. Classify resolves the target once; the name is resolved again at dial
+// time and DNS may answer differently, so the audit-facing class string is not
+// enough — the handler needs the typed class to hand to authz.DialControl.
+func TestOWASPGateReturnsTheTypedClass(t *testing.T) {
+	owaspTestServer(t) // isolate policy and audit log from the operator's home
+	for _, tc := range []struct {
+		target string
+		class  authz.Class
+	}{
+		{"http://169.254.169.254/", authz.ClassMetadata},
+		{"http://127.0.0.1/", authz.ClassLoopback},
+		{"http://10.0.0.1/", authz.ClassPrivate},
+		{"http://93.184.216.34/", authz.ClassPublic},
+	} {
+		out, err := owaspGate(authz.OpScan, tc.target, "")
+		if err != nil {
+			t.Errorf("owaspGate(%s): %v", tc.target, err)
+			continue
+		}
+		if out.ClassValue != tc.class {
+			t.Errorf("owaspGate(%s).ClassValue = %v, want %v", tc.target, out.ClassValue, tc.class)
+		}
+		if out.Class != tc.class.String() {
+			t.Errorf("owaspGate(%s).Class = %q, want %q", tc.target, out.Class, tc.class)
+		}
 	}
 }

@@ -123,6 +123,7 @@ func (s *Server) handleDirBust(w http.ResponseWriter, r *http.Request) {
 		MaxRequests: scanner.DefaultMaxRequests,
 		Timeout:     scanner.DefaultTimeout,
 		DryRun:      false,
+		DialControl: authz.DialControl(decision.ClassValue),
 	})
 	if err != nil {
 		owaspWriteError(w, http.StatusBadRequest, "invalid probe policy: "+err.Error())

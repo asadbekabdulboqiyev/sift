@@ -207,7 +207,7 @@ func (s *Server) handleFuzzScan(w http.ResponseWriter, r *http.Request) {
 			scope = []string{owaspScopeHost(parsed)}
 		}
 	}
-	gate, err := scanner.NewGuard(scanner.GuardConfig{Allow: scope, AllowAll: req.AllowAll, Intrusive: req.Intrusive, RPS: rps, MaxRequests: budget, Timeout: timeout})
+	gate, err := scanner.NewGuard(scanner.GuardConfig{Allow: scope, AllowAll: req.AllowAll, Intrusive: req.Intrusive, RPS: rps, MaxRequests: budget, Timeout: timeout, DialControl: authz.DialControl(decision.ClassValue)})
 	if err != nil {
 		owaspWriteError(w, http.StatusBadRequest, "invalid probe policy: "+err.Error())
 		return

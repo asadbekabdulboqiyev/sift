@@ -57,12 +57,12 @@ func cmdPortScan() {
 	}
 
 	// Authorization gate: port scanning is an OpScan operation.
-	enforceAuthz(authz.OpScan, []string{parsed.String()}, os.Args, sf.gate)
+	authzOut := enforceAuthz(authz.OpScan, []string{parsed.String()}, os.Args, sf.gate)
 
 	scanWarning("portscan")
 	announceScanScope("portscan", parsed, sf)
 
-	gate, err := buildScanGuard(parsed, sf, false, scanner.DefaultTimeout)
+	gate, err := buildScanGuard(parsed, sf, false, scanner.DefaultTimeout, authzOut.ClassValue)
 	if err != nil {
 		scanUsageExit(sf, err)
 	}
@@ -75,7 +75,7 @@ func cmdPortScan() {
 		return
 	}
 
-	result := scanner.ScanPorts(context.Background(), hostname, ports, gate)
+	result := scanner.ScanPortsWithControl(context.Background(), hostname, ports, gate, gate.DialControl())
 
 	if err := emitScanDirectDialJSON("portscan", hostname, result, sf); err != nil {
 		scanRuntimeExit(sf, err)
@@ -156,9 +156,11 @@ func printPortScanHelp(fs *flag.FlagSet) {
 	fmt.Fprintf(w, "   Sift portscan --target https://example.com [--ports 80,443]\n\n")
 	fmt.Fprintf(w, " TCP connect scan with light banner grabbing over a curated common-port\n")
 	fmt.Fprintf(w, " list, or an explicit --ports set.\n\n")
-	fmt.Fprintf(w, " The scanner dials TCP directly and bypasses the probe gate: scope/rate/\n")
-	fmt.Fprintf(w, " budget are validated but not enforced on those sockets. Use --dry-run to\n")
-	fmt.Fprintf(w, " see the intent without opening a connection.\n\n")
+	fmt.Fprintf(w, " The scanner dials TCP directly, outside the probe gate: scope/rate/\n")
+	fmt.Fprintf(w, " budget are validated but not enforced on those sockets. The dial-time\n")
+	fmt.Fprintf(w, " address check still applies, so a socket cannot reach an address the\n")
+	fmt.Fprintf(w, " authorization decision did not approve. Use --dry-run to see the intent\n")
+	fmt.Fprintf(w, " without opening a connection.\n\n")
 	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
 	fmt.Fprintf(w, " FLAGS\n")
 	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")

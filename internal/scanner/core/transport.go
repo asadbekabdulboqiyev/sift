@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/fingerprint"
@@ -24,12 +25,20 @@ import (
 // timeout bounds each request; insecure skips server certificate verification
 // (used against self-signed lab targets, never production).
 func NewHTTPClient(profile fingerprint.Profile, timeout time.Duration, insecure bool) *http.Client {
+	return NewHTTPClientWithControl(profile, timeout, insecure, nil)
+}
+
+// NewHTTPClientWithControl is NewHTTPClient with a dial-time check installed on
+// every connection, including the uTLS one. control runs with the peer address
+// already resolved, so a caller can refuse an address the authorization check
+// did not approve. Nil behaves exactly like NewHTTPClient.
+func NewHTTPClientWithControl(profile fingerprint.Profile, timeout time.Duration, insecure bool, control func(network, address string, c syscall.RawConn) error) *http.Client {
 	if profile == fingerprint.Default {
 		profile = DefaultFingerprint
 	}
 
 	tr := &http.Transport{
-		DialContext:           (&net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second}).DialContext,
+		DialContext:           (&net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second, Control: control}).DialContext,
 		ForceAttemptHTTP2:     false,
 		TLSClientConfig:       &tls.Config{InsecureSkipVerify: insecure, MinVersion: tls.VersionTLS12}, // #nosec G402 -- caller opts in for authorized scanner targets
 		MaxIdleConns:          100,
@@ -43,6 +52,7 @@ func NewHTTPClient(profile fingerprint.Profile, timeout time.Duration, insecure 
 	if profile != fingerprint.Default {
 		tr.DialTLSContext = fingerprint.NewDialer(fingerprint.Options{
 			Fingerprint:        profile,
+			Dialer:             net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second, Control: control},
 			InsecureSkipVerify: insecure, // #nosec G402 -- caller opts in for authorized scanner targets
 			NextProtos:         []string{"h2", "http/1.1"},
 		})

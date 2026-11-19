@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -35,6 +36,14 @@ type SSLResult struct {
 // ScanSSL performs a TLS handshake against host:port (default 443) and
 // reports certificate and configuration weaknesses.
 func ScanSSL(ctx context.Context, target string) *SSLResult {
+	return ScanSSLWithControl(ctx, target, nil)
+}
+
+// ScanSSLWithControl is ScanSSL with a dial-time check installed on the
+// connection. control runs with the peer address already resolved, so a caller
+// can refuse an address the authorization decision did not approve; nil behaves
+// exactly like ScanSSL.
+func ScanSSLWithControl(ctx context.Context, target string, control func(network, address string, c syscall.RawConn) error) *SSLResult {
 	res := &SSLResult{Target: target}
 	start := time.Now()
 
@@ -44,7 +53,7 @@ func ScanSSL(ctx context.Context, target string) *SSLResult {
 		port = "443"
 	}
 
-	dialer := &net.Dialer{Timeout: 5 * time.Second}
+	dialer := &net.Dialer{Timeout: 5 * time.Second, Control: control}
 	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, port))
 	if err != nil {
 		res.Issues = append(res.Issues, fmt.Sprintf("cannot connect: %v", err))

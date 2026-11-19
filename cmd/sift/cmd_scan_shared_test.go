@@ -21,6 +21,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner"
 )
 
@@ -156,7 +157,7 @@ func TestBuildScanGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	g, err := buildScanGuard(u, &scanFlags{}, false, scanner.DefaultTimeout)
+	g, err := buildScanGuard(u, &scanFlags{}, false, scanner.DefaultTimeout, authz.ClassPublic)
 	if err != nil {
 		t.Fatalf("valid policy rejected: %v", err)
 	}
@@ -172,12 +173,12 @@ func TestBuildScanGuard(t *testing.T) {
 	}
 
 	// The intrusive opt-in and allow-all are propagated to the Guard.
-	if g, err := buildScanGuard(u, &scanFlags{}, true, scanner.DefaultTimeout); err != nil {
+	if g, err := buildScanGuard(u, &scanFlags{}, true, scanner.DefaultTimeout, authz.ClassPublic); err != nil {
 		t.Fatalf("intrusive guard: %v", err)
 	} else if !g.Config().Intrusive {
 		t.Error("intrusive flag was not propagated")
 	}
-	if g, err := buildScanGuard(u, &scanFlags{allowAll: true}, false, scanner.DefaultTimeout); err != nil {
+	if g, err := buildScanGuard(u, &scanFlags{allowAll: true}, false, scanner.DefaultTimeout, authz.ClassPublic); err != nil {
 		t.Fatalf("allow-all guard: %v", err)
 	} else if !g.Config().AllowAll {
 		t.Error("allow-all flag was not propagated")
@@ -194,7 +195,7 @@ func TestBuildScanGuard(t *testing.T) {
 		{"negative budget", &scanFlags{budget: -1}},
 	}
 	for _, c := range bad {
-		if _, err := buildScanGuard(u, c.sf, false, scanner.DefaultTimeout); err == nil {
+		if _, err := buildScanGuard(u, c.sf, false, scanner.DefaultTimeout, authz.ClassPublic); err == nil {
 			t.Errorf("buildScanGuard(%s) = nil error, want an error", c.name)
 		}
 	}

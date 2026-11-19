@@ -49,13 +49,15 @@ func cmdSSLScan() {
 	}
 
 	// Authorization gate: a TLS inspection is an OpScan operation.
-	enforceAuthz(authz.OpScan, []string{parsed.String()}, os.Args, sf.gate)
+	authzOut := enforceAuthz(authz.OpScan, []string{parsed.String()}, os.Args, sf.gate)
 
 	scanWarning("sslscan")
 	announceScanScope("sslscan", parsed, sf)
 
-	// Built only to validate --allow/--rate/--budget; the TLS dial bypasses it.
-	if _, err := buildScanGuard(parsed, sf, false, scanner.DefaultTimeout); err != nil {
+	// The TLS dial does not go through the Guard's HTTP client, so the guard's
+	// dial-time address check is handed to it instead of being dropped.
+	gate, err := buildScanGuard(parsed, sf, false, scanner.DefaultTimeout, authzOut.ClassValue)
+	if err != nil {
 		scanUsageExit(sf, err)
 	}
 
@@ -78,7 +80,7 @@ func cmdSSLScan() {
 		return
 	}
 
-	result := scanner.ScanSSL(context.Background(), scanTarget)
+	result := scanner.ScanSSLWithControl(context.Background(), scanTarget, gate.DialControl())
 
 	if err := emitScanDirectDialJSON("sslscan", scanTarget, result, sf); err != nil {
 		scanRuntimeExit(sf, err)
@@ -125,9 +127,11 @@ func printSSLScanHelp(fs *flag.FlagSet) {
 	fmt.Fprintf(w, "   Sift sslscan --target https://example.com [flags]\n\n")
 	fmt.Fprintf(w, " Performs a TLS handshake and reports the certificate (issuer, subject,\n")
 	fmt.Fprintf(w, " validity window, SANs) plus protocol and cipher weaknesses.\n\n")
-	fmt.Fprintf(w, " The handshake dials TLS directly and bypasses the probe gate: scope/\n")
-	fmt.Fprintf(w, " rate/budget are validated but not enforced on that connection. Use\n")
-	fmt.Fprintf(w, " --dry-run to see the intent without connecting.\n\n")
+	fmt.Fprintf(w, " The handshake dials TLS directly, outside the probe gate: scope/\n")
+	fmt.Fprintf(w, " rate/budget are validated but not enforced on that connection. The\n")
+	fmt.Fprintf(w, " dial-time address check still applies, so the socket cannot reach an\n")
+	fmt.Fprintf(w, " address the authorization decision did not approve. Use --dry-run to\n")
+	fmt.Fprintf(w, " see the intent without connecting.\n\n")
 	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
 	fmt.Fprintf(w, " FLAGS\n")
 	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
