@@ -127,8 +127,9 @@ func ScanWithControlWithOptions(target string, port int, control func(network, a
 	start := time.Now()
 
 	result := &ScanResult{
-		Target:   target,
-		ScanTime: start,
+		Target:      target,
+		ScanTime:    start,
+		InsecureTLS: !opts.TLSVerify,
 	}
 
 	// TLS scan

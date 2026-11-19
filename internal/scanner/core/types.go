@@ -13,6 +13,10 @@ type ScanResult struct {
 	Security  *SecurityInfo `json:"security"`
 	Vulns     []Vuln        `json:"vulns"`
 	RiskScore int           `json:"risk_score"` // 0-100
+	// InsecureTLS is true only when this scan explicitly disabled certificate
+	// verification. It is per-result state, never a process-wide flag, so one
+	// authorized lab scan cannot produce a false warning on a later scan.
+	InsecureTLS bool `json:"insecure_tls,omitempty"`
 }
 
 // Vuln is a single finding from a scan.
