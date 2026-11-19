@@ -219,8 +219,20 @@ func (m *Manager) Subscribe(jobID string) (<-chan Event, func(), bool) {
 	// send immediate snapshot
 	snap := j.snapshotLocked()
 	j.mu.Unlock()
+	// A finished job will never publish again, so a late subscriber has to be
+	// handed the terminal event right away. Sending only a "status" frame left
+	// the SSE handler waiting for completed/failed until the client hung up.
+	ev := Event{Type: "status", Status: snap}
+	if snap != nil {
+		switch snap.State {
+		case "completed":
+			ev = Event{Type: "completed", Status: snap}
+		case "failed":
+			ev = Event{Type: "failed", Status: snap, Error: snap.Error}
+		}
+	}
 	select {
-	case ch <- Event{Type: "status", Status: snap}:
+	case ch <- ev:
 	default:
 	}
 	cancel := func() {
