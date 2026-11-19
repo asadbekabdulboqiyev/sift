@@ -61,7 +61,12 @@ func (e *Engine) rawClientForUser(userIndex int, ctx context.Context, network, t
 		}
 		return res, body
 	}
-	return e.udpExchange(conn.(*net.UDPConn), step, vars, timeout, start)
+	// UDP dials a fresh connected socket on every call (it is never pooled).
+	// Close it after the single exchange; without this, every request attempt
+	// leaks one file descriptor and a long run exhausts the process fd budget.
+	res, body := e.udpExchange(conn.(*net.UDPConn), step, vars, timeout, start)
+	_ = conn.Close()
+	return res, body
 }
 
 // tcpExchange writes step.Body (if any) and reads one response chunk.
