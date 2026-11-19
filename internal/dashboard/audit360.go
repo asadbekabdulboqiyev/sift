@@ -43,6 +43,20 @@ func (s *Server) demoStoreTargetURL() string {
 	return st.URL()
 }
 
+// audit360Gate runs the authorization decision the CLI runs before it touches a
+// target. The 360° audit is an OpScan: it is not an exploit run, but it does
+// send traffic, so the class-based boundary (metadata closed, private ranges
+// need a rule) applies to the browser exactly as it does to a shell.
+func audit360Gate(target string) (owaspGateOutcome, error) {
+	return owaspGate(authz.OpScan, target, "")
+}
+
+// audit360Audit appends the decision to the dashboard's audit log — the same
+// hash-chained file the CLI writes.
+func audit360Audit(e authz.Entry) error {
+	return owaspAudit(e)
+}
+
 func (s *Server) handleAudit360Start(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", "POST")
@@ -81,6 +95,45 @@ func (s *Server) handleAudit360Start(w http.ResponseWriter, r *http.Request) {
 			code = http.StatusForbidden
 		}
 		writeAudit360JSON(w, code, audit360.StartResponse{OK: false, Error: msg})
+		return
+	}
+
+	// Authorization: the 360° audit sends traffic at the target (a load test in
+	// standard mode), so the browser path must not be a bypass of the check the
+	// CLI runs. The gate is the class-based boundary: instance metadata is
+	// always closed, and private, link-local, CGNAT, multicast and reserved
+	// targets need an explicit rule. The decision is written to the same
+	// hash-chained audit trail as CLI and OWASP scans, allowed or denied.
+	decision, gerr := audit360Gate(target)
+	if gerr != nil {
+		writeAudit360JSON(w, http.StatusInternalServerError, audit360.StartResponse{OK: false, Error: "authorization policy error: " + gerr.Error()})
+		return
+	}
+	auditErr := audit360Audit(authz.Entry{
+		Action:  authz.OpScan.String(),
+		Targets: []string{target},
+		IPs:     decision.IPs,
+		Class:   decision.Class,
+		Allowed: decision.Allowed,
+		Rule:    decision.Rule,
+		Reason:  decision.Reason,
+		Argv:    []string{"Sift dashboard", "POST /api/audit-360"},
+	})
+	if !decision.Allowed {
+		// Deny is the safe action, so a broken audit trail must not turn a
+		// refusal into a run — but say so, because the trail is now incomplete.
+		reason := decision.Reason
+		if auditErr != nil {
+			reason += " (audit log unavailable: " + auditErr.Error() + ")"
+		}
+		writeAudit360JSON(w, http.StatusForbidden, audit360.StartResponse{OK: false, Error: reason})
+		return
+	}
+	if auditErr != nil {
+		// Fail closed: an allowed run that cannot be recorded is not an
+		// authorized run.
+		writeAudit360JSON(w, http.StatusInternalServerError,
+			audit360.StartResponse{OK: false, Error: "cannot record the authorization decision: " + auditErr.Error()})
 		return
 	}
 

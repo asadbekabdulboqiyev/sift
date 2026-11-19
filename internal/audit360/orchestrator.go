@@ -963,9 +963,10 @@ func ValidateStartRequest(req StartRequest, demoStoreURL string, adminBypass boo
 	if perr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
 		return "", 0, "", fmt.Errorf("target_url must be a valid http(s) URL without credentials")
 	}
-	// Any valid http(s) target is allowed. Passive mode restricts execution to
-	// non-intrusive checks; standard/admin require/represent authorization intent
-	// and are subject to same-origin + dashboard auth/RBAC controls.
+	// Shape only: any well-formed http(s) URL parses here. Authorization is a
+	// separate decision the caller makes before starting a run — the dashboard
+	// applies the same authz gate as the CLI (metadata closed, private ranges
+	// need a rule) in handleAudit360Start.
 	_ = demoStoreURL // retained for API compatibility; demo-store matching no longer required
 
 	sec := req.MaxDurationSec
