@@ -351,6 +351,40 @@ func TestAtomicAdd(t *testing.T) {
 	}
 }
 
+// TestEnumerateSubdomainsHonorsPassiveWaitWindow pins the bounded-wait contract.
+// Both passive sources block until their context is done. With no caller
+// deadline, the 8s window is the only thing that may end them; waiting on the
+// goroutines with the original background context would hang forever.
+func TestEnumerateSubdomainsHonorsPassiveWaitWindow(t *testing.T) {
+	withDefaultHTTPClient(t, subdomainRoundTripper(func(r *http.Request) (*http.Response, error) {
+		<-r.Context().Done()
+		return nil, r.Context().Err()
+	}))
+	prevLookup := lookupHostFn
+	lookupHostFn = func(ctx context.Context, host string) ([]string, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	t.Cleanup(func() { lookupHostFn = prevLookup })
+
+	prevWait := passiveWait
+	passiveWait = 20 * time.Millisecond
+	t.Cleanup(func() { passiveWait = prevWait })
+
+	done := make(chan struct{})
+	go func() {
+		_ = EnumerateSubdomains(context.Background(), "localhost", nil)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// The passive phase ended within the window.
+	case <-time.After(2 * time.Second):
+		t.Fatal("EnumerateSubdomains did not return after the passive wait window: passiveWG.Wait blocked on sources that never saw a deadline")
+	}
+}
+
 func TestEnumerateSubdomainsCancelled(t *testing.T) {
 	withDefaultHTTPClient(t, subdomainRoundTripper(func(*http.Request) (*http.Response, error) {
 		return passiveTestResponse(200, nil, `[{"name_value":"localhost\napi.localhost"}]`), nil

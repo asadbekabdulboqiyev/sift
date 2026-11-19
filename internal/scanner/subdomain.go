@@ -83,25 +83,27 @@ func EnumerateSubdomains(ctx context.Context, target string, req core.Requester)
 
 	// 1) crt.sh certificate transparency log (best-effort).
 	// 2) Common DNS record queries for the apex and www.
-	// Both run through bounded context checks; we wait for them deterministically
+	// Both passive sources are network-bound and may hang indefinitely when the
+	// caller supplies a context with no deadline (the dashboard/CLI pass
+	// context.Background()). Bound them with a dedicated timeout context so
+	// every source has an exit path, then wait on the WaitGroup deterministically
 	// before snapshotting the findings, so no reader ever races a writer.
+	passiveCtx, cancelPassive := context.WithTimeout(ctx, passiveWait)
+	defer cancelPassive()
 	var passiveWG sync.WaitGroup
 	passiveWG.Add(2)
 	go func() {
 		defer passiveWG.Done()
-		_ = crtSh(ctx, target, add)
+		_ = crtSh(passiveCtx, target, add)
 	}()
 	go func() {
 		defer passiveWG.Done()
-		dnsQuery(ctx, target, add, "A", "AAAA", "CNAME", "MX", "TXT")
-		dnsQuery(ctx, "www."+target, add, "A", "AAAA", "CNAME")
+		dnsQuery(passiveCtx, target, add, "A", "AAAA", "CNAME", "MX", "TXT")
+		dnsQuery(passiveCtx, "www."+target, add, "A", "AAAA", "CNAME")
 	}()
 
-	// Wait a bounded time for passive sources (they are network calls).
-	select {
-	case <-ctx.Done():
-	case <-time.After(passiveWait):
-	}
+	// passiveWG.Wait cannot hang: the bounded context above terminates both
+	// sources (and so do caller cancellations, which propagate through it).
 	passiveWG.Wait()
 
 	// Resolve discovered names (local resolver, not through gate). Snapshot
