@@ -20,6 +20,37 @@ type VulnScanner struct {
 	Client  *http.Client
 	Results *VulnReport
 	mu      sync.Mutex
+
+	// ids is owned by this scanner instance. A scan run must never consume or
+	// observe another run's ID sequence, even when runs execute concurrently.
+	ids vulnIDGenerator
+}
+
+// vulnIDGenerator hands out sequential finding IDs for one scan run. Every
+// scanner instance owns one, so parallel runs cannot perturb each other. The
+// mutex keeps a single run safe when its checks emit findings from goroutines.
+type vulnIDGenerator struct {
+	mu    sync.Mutex
+	count int
+}
+
+func (g *vulnIDGenerator) next(prefix string) string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.count++
+	return fmt.Sprintf("%s-%03d", prefix, g.count)
+}
+
+func (g *vulnIDGenerator) reset() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.count = 0
+}
+
+// nextVulnID is the run-scoped ID source. New code must use this method, never
+// the package-level legacy helper below.
+func (vs *VulnScanner) nextVulnID(prefix string) string {
+	return vs.ids.next(prefix)
 }
 
 // VulnReport contains all scan results
@@ -61,6 +92,9 @@ type Vulnerability struct {
 	PoC         string   `json:"poc"`
 }
 
+// Legacy process-wide ID source. It is kept only for backward compatibility
+// with existing tests and any external callers; scanner runs must use the
+// instance-bound nextVulnID method instead. Do not add new call sites here.
 var (
 	vulnCounter int
 	counterMu   sync.Mutex
@@ -98,7 +132,7 @@ func NewVulnScanner(target string) *VulnScanner {
 // Scan runs all vulnerability checks and returns the report
 func (vs *VulnScanner) Scan() *VulnReport {
 	start := time.Now()
-	resetVulnCounter()
+	vs.ids.reset()
 
 	report := &VulnReport{
 		Target:   vs.Target,
@@ -285,7 +319,7 @@ func (vs *VulnScanner) scanSQLInjection() {
 
 			if found {
 				vs.addFinding(Vulnerability{
-					ID:          nextVulnID("SQL"),
+					ID:          vs.nextVulnID("SQL"),
 					Title:       "SQL Injection Detected",
 					Severity:    "critical",
 					Category:    "A03:2021 Injection",
@@ -350,7 +384,7 @@ func (vs *VulnScanner) scanXSS() {
 
 			if strings.Contains(bodyStr, payload) {
 				vs.addFinding(Vulnerability{
-					ID:          nextVulnID("XSS"),
+					ID:          vs.nextVulnID("XSS"),
 					Title:       "Cross-Site Scripting (XSS) Detected",
 					Severity:    "high",
 					Category:    "A03:2021 Injection",
@@ -420,7 +454,7 @@ func (vs *VulnScanner) scanDirectoryTraversal() {
 
 			if strings.Contains(bodyStr, p.signature) {
 				vs.addFinding(Vulnerability{
-					ID:          nextVulnID("DIR"),
+					ID:          vs.nextVulnID("DIR"),
 					Title:       "Directory Traversal / Path Traversal Detected",
 					Severity:    "critical",
 					Category:    "A01:2021 Broken Access Control",
@@ -496,7 +530,7 @@ func (vs *VulnScanner) scanOpenRedirect() {
 
 			if isRedirect {
 				vs.addFinding(Vulnerability{
-					ID:          nextVulnID("REDIR"),
+					ID:          vs.nextVulnID("REDIR"),
 					Title:       "Open Redirect Vulnerability",
 					Severity:    "medium",
 					Category:    "A01:2021 Broken Access Control",
@@ -616,7 +650,7 @@ func (vs *VulnScanner) scanSecurityHeaders() {
 		value := resp.Header.Get(hc.name)
 		if msg := hc.checkFunc(value); msg != "" {
 			vs.addFinding(Vulnerability{
-				ID:          nextVulnID("HDR"),
+				ID:          vs.nextVulnID("HDR"),
 				Title:       fmt.Sprintf("Missing/Weak Security Header: %s", hc.name),
 				Severity:    hc.severity,
 				Category:    "A05:2021 Security Misconfiguration",
@@ -638,7 +672,7 @@ func (vs *VulnScanner) scanSecurityHeaders() {
 		versionPattern := regexp.MustCompile(`[\d]+\.[\d]+[\d.]*`)
 		if versionPattern.MatchString(serverHeader) {
 			vs.addFinding(Vulnerability{
-				ID:          nextVulnID("HDR"),
+				ID:          vs.nextVulnID("HDR"),
 				Title:       "Server Header Leaks Version Information",
 				Severity:    "low",
 				Category:    "A05:2021 Security Misconfiguration",
@@ -658,7 +692,7 @@ func (vs *VulnScanner) scanSecurityHeaders() {
 	if xPoweredBy != "" {
 		atomic.AddInt64(&vs.Results.TotalChecks, 1)
 		vs.addFinding(Vulnerability{
-			ID:          nextVulnID("HDR"),
+			ID:          vs.nextVulnID("HDR"),
 			Title:       "X-Powered-By Header Reveals Technology Stack",
 			Severity:    "low",
 			Category:    "A05:2021 Security Misconfiguration",
@@ -832,7 +866,7 @@ func (vs *VulnScanner) scanInfoDisclosure() {
 			for _, sig := range check.sigs {
 				if strings.Contains(bodyStr, sig) || strings.Contains(strings.ToLower(bodyStr), strings.ToLower(sig)) {
 					vs.addFinding(Vulnerability{
-						ID:          nextVulnID("INFO"),
+						ID:          vs.nextVulnID("INFO"),
 						Title:       check.title,
 						Severity:    check.severity,
 						Category:    "A05:2021 Security Misconfiguration",
@@ -940,7 +974,7 @@ func (vs *VulnScanner) scanDefaultCredentials() {
 
 			if isLoginSuccess && cred.password != "" {
 				vs.addFinding(Vulnerability{
-					ID:          nextVulnID("AUTH"),
+					ID:          vs.nextVulnID("AUTH"),
 					Title:       "Default Credentials Accepted",
 					Severity:    "critical",
 					Category:    "A07:2021 Identification and Authentication Failures",
@@ -1018,7 +1052,7 @@ func (vs *VulnScanner) scanAPISecurity() {
 				if massResp.StatusCode == 200 && len(massBody) > 0 &&
 					(massResp.StatusCode != baselineResp.StatusCode || !strings.EqualFold(string(massBody), string(baselineBody))) {
 					vs.addFinding(Vulnerability{
-						ID:          nextVulnID("API"),
+						ID:          vs.nextVulnID("API"),
 						Title:       "Possible Mass Assignment Vulnerability",
 						Severity:    "medium",
 						Category:    "A04:2021 Insecure Design",
@@ -1072,7 +1106,7 @@ func (vs *VulnScanner) scanAPISecurity() {
 
 			if !strings.EqualFold(string(body1), string(body2)) {
 				vs.addFinding(Vulnerability{
-					ID:          nextVulnID("API"),
+					ID:          vs.nextVulnID("API"),
 					Title:       "Potential BOLA/IDOR Vulnerability",
 					Severity:    "high",
 					Category:    "A01:2021 Broken Access Control",
@@ -1105,7 +1139,7 @@ func (vs *VulnScanner) scanAPISecurity() {
 	}
 	if rateLimitSuccess == 20 {
 		vs.addFinding(Vulnerability{
-			ID:          nextVulnID("API"),
+			ID:          vs.nextVulnID("API"),
 			Title:       "Missing Rate Limiting",
 			Severity:    "medium",
 			Category:    "A05:2021 Security Misconfiguration",
@@ -1136,7 +1170,7 @@ func (vs *VulnScanner) checkSensitiveExposure(targetURL string, body []byte) {
 	for _, pattern := range sensitivePatterns {
 		if strings.Contains(strings.ToLower(bodyStr), pattern) {
 			vs.addFinding(Vulnerability{
-				ID:          nextVulnID("API"),
+				ID:          vs.nextVulnID("API"),
 				Title:       "Excessive Data Exposure in API Response",
 				Severity:    "high",
 				Category:    "A02:2021 Cryptographic Failures",
@@ -1175,7 +1209,7 @@ func (vs *VulnScanner) scanCookies() {
 		atomic.AddInt64(&vs.Results.TotalChecks, 1)
 		if !cookie.Secure {
 			vs.addFinding(Vulnerability{
-				ID:          nextVulnID("CK"),
+				ID:          vs.nextVulnID("CK"),
 				Title:       fmt.Sprintf("Cookie '%s' Missing Secure Flag", cookie.Name),
 				Severity:    "low",
 				Category:    "A05:2021 Security Misconfiguration",
@@ -1194,7 +1228,7 @@ func (vs *VulnScanner) scanCookies() {
 		atomic.AddInt64(&vs.Results.TotalChecks, 1)
 		if !cookie.HttpOnly {
 			vs.addFinding(Vulnerability{
-				ID:          nextVulnID("CK"),
+				ID:          vs.nextVulnID("CK"),
 				Title:       fmt.Sprintf("Cookie '%s' Missing HttpOnly Flag", cookie.Name),
 				Severity:    "medium",
 				Category:    "A05:2021 Security Misconfiguration",
@@ -1213,7 +1247,7 @@ func (vs *VulnScanner) scanCookies() {
 		atomic.AddInt64(&vs.Results.TotalChecks, 1)
 		if cookie.SameSite == http.SameSiteNoneMode {
 			vs.addFinding(Vulnerability{
-				ID:          nextVulnID("CK"),
+				ID:          vs.nextVulnID("CK"),
 				Title:       fmt.Sprintf("Cookie '%s' SameSite=None", cookie.Name),
 				Severity:    "low",
 				Category:    "A05:2021 Security Misconfiguration",
@@ -1237,7 +1271,7 @@ func (vs *VulnScanner) scanCookies() {
 			// Session cookie - no persistent expiry, which is actually good
 		} else if isSessionCookie && !cookie.Expires.IsZero() && cookie.Expires.Sub(time.Now()) > 24*time.Hour {
 			vs.addFinding(Vulnerability{
-				ID:          nextVulnID("CK"),
+				ID:          vs.nextVulnID("CK"),
 				Title:       fmt.Sprintf("Session Cookie '%s' Has Long Expiry", cookie.Name),
 				Severity:    "low",
 				Category:    "A07:2021 Identification and Authentication Failures",
@@ -1303,7 +1337,7 @@ func (vs *VulnScanner) scanCORS() {
 		if acac == "true" && !foundCreds {
 			foundCreds = true
 			vs.addFinding(Vulnerability{
-				ID:          nextVulnID("CORS"),
+				ID:          vs.nextVulnID("CORS"),
 				Title:       "CORS Credentials Allowed with Permissive Origin",
 				Severity:    "medium",
 				Category:    "A05:2021 Security Misconfiguration",
@@ -1321,7 +1355,7 @@ func (vs *VulnScanner) scanCORS() {
 		case acao == "*" && !foundWildcard:
 			foundWildcard = true
 			vs.addFinding(Vulnerability{
-				ID:          nextVulnID("CORS"),
+				ID:          vs.nextVulnID("CORS"),
 				Title:       "CORS Wildcard Origin Allowed",
 				Severity:    "medium",
 				Category:    "A05:2021 Security Misconfiguration",
@@ -1337,7 +1371,7 @@ func (vs *VulnScanner) scanCORS() {
 		case acao == origin && origin != "null" && !foundReflection:
 			foundReflection = true
 			vs.addFinding(Vulnerability{
-				ID:          nextVulnID("CORS"),
+				ID:          vs.nextVulnID("CORS"),
 				Title:       "CORS Origin Reflection Vulnerability",
 				Severity:    "high",
 				Category:    "A05:2021 Security Misconfiguration",
@@ -1353,7 +1387,7 @@ func (vs *VulnScanner) scanCORS() {
 		case acao == "null" && origin == "null" && !foundNull:
 			foundNull = true
 			vs.addFinding(Vulnerability{
-				ID:          nextVulnID("CORS"),
+				ID:          vs.nextVulnID("CORS"),
 				Title:       "CORS Allows 'null' Origin",
 				Severity:    "medium",
 				Category:    "A05:2021 Security Misconfiguration",

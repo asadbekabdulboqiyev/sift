@@ -266,8 +266,17 @@ type PassiveScanner struct {
 	maxBody int64
 	paths   []passivePath
 
+	// ids is owned by this scanner instance so parallel runs keep independent
+	// finding sequences.
+	ids vulnIDGenerator
+
 	noteMu sync.Mutex
 	notes  []PassiveProbeNote
+}
+
+// nextVulnID returns the run-scoped ID source for this passive scanner.
+func (p *PassiveScanner) nextVulnID(prefix string) string {
+	return p.ids.next(prefix)
 }
 
 // PassiveProbeNote records why a probe did not produce a result: a policy
@@ -402,7 +411,7 @@ func (p *PassiveScanner) ScanAll(ctx context.Context) []Vulnerability {
 	for _, check := range p.passiveCheckCatalog() {
 		p.passiveRunCheck(check, ctx, acc, pages, baseline)
 	}
-	return acc.materialize()
+	return acc.materialize(p.nextVulnID)
 }
 
 // passiveGuard runs fn, converting any panic into a probe note. It is the
@@ -514,8 +523,9 @@ func (acc *passiveFindingSet) add(checkID, name string, v Vulnerability) {
 	acc.list = append(acc.list, passivePending{checkID: checkID, v: v})
 }
 
-// materialize assigns IDs, sorts deterministically and returns the findings.
-func (acc *passiveFindingSet) materialize() []Vulnerability {
+// materialize assigns IDs through the owning scanner's run-scoped generator,
+// sorts deterministically and returns the findings.
+func (acc *passiveFindingSet) materialize(nextID func(string) string) []Vulnerability {
 	if acc == nil || len(acc.list) == 0 {
 		return nil
 	}
@@ -523,7 +533,7 @@ func (acc *passiveFindingSet) materialize() []Vulnerability {
 	for _, pend := range acc.list {
 		v := pend.v
 		if v.ID == "" {
-			v.ID = nextVulnID(pend.checkID)
+			v.ID = nextID(pend.checkID)
 		}
 		out = append(out, v)
 	}

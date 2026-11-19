@@ -774,6 +774,98 @@ func TestVulnScanner_NextVulnID(t *testing.T) {
 	}
 }
 
+// TestVulnScanner_NextVulnIDIsRunScoped proves that ID generation belongs to a
+// scanner instance, not to process-wide state. Two scanners driven at the same
+// time must each produce their own complete, gap-free sequence; a shared
+// counter splits the range between them and fails this test.
+func TestVulnScanner_NextVulnIDIsRunScoped(t *testing.T) {
+	const (
+		workers   = 6
+		perWorker = 20
+		prefix    = "SCP"
+		totalIDs  = workers * perWorker
+	)
+
+	scanners := []*VulnScanner{
+		NewVulnScanner("http://scanner-a.example"),
+		NewVulnScanner("http://scanner-b.example"),
+	}
+
+	// The shared gate releases every worker at once so a global counter cannot
+	// serialize the two scanners and hide the interference.
+	start := make(chan struct{})
+	got := make([][][]string, len(scanners))
+	var wg sync.WaitGroup
+	for si, scanner := range scanners {
+		got[si] = make([][]string, workers)
+		for w := 0; w < workers; w++ {
+			wg.Add(1)
+			go func(si, w int, scanner *VulnScanner) {
+				defer wg.Done()
+				<-start
+				ids := make([]string, 0, perWorker)
+				for n := 0; n < perWorker; n++ {
+					ids = append(ids, scanner.nextVulnID(prefix))
+				}
+				got[si][w] = ids
+			}(si, w, scanner)
+		}
+	}
+	close(start)
+	wg.Wait()
+
+	want := make(map[string]bool, totalIDs)
+	for n := 1; n <= totalIDs; n++ {
+		want[fmt.Sprintf("%s-%03d", prefix, n)] = true
+	}
+	for si := range scanners {
+		seen := make(map[string]bool, totalIDs)
+		for w := 0; w < workers; w++ {
+			if len(got[si][w]) != perWorker {
+				t.Fatalf("scanner %d worker %d: got %d IDs, want %d", si, w, len(got[si][w]), perWorker)
+			}
+			for _, id := range got[si][w] {
+				if seen[id] {
+					t.Errorf("scanner %d: duplicate ID %q", si, id)
+				}
+				seen[id] = true
+				if !want[id] {
+					t.Errorf("scanner %d: ID %q is outside %s-001..%03d", si, id, prefix, totalIDs)
+				}
+			}
+		}
+		if len(seen) != totalIDs {
+			t.Errorf("scanner %d: got %d distinct IDs, want %d", si, len(seen), totalIDs)
+		}
+	}
+}
+
+// TestVulnScanner_NextVulnIDIsSequentialPerInstance checks that one instance
+// hands out IDs in call order and that interleaving instances cannot shift
+// another instance's sequence.
+func TestVulnScanner_NextVulnIDIsSequentialPerInstance(t *testing.T) {
+	a := NewVulnScanner("http://scanner-a.example")
+	b := NewVulnScanner("http://scanner-b.example")
+
+	var gotA, gotB []string
+	gotA = append(gotA, a.nextVulnID("SEQ"))
+	gotB = append(gotB, b.nextVulnID("SEQ"))
+	gotA = append(gotA, a.nextVulnID("SEQ"))
+	gotB = append(gotB, b.nextVulnID("SEQ"))
+	gotA = append(gotA, a.nextVulnID("SEQ"))
+	gotB = append(gotB, b.nextVulnID("SEQ"))
+
+	want := []string{"SEQ-001", "SEQ-002", "SEQ-003"}
+	for i := range want {
+		if gotA[i] != want[i] {
+			t.Errorf("scanner A ID %d = %q, want %q", i, gotA[i], want[i])
+		}
+		if gotB[i] != want[i] {
+			t.Errorf("scanner B ID %d = %q, want %q", i, gotB[i], want[i])
+		}
+	}
+}
+
 func TestVulnScanner_CVEFinding(t *testing.T) {
 	cve := CVEFinding{
 		CVEID:       "CVE-2021-44228",

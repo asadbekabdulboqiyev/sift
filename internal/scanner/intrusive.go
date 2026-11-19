@@ -120,6 +120,10 @@ type IntrusiveScanner struct {
 	req  core.Requester
 	opts IntrusiveOptions
 
+	// ids is owned by this scanner instance so parallel runs keep independent
+	// finding sequences.
+	ids vulnIDGenerator
+
 	// budget and timeBudget bound the total requests this scanner will ever
 	// attempt, independently of the core.Requester's own budget.
 	budget     int
@@ -784,6 +788,11 @@ func intrusiveRandToken(n int) string {
 
 // ── finding construction ─────────────────────────────────────────────────────
 
+// nextVulnID returns the run-scoped ID source for this intrusive scanner.
+func (i *IntrusiveScanner) nextVulnID(prefix string) string {
+	return i.ids.next(prefix)
+}
+
 // intrusiveEvidence formats the confidence prefix the report relies on,
 // because Vulnerability has no Confidence field.
 func intrusiveEvidence(confidence, detail string) string {
@@ -805,9 +814,9 @@ type intrusiveFindingSpec struct {
 	poc         string
 }
 
-func (s intrusiveFindingSpec) build() Vulnerability {
+func (s intrusiveFindingSpec) build(nextID func(string) string) Vulnerability {
 	return Vulnerability{
-		ID:          nextVulnID(intrusiveIDPrefix),
+		ID:          nextID(intrusiveIDPrefix),
 		Title:       s.title,
 		Severity:    s.severity,
 		Category:    s.category,
@@ -900,7 +909,7 @@ func (i *IntrusiveScanner) crlfFinding(rawURL, param, carrier string, snap intru
 			remediation: "Never write attacker-controlled bytes into response headers. Reject or percent-encode CR (0x0d) and LF (0x0a) at the boundary, and validate values against the header grammar before setting them.",
 			references:  intrusiveRefCRLF,
 			poc:         fmt.Sprintf("%s carrier, parameter %q, payload %q", carrier, param, intrusiveCRLFSuffix),
-		}.build(), true
+		}.build(i.nextVulnID), true
 	}
 	if snap.hasSplitLocation() {
 		return intrusiveFindingSpec{
@@ -917,7 +926,7 @@ func (i *IntrusiveScanner) crlfFinding(rawURL, param, carrier string, snap intru
 			remediation: "Reject CR and LF in values that are copied into the Location header, and build redirects from validated, allowlisted destinations only.",
 			references:  intrusiveRefCRLF,
 			poc:         fmt.Sprintf("%s carrier, parameter %q, payload %q", carrier, param, intrusiveCRLFSuffix),
-		}.build(), true
+		}.build(i.nextVulnID), true
 	}
 	if intrusiveCRLFReflected(snap.body) {
 		return intrusiveFindingSpec{
@@ -934,7 +943,7 @@ func (i *IntrusiveScanner) crlfFinding(rawURL, param, carrier string, snap intru
 			remediation: "Context-encode every reflected value and strip control characters before output.",
 			references:  intrusiveRefCRLF,
 			poc:         fmt.Sprintf("%s carrier, parameter %q, payload %q", carrier, param, intrusiveCRLFSuffix),
-		}.build(), true
+		}.build(i.nextVulnID), true
 	}
 	return Vulnerability{}, false
 }
@@ -1013,7 +1022,7 @@ func (i *IntrusiveScanner) scanBooleanSQLi(ctx context.Context, ep intrusiveEndp
 			references:  intrusiveRefSQLi,
 			poc: fmt.Sprintf("GET %s with parameter %q set to <original value> + %s, compared against the same with %s",
 				ep.base, p.name, intrusiveSQLiQuoteTrue, intrusiveSQLiQuoteFalse),
-		}.build())
+		}.build(i.nextVulnID))
 	}
 	return out
 }
@@ -1087,7 +1096,7 @@ func (i *IntrusiveScanner) scanTimeBasedSQLi(ctx context.Context, ep intrusiveEn
 				references:  intrusiveRefBlindSQLi,
 				poc: fmt.Sprintf("GET %s with parameter %q set to <original value> + %q, repeated %d times",
 					ep.base, p.name, payload, intrusiveTimeRepeats),
-			}.build())
+			}.build(i.nextVulnID))
 		}
 	}
 	return out
@@ -1218,7 +1227,7 @@ func (i *IntrusiveScanner) scanPathTraversal(ctx context.Context, ep intrusiveEn
 					references:  intrusiveRefTraversal,
 					poc: fmt.Sprintf("GET %s via the %s carrier with payload %q (probe file %q did not exist, which is how we know this is not an echo)",
 						cr.rawURL, cr.carrier, payload, canary),
-				}.build())
+				}.build(i.nextVulnID))
 			}
 		}
 	}
@@ -1283,7 +1292,7 @@ func (i *IntrusiveScanner) scanSSRFIndicators(ctx context.Context, ep intrusiveE
 				references:  intrusiveRefSSRF,
 				poc: fmt.Sprintf("GET %s with parameter %q set to %q, compared against the same parameter set to a benign same-length value",
 					ep.base, p.name, payload),
-			}.build())
+			}.build(i.nextVulnID))
 		}
 	}
 	return out
@@ -1392,5 +1401,5 @@ func (i *IntrusiveScanner) scanWriteMethods(ctx context.Context) []Vulnerability
 		references:  intrusiveRefWriteMethod,
 		poc: fmt.Sprintf("GET %s -> 404, PUT %s (empty body) -> %d, GET %s, DELETE %s",
 			rawURL, rawURL, put.status, rawURL, rawURL),
-	}.build()}
+	}.build(i.nextVulnID)}
 }
