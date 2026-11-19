@@ -6,6 +6,10 @@ in place, findings from the security audit, and recommendations for safe use.
 
 > This file is maintained as part of a security audit. Version it together with
 > the code; treat every security-relevant change as an update to this document.
+>
+> Scope: this is a point-in-time **internal** review, not a third-party
+> penetration test, a certification, or a production-readiness guarantee. No
+> `production-ready` claim is made for Sift.
 
 ---
 
@@ -23,7 +27,8 @@ or third parties to harm. Concretely:
 - never leak secrets configured in scenario files into output;
 - never send traffic the operator did not intend (only allow-listed same-host
   redirects);
-- use secure transport (TLS ≥ 1.2, no certificate verification bypass);
+- use secure transport (TLS >= 1.2) with certificate verification as the
+  default; any bypass must be an explicit, documented operator opt-in;
 - protect generated report files from other local users.
 
 ---
@@ -32,7 +37,10 @@ or third parties to harm. Concretely:
 
 **Trusted input:** the CLI, the scenario file, and environment variables are
 provided by the operator who owns/authorizes the target system. They are
-trusted **by design** (there is no multi-tenant or remote input surface).
+trusted **by design**. Sift is a local-first, single-operator tool: it has no
+remote input surface. Multi-tenancy is not part of the shipped product; the
+`internal/tenant/` package is unused scaffolding and planned work, not an active
+control plane.
 
 **Trusted components:** Go standard library, `gopkg.in/yaml.v3`.
 
@@ -54,9 +62,18 @@ trusted **by design** (there is no multi-tenant or remote input surface).
 
 Verified against the codebase during the audit:
 
-- **TLS floor:** `http.Transport` uses `TLSClientConfig{MinVersion: tls.VersionTLS12}`.
-  `InsecureSkipVerify` is **not** set anywhere.
-  (`internal/engine/client.go`)
+- **TLS floor and verification:** transports enforce `MinVersion:
+  tls.VersionTLS12`, and certificate verification is the default policy.
+  `InsecureSkipVerify` is not a global default: its intentional uses are
+  explicit operator opt-ins - the worker/master `--tls-skip` flag, replay
+  skip-verify, scanner and TLS-lab opt-out flags, and coordinator TLS options
+  for self-signed demo fleets. Those modes are for authorized targets only.
+  HTTP/3 probes also verify certificates by default (`internal/http3/h3.go`);
+  bypass is an explicit `ProbeWithOptions` opt-in for lab targets.
+  (`internal/engine/client.go`, `cmd/sift-worker/main.go`,
+  `cmd/sift-master/main.go`, `internal/replay/types.go`,
+  `internal/scanner/core/transport.go`, `internal/dist/coordinator/tls.go`,
+  `internal/http3/h3.go`)
 - **Connection bounds:** `MaxConnsPerHost`, `MaxIdleConnsPerHost` clamped to
   `[256, 20 000]`; `DisableKeepAlives` configurable.
   (`internal/engine/client.go`)
@@ -115,7 +132,8 @@ Findings from the review, ordered by risk.
 ### 4.2 Confirmed safe (no change needed)
 
 - Cross-host redirects are blocked (SSRF redirect chains covered).
-- `InsecureSkipVerify` absent; TLS ≥ 1.2 enforced.
+- TLS >= 1.2 enforced; verification is the default policy, including the
+  HTTP/3 probes. All skip-verify paths are explicit opt-ins (see section 3).
 - Filename sanitization prevents path traversal from scenario `name`.
 - Reports never contain variables/headers/bodies/tokens.
 - `maxUsers` concurrency cap present.
@@ -187,7 +205,7 @@ Scenario files are parsed with `gopkg.in/yaml.v3 v3.x`.
 - Scenario files are an **explicitly trusted input** (they are written by the
   operator running the tool). This makes exploitation unlikely. But:
   - **Do not load scenario files from untrusted sources** (e.g. URLs, user
-    uploads, multi-tenant systems). If you must, pre-validate or sandbox the
+    uploads, shared parsing services). If you must, pre-validate or sandbox the
     parsing step.
   - Keep the binary and its config channel private; do not expose scenario
     parsing as a remotely reachable service.

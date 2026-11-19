@@ -15,6 +15,7 @@ Thanks for your interest in contributing to Sift. Please follow these guidelines
   - `feat(scope): short description`
   - `fix(scope): short description`
 - **Be explicit in commit messages.** Describe what changed and why (file/line references are optional).
+- **Sign off every commit** with `git commit -s`; see section 9 for the DCO requirement.
 
 ## 3. Validation (CI expectations)
 
@@ -26,7 +27,11 @@ go vet ./...
 go test -count=1 ./...
 ```
 
-Coverage target: **80%+** for the project over time. New changes should not reduce coverage for the areas they touch.
+Coverage target: maintain **>=70%** aggregate coverage. The most recent CI
+measurement is **75.7%** (2026-11-17; see `docs/COVERAGE.md`). CI currently
+enforces a lower **45%** floor in `.github/workflows/ci.yml`; that floor is a
+minimum, not the project target. New changes should not reduce coverage for the
+areas they touch.
 
 ## 4. Security
 
@@ -129,6 +134,30 @@ checks.
 ## 8. Maintainers
 
 See `MAINTAINERS.md` for the current maintainer list.
+
+## 9. Developer Certificate of Origin (DCO)
+
+Every commit must be signed off under the [Developer Certificate of Origin,
+version 1.1](https://developercertificate.org/). Add the sign-off with:
+
+```bash
+git commit -s -m "fix(scope): short description"
+```
+
+This appends a line to the commit message:
+
+```
+Signed-off-by: Your Name <you@example.com>
+```
+
+Use your real name and an email address you control; the sign-off must match the
+commit author identity. By signing off you certify the DCO 1.1 conditions: the
+contribution is your own work or you have the right to submit it, you have the
+right to submit it under the repository license (Apache-2.0), and you understand
+it is public and may be redistributed with a record of the sign-off.
+
+Pull requests containing commits without a `Signed-off-by` line are not merged.
+See `LICENSING.md` section 4 for how the sign-off is used.
 
 ## Dashboard scope
 

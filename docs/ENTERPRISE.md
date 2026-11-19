@@ -8,12 +8,16 @@ This document outlines a potential enterprise/support tier around the Sift proje
 
 ## 1. Open-core boundary
 
-Every software capability in Sift is in this repository and licensed under
-**Apache-2.0**. This includes single sign-on (OIDC / SAML), role-based access
-control (RBAC), the multi-tenant control plane (teams, projects, per-tenant
-isolation), and persistent run history with audit logging. No feature is removed
-from the open-source repository or withheld behind a commercial license, a
-license key, or a build tag.
+Every software capability that exists in Sift today is in this repository and
+licensed under **Apache-2.0**. This includes OIDC bearer-token verification,
+role-based access control (RBAC), persistent run history, and audit logging. No
+feature is removed from the open-source repository or withheld behind a
+commercial license, a license key, or a build tag.
+
+SAML SSO and a multi-tenant control plane (teams, projects, per-tenant
+isolation) are **not implemented**. The `internal/tenant/` package is unused
+scaffolding. Sift is a local-first, single-operator tool; multi-tenancy is a
+possible future direction, not a current capability.
 
 | Capability | In this repository (Apache-2.0) |
 |---|---:|
@@ -21,9 +25,10 @@ license key, or a build tag.
 | Security scanning (TLS/WAF/HTTP/security checks) | ✅ |
 | Distributed mode + worker controls | ✅ |
 | Dashboard (web UI) | ✅ |
-| OIDC / SAML single sign-on | ✅ |
+| OIDC single sign-on | ✅ |
+| SAML single sign-on | ❌ - planned, not implemented |
 | Role-based access control (RBAC) | ✅ |
-| Multi-tenant control plane (teams, projects, per-tenant isolation) | ✅ |
+| Multi-tenant control plane (teams, projects, per-tenant isolation) | ❌ - planned, not implemented |
 | Persistent run history and audit log | ✅ |
 | HTTP/3/QUIC-related capabilities (as implemented) | ✅ |
 | Browser-based testing (as implemented) | ✅ |
@@ -33,8 +38,10 @@ and removes none.
 
 ## 2. Enterprise services (commercial, optional)
 
-The Enterprise tier is a set of commercial services around the same Apache-2.0
-software. It covers only:
+The Enterprise tier is a **planned** set of commercial services around the same
+Apache-2.0 software. All entries below are planning targets, not current
+offerings: no contract, SLA, or hosted service is available today. If pursued,
+it would cover only:
 
 | Service | Enterprise |
 |---|---:|
@@ -84,6 +91,8 @@ The open-core project provides all core technical capabilities under Apache-2.0;
 
 ## 5. Open items
 
+- [ ] Implement SAML SSO (no SAML code exists today; OIDC is implemented)
+- [ ] Decide whether multi-tenancy is in scope and implement it before claiming it
 - [ ] Define actual commercial packaging and support boundaries (if pursued)
 - [ ] Validate compliance roadmap separately (no certification claims until audited)
 - [ ] Establish billing/support processes (if commercialized)

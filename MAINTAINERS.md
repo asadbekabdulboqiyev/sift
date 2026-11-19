@@ -10,7 +10,11 @@ Current maintainers of the Sift project.
 
 ## Co-Maintainers
 
-- (none yet) — the project aims to reduce bus factor (1 → 2+).
+- (none yet) — the bus factor is **1**, not 2+. Reaching 2+ is a goal, but no
+  second maintainer has been appointed.
+  - The `Lower bus factor` item in the v0.18.0 release notes refers to
+    documentation only: good-first issues, the ownership map below, and the
+    90-day roadmap. It does not mean a second person can review or merge today.
   - If you are interested, follow the contribution process in `CONTRIBUTING.md` and open a discussion/PR.
 
 ## Ownership map
@@ -35,7 +39,9 @@ applies.
 `.github/CODEOWNERS` requests a review from the lead on all paths through its
 default `*` rule, and adds explicit review entries for several of the open
 paths above. That is a review request, not a lead-only gate outside the three
-areas in the table; CODEOWNERS does not by itself enforce merge policy.
+areas in the table; CODEOWNERS does not by itself enforce merge policy. Every
+entry in that file names the same single person, so it does not increase the bus
+factor.
 
 ## Becoming a maintainer
 
