@@ -1,6 +1,7 @@
 package certificate
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -221,30 +222,76 @@ func TestBuildAssessmentContradictoryCountsFailClosed(t *testing.T) {
 	}
 }
 
+// A tampered certificate used to pass this test for the wrong reason: mutating
+// the assessment leaves the signature stale, so Verify fails at the signature
+// check and never reaches validateAssessment. Re-sign the mutated envelope with
+// the issuing key and assert the *semantic* rejection, then assert the issuance
+// path refuses the same assessment before a seal is created.
 func TestVerifyRejectsContradictorySignedAssessment(t *testing.T) {
-	c := issueValid(t)
-	// Forge a contradictory but signed-claim shape: counts vs findings mismatch
-	// would fail signature if changed naively; instead check impossible risk/owasp
-	// by reconstructing through Verify path on a cert whose fields are corrupted
-	// post-verification assumptions? Easier: build cert, then tamper and expect
-	// Verify to reject due to envelope/signature/integrity checks where applicable.
-	bad := *c
-	bad.Assessment = c.Assessment
-	bad.Assessment.RiskScore = 150
-	if err := Verify(&bad); err == nil {
-		t.Fatal("impossible risk score verified")
+	kp, err := attest.GenerateKeypair()
+	if err != nil {
+		t.Fatalf("GenerateKeypair: %v", err)
 	}
-	bad2 := *c
-	bad2.Assessment = c.Assessment
-	bad2.Assessment.Started = "2026-11-07T08:10:00Z"
-	bad2.Assessment.Ended = "2026-11-07T08:05:00Z"
-	if err := Verify(&bad2); err == nil {
-		t.Fatal("impossible timing verified")
+	prev := strings.Repeat("a", 64)
+	c, err := Issue(kp, validAssessment(), prev, "exp-ref")
+	if err != nil {
+		t.Fatalf("Issue: %v", err)
 	}
-	bad3 := *c
-	bad3.Assessment = c.Assessment
-	bad3.Assessment.OWASPPass = 99
-	if err := Verify(&bad3); err == nil {
-		t.Fatal("impossible owasp_pass verified")
+
+	cases := []struct {
+		name   string
+		mutate func(*Assessment)
+		want   string
+	}{
+		{
+			name:   "risk score above 100",
+			mutate: func(a *Assessment) { a.RiskScore = 150 },
+			want:   "risk_score 150 is outside 0..100",
+		},
+		{
+			name: "ended before started",
+			mutate: func(a *Assessment) {
+				a.Started = "2026-11-07T08:10:00Z"
+				a.Ended = "2026-11-07T08:05:00Z"
+			},
+			want: "ended timestamp is before started timestamp",
+		},
+		{
+			name:   "owasp_pass above 10",
+			mutate: func(a *Assessment) { a.OWASPPass = 99 },
+			want:   "owasp_pass 99 is outside 0..10",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			bad := *c
+			bad.Assessment = c.Assessment
+			tc.mutate(&bad.Assessment)
+
+			msg, err := canonicalV2(&bad)
+			if err != nil {
+				t.Fatalf("canonicalV2: %v", err)
+			}
+			sig, err := attest.Sign(kp, msg)
+			if err != nil {
+				t.Fatalf("Sign: %v", err)
+			}
+			bad.Signature = hex.EncodeToString(sig)
+
+			err = Verify(&bad)
+			if err == nil {
+				t.Fatal("contradictory signed assessment verified")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Verify error = %q, want it to contain %q: the signature check masked semantic validation", err, tc.want)
+			}
+
+			if err := ValidateAssessmentInput(bad.Assessment); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("ValidateAssessmentInput error = %v, want %q", err, tc.want)
+			}
+			if _, err := Issue(kp, bad.Assessment, prev, "exp-ref"); err == nil {
+				t.Fatal("Issue accepted a contradictory assessment")
+			}
+		})
 	}
 }
