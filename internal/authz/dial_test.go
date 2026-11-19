@@ -20,7 +20,6 @@ func TestDialControlRefusesRebindingToAMoreRestrictiveClass(t *testing.T) {
 		{"10.0.0.1:443", "private"},
 		{"169.254.1.1:80", "link-local"},
 		{"100.100.100.200:80", "metadata"},
-		{"fd00:ec2::254:80", ""}, // splitHostPort on bare IPv6 fails; covered below
 	} {
 		err := control("tcp", tc.address, nil)
 		if tc.want == "" {
