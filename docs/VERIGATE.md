@@ -110,7 +110,7 @@ the difficulty), and `ScheduleCap` (1024 — how many changes are retained).
 ## The SLA verify gate
 
 "VeriGate" has a second meaning in this project: the **SLA verify gate** in
-Sift (`--expect-error-rate`, `--expect-min-rps`, `--expect-p99`).
+Sift (`--expect-error-rate`, `--expect-min-rps`, `--expect-p99-ms`).
 It turns a load test into a CI gate that exits non-zero when an SLO is
 violated. `scripts/demo-store-sla.sh` combines both meanings into one
 proof:

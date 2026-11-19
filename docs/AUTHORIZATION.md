@@ -172,7 +172,8 @@ TAMPERED or corrupt: entry 2: hash mismatch — record has been modified (verifi
 ```
 
 Each record holds the actor, action, targets, resolved IPs, class, verdict,
-rule, reason, tool version, and argv:
+rule, reason, tool version, and argv. The example below was captured with Sift
+v0.16.6; its hash covers the field values as shown:
 
 ```json
 {

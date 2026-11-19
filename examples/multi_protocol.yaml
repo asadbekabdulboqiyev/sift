@@ -5,7 +5,7 @@
 #   - tcp     : pooled persistent connection (e.g. Redis-style exchange)
 #   - udp     : request-response datagram probe with RTT measurement
 #
-# Run: ./bin/Sift --config examples/multi_protocol.yaml
+# Run: ./bin/Sift run --config examples/multi_protocol.yaml
 name: multi-protocol-power
 base_url: http://localhost:8080
 load_profile:

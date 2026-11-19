@@ -16,7 +16,7 @@ steps:
   - name: health-check
     type: http
     method: GET
-    url: /api/health
+    url: /health
     headers:
       Accept: application/json
     assertions:

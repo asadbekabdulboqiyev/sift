@@ -13,8 +13,16 @@
 
 ---
 
+## Start here
+
+Sift runs load and security checks against systems you own, then seals the results into an offline-verifiable evidence bundle.
+Install in about 10 seconds: `go install github.com/asadbekabdulboqiyev/sift/cmd/sift@latest` (other options in [Installation](#installation)).
+Try the local demos: `make demo-verified` (seal, verify, tamper, restore) and `make demo-sla` (SLA gate on/off).
+New here? The [Documentation map](#documentation-map) gives one line per document.
+
 ## Table of Contents
 
+- [Start here](#start-here)
 - [Overview](#overview)
 - [Key Capabilities](#key-capabilities)
 - [What's Included in 0.18.0](#whats-included-in-0180)
@@ -58,6 +66,7 @@
 - [Deployment and Infrastructure Hardening](#deployment-and-infrastructure-hardening)
 - [Project Structure](#project-structure)
 - [Documentation](#documentation)
+  - [Documentation map](#documentation-map)
 - [Build, Test, and Development](#build-test-and-development)
 - [Troubleshooting](#troubleshooting)
 - [Security Policy](#security-policy)
@@ -1236,6 +1245,19 @@ See `docs/DEPLOYMENT-HARDENING.md` for detailed checklists and examples.
 
 ## Documentation
 
+### Documentation map
+
+- [Enterprise overview](docs/ENTERPRISE.md) - planning draft for an enterprise/support tier; no certification claims.
+- [Testing](docs/TESTING.md) - test tiers, commands, and build tags.
+- [Coverage](docs/COVERAGE.md) - measured coverage, CI floor, and local coverage commands.
+- [Invention disclosure](docs/INVENTION.md) - technical disclosure and vpmp/v1 claim boundaries.
+- [Legal and dual-use](docs/LEGAL-DUAL-USE.md) - authorized-use boundaries and dual-use considerations.
+- [One-pager](docs/ONE-PAGER.md) - short product summary and honest status.
+- [Pitch](docs/PITCH.md) - 12-slide deck, competition, and claims register.
+- [Valuation](docs/VALUATION.md) - dated internal valuation model and market anchors (estimates).
+- [White-label](docs/WHITE-LABEL.md) - branding and artifact-rename steps.
+- [Demo script](docs/DEMO.md) - two-minute live demo runbook and talking points.
+
 ### Core Docs
 - `docs/AUTHORIZATION.md` — Authorization and audit model
 - `docs/DISTRIBUTED.md` — Distributed architecture and usage
@@ -1379,4 +1401,4 @@ Sift is built for teams that need **performance testing, security assessment, an
 ## Contributing & roadmap
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) and [MAINTAINERS.md](MAINTAINERS.md).
-- [90-day roadmap](docs/ROADMAP-90D.md) and [full roadmap](docs/ROADMAP.md).
+- [90-day roadmap](docs/ROADMAP-90D.md) (derived focus list with acceptance checks, not a dated commitment) and [full roadmap](docs/ROADMAP.md).

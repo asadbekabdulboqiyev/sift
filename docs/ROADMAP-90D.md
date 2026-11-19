@@ -83,7 +83,7 @@ the same path. No example or doc names a flag that is absent from
 
 - `make demo-sla` prints both phases and the documented verdict (ON -> SLA FAIL
   with Sift exit 2, OFF -> SLA PASS with Sift exit 0).
-- `./bin/Sift --config examples/sla_gate.yaml` against the local demo server
+- `./bin/Sift run --config examples/sla_gate.yaml` against the local demo server
   exits 2 when a documented threshold is violated, as its header claims.
 - The CI `verifiable-evidence` job passes both directions: pristine bundle exit
   0, tampered sidecar exit 1.

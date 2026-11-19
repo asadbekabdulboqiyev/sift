@@ -25,7 +25,7 @@ You should see `RESULT` with `intact → PASS`, `one byte changed → FAIL`,
 credentials, no target server required. Runtime ≈ 2 seconds.
 
 > **Read this before you speak.** The demo script auto-detects the binary capability:
-> - **LIVE** (default on v0.14.3+): runs real traffic, seals a bundle with the real
+> - **LIVE** (default on v0.18.0+): runs real traffic, seals a bundle with the real
 >   CLI, verifies it.
 > - **REFERENCE** (only when no binary can be found *and* Go isn't available to
 >   build one): prints an explicit notice and emits a spec-conformant bundle from
@@ -107,7 +107,7 @@ key_id (public fingerprint): 63989b7e96cf7e9e…
 authorization: ok (class=loopback)
 WARNING: Sift is a load testing tool. Only run it against systems you own or
 have explicit written permission to test. Unauthorized load floods are illegal (DDoS).
-Sift v0.14.3 | target: http://127.0.0.1:8090/health | profile: steady | duration: 10s
+Sift v0.18.0 | target: http://127.0.0.1:8090/health | profile: steady | duration: 10s
 
 Verifiable evidence written:
   …/veribench-bundle.json
@@ -255,7 +255,7 @@ Do say:
 - "We are not claiming fabrication is solved. A colluding generator and target
   can fabricate together."
 - "The market numbers in the pitch are labelled `ESTIMATE` and must be re-verified."
-- "The three commands (`keygen`, `run --emit-bundle`, `verify`) ship in v0.14.3."
+- "The three commands (`keygen`, `run --emit-bundle`, `verify`) ship in v0.18.0."
 
 Do **not** say:
 
@@ -263,7 +263,7 @@ Do **not** say:
 - "We have customers / pilots / revenue." (No traction to date; see `PITCH.md`
   Slide 10.)
 - "The protocol is specified but the CLI is in integration." (False — both ship
-  in v0.14.3.)
+  in v0.18.0.)
 
 ---
 

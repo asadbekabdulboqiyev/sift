@@ -20,6 +20,9 @@ This document tracks test coverage status and policy for Sift.
 | Measurement mode | `-race -covermode=atomic -coverpkg=./...` | `test` job produces one profile per package; the gate merges them and runs `go tool cover -func` |
 | Floor enforced in CI | 45% | `.github/workflows/ci.yml` |
 
+The 45% CI gate is a minimum floor; measured coverage is higher (75.7% above).
+The project target is tracked in `CONTRIBUTING.md`.
+
 The 2026-11-05 baseline (58.7%) and this figure are not a like-for-like
 comparison of the same commit: tests were added between the two dates, and the
 CI gate merges per-package profiles instead of using a single `go test ./...`
