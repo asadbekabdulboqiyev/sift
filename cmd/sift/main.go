@@ -21,10 +21,54 @@ var knownCommands = []string{
 	"demo-store", "pentest", "simulate", "xray", "bounty",
 	"fuzz", "dirbust", "jwt", "graphql", "websocket",
 	"crawl", "subdomain", "portscan", "sslscan",
-	"authorize", "audit", "healthcheck", "keygen", "trust", "verify", "certificate", "audit360", "admin", "help", "version",
+	"authorize", "audit", "healthcheck", "keygen", "trust", "verify", "certificate", "audit360", "admin",
+	"test", "secure", "evidence", // alias groups; see commandGroups
+	"help", "version",
+}
+
+// commandGroup is an additive alias: a short group name that forwards to a
+// fixed set of existing commands. A group name never shadows a real command.
+type commandGroup struct {
+	summary  string
+	commands []string
+}
+
+// contains reports whether name is a real command exposed by the group.
+func (g commandGroup) contains(name string) bool {
+	for _, c := range g.commands {
+		if c == name {
+			return true
+		}
+	}
+	return false
+}
+
+// commandGroups lists the alias groups exposed in addition to the flat command
+// set. Adding a group never removes or renames a direct command.
+var commandGroups = map[string]commandGroup{
+	"test": {
+		summary:  "load and behavior testing",
+		commands: []string{"run", "replay", "simulate", "healthcheck"},
+	},
+	"secure": {
+		summary: "security scanning and assessment",
+		commands: []string{
+			"scan", "pentest", "xray", "fuzz", "dirbust", "jwt", "graphql",
+			"websocket", "crawl", "subdomain", "portscan", "sslscan",
+			"bounty", "audit360",
+		},
+	},
+	"evidence": {
+		summary:  "cryptographic evidence and authorization handling",
+		commands: []string{"keygen", "trust", "verify", "certificate", "audit", "authorize"},
+	},
 }
 
 func main() {
+	// Resolve additive alias groups before the existing dispatch. Direct
+	// command names never enter this path, so their parsing is unchanged.
+	resolveGroupAlias()
+
 	// Check for subcommands
 	if len(os.Args) > 1 {
 		cmd := os.Args[1]
@@ -138,6 +182,59 @@ func main() {
 	cmdRun()
 }
 
+// resolveGroupAlias rewrites os.Args when os.Args[1] names an alias group.
+// Direct command names are left untouched, so the switch in main (including
+// run's own os.Args reshaping) sees exactly the argv a direct invocation would.
+// An unknown or missing subcommand prints a group-specific error and exits 2
+// before any command function runs, so no network activity can start.
+func resolveGroupAlias() {
+	if len(os.Args) < 2 {
+		return
+	}
+	group, ok := commandGroups[os.Args[1]]
+	if !ok {
+		return
+	}
+
+	sub := ""
+	if len(os.Args) > 2 {
+		sub = os.Args[2]
+	}
+	if !group.contains(sub) {
+		unknownGroupSubcommand(os.Args[1], sub, group)
+		exitProcess(2)
+		return
+	}
+
+	// Drop the group token. The real command now sits at index 1, the shape
+	// every command function already expects (run reshapes it once more).
+	os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
+}
+
+// unknownGroupSubcommand reports an invalid (or missing) subcommand for an
+// alias group, listing what that group offers plus an overview of all groups.
+// It only prints: no command is dispatched and nothing touches the network.
+func unknownGroupSubcommand(group, sub string, g commandGroup) {
+	w := os.Stderr
+	if sub == "" {
+		fmt.Fprintf(w, "Error: group %q requires a subcommand.\n\n", group)
+	} else {
+		fmt.Fprintf(w, "Error: unknown command %q for group %q.\n\n", sub, group)
+	}
+
+	fmt.Fprintf(w, "Available subcommands for 'Sift %s' (%s):\n", group, g.summary)
+	for _, c := range g.commands {
+		fmt.Fprintf(w, "   Sift %s %s\n", group, c)
+	}
+
+	fmt.Fprintf(w, "\nAll command groups:\n")
+	for _, name := range []string{"test", "secure", "evidence"} {
+		fmt.Fprintf(w, "   %-9s %s\n", name, commandGroups[name].summary)
+	}
+	fmt.Fprintf(w, "\nDirect commands still work, for example 'Sift %s ...'.\n", g.commands[0])
+	fmt.Fprintf(w, "Run 'Sift --help' for every command and flag.\n")
+}
+
 // unknownCommand reports an unrecognized subcommand with a "did you mean"
 // suggestion, the command list, and a pointer to --help. Exit code 2 matches
 // the usage-error convention used across the CLI.
@@ -197,6 +294,17 @@ Sift %s — Ultra-Fast Load Testing & Security Suite
    admin       Local admin area: code, status, unlock/lock the bypass switch
    help        Show this help
    version     Show version
+
+═══════════════════════════════════════════════════════════════════════
+ COMMAND GROUPS (additive shortcuts; direct commands above still work)
+═══════════════════════════════════════════════════════════════════════
+   test       run | replay | simulate | healthcheck
+   secure     scan | pentest | xray | fuzz | dirbust | jwt | graphql
+              websocket | crawl | subdomain | portscan | sslscan | bounty
+              audit360
+   evidence   keygen | trust | verify | certificate | audit | authorize
+
+   Example: Sift secure pentest --target https://example.com --authorized TICKET-1
 
 ═══════════════════════════════════════════════════════════════════════
  INDIVIDUAL SCANNERS (each is scope-gated like pentest)
