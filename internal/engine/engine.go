@@ -375,6 +375,14 @@ func (e *Engine) Run(ctx context.Context, opts RunOptions) (*metrics.Telemetry, 
 	e.stopFlag().reset()
 	defer stopFlags.Delete(e)
 
+	// The start gate is per-run state. New() creates one so the field is never
+	// nil, but Run closes it, and closing the same channel twice panics — so a
+	// second Run on the same Engine (documented library reuse) needs a fresh
+	// gate rather than a second close of the previous one.
+	if e.gate {
+		e.startGate = make(chan struct{})
+	}
+
 	e.capture = opts.Capture
 	e.pool = opts.Pool
 	e.samples = opts.Samples
