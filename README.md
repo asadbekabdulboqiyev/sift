@@ -1363,3 +1363,10 @@ Before submitting changes, run applicable build/test/lint checks.
 Sift is built for teams that need **performance testing, security assessment, and verifiable evidence** in one consistent, scriptable, and self-hostable workflow.
 
 > Not related to Stratus Security's Sift.
+
+---
+
+## Contributing & roadmap
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) and [MAINTAINERS.md](MAINTAINERS.md).
+- [90-day roadmap](docs/ROADMAP-90D.md) and [full roadmap](docs/ROADMAP.md).

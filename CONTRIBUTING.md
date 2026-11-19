@@ -49,17 +49,72 @@ Coverage target: **80%+** for the project over time. New changes should not redu
 
 ## 7. Ownership and good first issues
 
-Risk-sensitive subsystems — the load `engine`, `attest` (sealing/verification),
-and `authz` (authorization and dial control) — are maintained by the project
-lead. Changes there need review from the lead before merge.
+Risk-sensitive subsystems - the load `engine`, `attest` (sealing/verification),
+and `authz` (authorization and dial control) - are maintained by the project
+lead. Changes there need review from the lead before merge. The full path map is
+in `MAINTAINERS.md` under "Ownership map"; every path not listed as restricted
+there is open to contributors.
 
-Everything else is open to contributors. Good first contributions:
+Everything else is open to contributors. The lists below are concrete starting
+points with the files to touch and a rough review size: **S** = one file, tens of
+lines; **M** = two or three files, a few hundred lines. Sizes describe review
+load only; they are not a schedule or a commitment. Pick one item, reference it
+in an issue, and keep one item per PR.
 
-- Documentation fixes and examples (`README.md`, `docs/`).
-- New scanner checks and their regression tests, following the existing
-  `internal/scanner/core` patterns.
-- Dashboard polish and small UI fixes under `internal/dashboard/`.
-- Test isolation and coverage improvements.
+### Documentation
+
+- **S** - `docs/VPMP-RFC.md` section 6 (implementation status): re-check each
+  listed path under `internal/dist/` and update the table when a component or
+  its E2E test moves. Keep the component and its test in the same row.
+- **S** - `docs/OWASP-SCANNER.md` section 5 (confidence model): keep the
+  four-level model and the note about the three-level verifier in
+  `internal/scanner/verify.go` in sync when either side changes.
+- **S** - `README.md` "Documentation" list: add a newly shipped doc from `docs/`
+  with one line of scope. No marketing prose in that list.
+
+### Examples
+
+- **S** - `examples/sla_gate.yaml`: keep the existing four thresholds and the
+  `/health` step; add comments that map a threshold to the actual CLI flags
+  (`--expect-p99-ms`, `--expect-error-rate`, `--expect-min-rps` in
+  `cmd/sift/main.go`). Do not invent flags that are not wired.
+- **S** - `examples/basic-get.yaml` or `examples/branching-flow.yaml`: add one
+  scenario that exercises an existing check, with a short purpose comment at
+  the top of the same file.
+- **M** - `examples/demo_store/README.md` and `examples/demo_store/`: document
+  one existing local flow end to end (start command, Sift command, expected
+  exit code). Do not change the demo server code in the same PR.
+
+### Scanner checks
+
+- **S** - `internal/scanner/passive_checks_exposure.go` plus
+  `internal/scanner/checks_passive_test.go`: add one passive check that uses
+  `passiveEvidence(...)` and an existing level from
+  `internal/scanner/passive_scanner.go`. Include a false-positive rationale and
+  one negative regression case.
+- **S** - `internal/scanner/intrusive.go` plus
+  `internal/scanner/intrusive_test.go`: extend one benign re-check with a
+  control or canary case. Keep the `confidence=<level>` evidence prefix; add no
+  destructive payloads.
+- **M** - `internal/scanner/core/probe.go` and `internal/scanner/core/types.go`
+  with `internal/scanner/core/probe_test.go`: adjust one probe helper or type
+  while preserving the behavior the scanner packages already rely on.
+- **M** - `internal/scanner/verify.go` with `internal/scanner/verify_test.go`:
+  improve one re-verification path while keeping the `confirmed`, `probable`,
+  `possible` grades and the `[VERIFIED]`, `[PROBABLE]`, `[UNVERIFIED]` badges
+  stable. Respect the report-badge caveat in `docs/OWASP-SCANNER.md` section 5.
+
+### Dashboard UI polish
+
+- **S** - one part under `internal/dashboard/assets/` (for example
+  `app-02-form.js` or `app-11-shell.js`) with the matching check in
+  `internal/dashboard/assets_bundle_test.go` or
+  `internal/dashboard/assets_test.go`. Assets are embedded by
+  `internal/dashboard/server.go`; keep the served `/app.js` byte-identical to
+  the embedded bundle.
+- **M** - `internal/dashboard/index.html` and `internal/dashboard/style.css`
+  with one asset part: fix one layout or labeling issue in the local-first
+  console. Do not change the `/api/...` contract in the same PR.
 
 A useful contribution does not have to add a feature. A pull request that makes
 one package smaller, removes duplication, or simplifies a hot path is welcome.
@@ -67,7 +122,9 @@ Keep a self-imposed ceiling of roughly 400-600 lines per new file so reviews sta
 tractable; split larger changes along existing package boundaries instead of
 rewriting them wholesale.
 
-See `docs/ROADMAP.md` for known limitations and planned engineering work.
+See `docs/ROADMAP.md` for known limitations and planned engineering work, and
+`docs/ROADMAP-90D.md` for the current 90-day focus areas and their acceptance
+checks.
 
 ## 8. Maintainers
 

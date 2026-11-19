@@ -13,6 +13,30 @@ Current maintainers of the Sift project.
 - (none yet) — the project aims to reduce bus factor (1 → 2+).
   - If you are interested, follow the contribution process in `CONTRIBUTING.md` and open a discussion/PR.
 
+## Ownership map
+
+Three areas are **lead-only**: a change there needs review from the lead
+maintainer before merge. This matches the restricted list in `CONTRIBUTING.md`
+section 7 and the explicit path entries in `.github/CODEOWNERS`.
+
+| Area | Path | Change policy |
+| --- | --- | --- |
+| Load engine | `internal/engine/` | Lead-only |
+| Attestation and verification | `internal/attest/` | Lead-only |
+| Authorization and dial control | `internal/authz/` | Lead-only |
+
+**Every other path is open to contributors.** That includes
+`internal/scanner/`, `internal/dashboard/`, `internal/dist/`,
+`internal/honesty/`, `web/verifier/`, `verify/standalone/`, `examples/`,
+`docs/`, `scripts/`, `deploy/`, and `.github/`. Contributors may open PRs in
+these areas directly; the standard CI and review process in `CONTRIBUTING.md`
+applies.
+
+`.github/CODEOWNERS` requests a review from the lead on all paths through its
+default `*` rule, and adds explicit review entries for several of the open
+paths above. That is a review request, not a lead-only gate outside the three
+areas in the table; CODEOWNERS does not by itself enforce merge policy.
+
 ## Becoming a maintainer
 
 1. Submit **3+ high-quality merged PRs** (features or fixes).
