@@ -2,6 +2,7 @@
 #
 # Usage:
 #   make build       Build all Sift binaries into ./bin
+#   make proto       Regenerate protobuf Go code with the pinned toolchain
 #   make test        Run tests with the race detector
 #   make lint        go vet + gofmt check
 #   make verifier    Verify the browser verifier (tests + drift guard + Go<=>JS parity)
@@ -25,6 +26,10 @@ DIST_DIR := dist
 .PHONY: build
 build: ## Build all binaries into ./bin
 	./scripts/build-all.sh $(VERSION)
+
+.PHONY: proto
+proto: ## Regenerate protobuf Go code with the pinned protoc/plugin versions
+	bash scripts/gen-proto.sh
 
 # Package-level parallelism for the test targets.
 #

@@ -13,6 +13,7 @@ import (
 	"github.com/asadbekabdulboqiyev/sift/internal/adminlock"
 	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner"
+	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 )
 
 // --- OWASP control plane ----------------------------------------------------
@@ -154,44 +155,16 @@ type owaspGateOutcome struct {
 // rather than PASS. It can only hold or downgrade the checker's own verdict:
 // there is no input here that turns anything into PASS.
 func owaspStatus(checkerStatus string, coverage int) string {
-	// An explicit "NOT TESTED" verdict is honoured even with coverage: a
-	// category the checker declined to judge must never read as PASS.
-	if coverage == 0 || checkerStatus == "" || checkerStatus == "NOT TESTED" {
-		return "NOT TESTED"
-	}
-	if checkerStatus == "FAIL" || checkerStatus == "WARNING" {
-		return checkerStatus
-	}
-	// Only the checker's own PASS counts as PASS. An unrecognised verdict is
-	// not evidence of anything, so it is not a pass either: treating the
-	// default branch as PASS would silently upgrade whatever a future status
-	// string happened to mean.
-	if checkerStatus == "PASS" {
-		return "PASS"
-	}
-	return "NOT TESTED"
+	// The rule lives in internal/shared so the CLI's pentest report and this
+	// browser endpoint cannot drift into two different verdicts.
+	return shared.OWASPStatus(checkerStatus, coverage)
 }
 
 // owaspWorstStatus merges verdicts for the same category across several scanned
 // paths: FAIL beats WARNING beats PASS. Scanning a second path may only make
 // the picture worse, never better.
 func owaspWorstStatus(a, b string) string {
-	rank := func(s string) int {
-		switch s {
-		case "FAIL":
-			return 3
-		case "WARNING":
-			return 2
-		case "PASS":
-			return 1
-		default:
-			return 0
-		}
-	}
-	if rank(b) > rank(a) {
-		return b
-	}
-	return a
+	return shared.OWASPWorstStatus(a, b)
 }
 
 // owaspGrade maps a score to the letter grade used everywhere else in the tool.

@@ -6,10 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"net"
 	"net/url"
 	"sort"
 	"strings"
+
+	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 )
 
 // ScoringVersion identifies the scoring/capacity-assessment rules used.
@@ -17,16 +18,7 @@ import (
 const ScoringVersion = "sift.audit360-scoring/v3"
 
 func normalizeSeverity(s string) string {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "critical", "high", "medium", "low", "info":
-		return strings.ToLower(strings.TrimSpace(s))
-	case "warning":
-		return "medium"
-	case "fail":
-		return "high"
-	default:
-		return "info"
-	}
+	return shared.NormalizeSeverity(s)
 }
 
 func severityPenalty(sev string) int {
@@ -490,12 +482,7 @@ func effectivePort(u *url.URL) string {
 func sameHost(a, b string) bool { return strings.Trim(a, "[]") == strings.Trim(b, "[]") }
 
 func isLoopbackHost(h string) bool {
-	h = strings.Trim(h, "[]")
-	if strings.EqualFold(h, "localhost") {
-		return true
-	}
-	ip := net.ParseIP(h)
-	return ip != nil && ip.IsLoopback()
+	return shared.IsLoopbackHost(h)
 }
 
 // ParseTargetHostPort extracts host and port for scanners that need them.

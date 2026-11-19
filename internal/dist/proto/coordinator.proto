@@ -285,3 +285,10 @@ message RegisterResponse {
   bool accepted = 1;
   string message = 2;
 }
+
+// Regenerate the Go code with `make proto` or `go generate ./internal/dist/proto`.
+// The executable directive is mirrored in generate.go: `go generate` only scans
+// .go files, so the copy in generate.go is the one that actually runs. See
+// docs/PROTO.md for the pinned toolchain. Kept at the end of this file because
+// protoc copies leading comments into the generated Go code.
+//go:generate bash ../../../scripts/gen-proto.sh

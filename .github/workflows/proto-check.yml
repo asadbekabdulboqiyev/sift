@@ -1,0 +1,54 @@
+name: Protobuf check
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proto-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.26.11"
+  PROTOC_VERSION: "36.0"
+  PROTOC_GEN_GO_VERSION: "v1.36.12"
+  PROTOC_GEN_GO_GRPC_VERSION: "v1.6.2"
+
+jobs:
+  generated-code:
+    name: Generated Go code matches the .proto
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install pinned protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: ${{ env.PROTOC_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install pinned Go plugins
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@${{ env.PROTOC_GEN_GO_VERSION }}
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@${{ env.PROTOC_GEN_GO_GRPC_VERSION }}
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Regenerate
+        run: make proto
+
+      - name: Fail if generated files drifted
+        run: git diff --exit-code -- internal/dist/proto/
+
+      - name: Test generated code
+        run: go test ./internal/dist/proto/... -count=1

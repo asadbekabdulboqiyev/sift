@@ -5,6 +5,8 @@ import (
 	"math"
 	"sort"
 	"time"
+
+	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 )
 
 // Conservative thresholds for the correlation rules. They are deliberately
@@ -458,14 +460,7 @@ func confidenceFor(overlap int, coverage float64) string {
 }
 
 func severityRank(severity string) int {
-	switch severity {
-	case SeverityCritical:
-		return 0
-	case SeverityWarning:
-		return 1
-	default:
-		return 2
-	}
+	return shared.AlertSortKey(severity)
 }
 
 func latencySpike(value, baseline float64) bool {

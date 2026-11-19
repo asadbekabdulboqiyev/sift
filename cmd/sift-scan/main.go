@@ -27,6 +27,7 @@ import (
 	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 	"github.com/asadbekabdulboqiyev/sift/internal/cliux"
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner"
+	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 	"github.com/asadbekabdulboqiyev/sift/internal/version"
 )
 
@@ -670,25 +671,14 @@ func mapOWASPStatus(computed string, covered, findings int) string {
 }
 
 // statusRank orders the statuses by severity for the worst-wins merges.
+// The rule lives in internal/shared with the dashboard's equivalent ranking.
 func statusRank(s string) int {
-	switch s {
-	case "FAIL":
-		return 3
-	case "WARNING":
-		return 2
-	case "PASS":
-		return 1
-	default: // "" and NOT TESTED carry no severity
-		return 0
-	}
+	return shared.OWASPStatusRank(s)
 }
 
 // worseStatus returns the more severe of two statuses.
 func worseStatus(a, b string) string {
-	if statusRank(b) > statusRank(a) {
-		return b
-	}
-	return a
+	return shared.OWASPWorstStatus(a, b)
 }
 
 // escalateStatus makes current at least as severe as target. It never returns
@@ -1309,102 +1299,16 @@ func printSecurityInfo(s *scanner.SecurityInfo) {
 	fmt.Println()
 }
 
+// calculateVulns and calculateRiskScore are thin entry points into the shared
+// canonical rules. The copies that used to live here drifted from the scanner
+// (deprecated TLS and weak-cipher IDs, SEC-* casing, no-WAF findings), so one
+// target could produce two different reports depending on which binary ran it.
 func calculateVulns(r *scanner.ScanResult) []scanner.Vuln {
-	var vulns []scanner.Vuln
-
-	if r.TLS != nil {
-		if r.TLS.Certificate != nil && r.TLS.Certificate.IsExpired {
-			vulns = append(vulns, scanner.Vuln{
-				ID: "TLS-001", Severity: "critical",
-				Title:       "Expired SSL/TLS Certificate",
-				Description: "Certificate expired on " + r.TLS.Certificate.NotAfter.Format("2006-01-02"),
-				Remediation: "Renew the certificate immediately",
-			})
-		}
-		if r.TLS.Certificate != nil && r.TLS.Certificate.IsSelfSigned {
-			vulns = append(vulns, scanner.Vuln{
-				ID: "TLS-002", Severity: "high",
-				Title:       "Self-Signed Certificate",
-				Description: "Certificate is self-signed, not trusted by browsers",
-				Remediation: "Use a certificate from a trusted CA",
-			})
-		}
-		if r.TLS.Version == "TLS 1.0" || r.TLS.Version == "TLS 1.1" {
-			vulns = append(vulns, scanner.Vuln{
-				ID: "TLS-003", Severity: "high",
-				Title:       "Deprecated TLS Version",
-				Description: "Server supports " + r.TLS.Version + " which has known vulnerabilities",
-				Remediation: "Disable TLS 1.0 and 1.1, use TLS 1.2+",
-			})
-		}
-	}
-
-	if r.Security != nil {
-		for _, h := range r.Security.MissingHeaders {
-			vulns = append(vulns, scanner.Vuln{
-				ID:          "SEC-" + strings.ReplaceAll(strings.ToUpper(h), "-", ""),
-				Severity:    "medium",
-				Title:       "Missing " + h + " header",
-				Description: "The " + h + " security header is not set",
-				Remediation: "Add '" + h + "' header to HTTP responses",
-			})
-		}
-	}
-
-	if r.HTTP != nil && r.HTTP.CORS != nil && r.HTTP.CORS.IsPermissive {
-		vulns = append(vulns, scanner.Vuln{
-			ID: "CORS-001", Severity: "medium",
-			Title:       "Permissive CORS Policy",
-			Description: "Access-Control-Allow-Origin: " + r.HTTP.CORS.AllowOrigin,
-			Remediation: "Restrict CORS to specific trusted origins",
-		})
-	}
-
-	return vulns
+	return shared.CalculateVulns(r)
 }
 
 func calculateRiskScore(r *scanner.ScanResult) int {
-	score := 100
-
-	if r.TLS != nil {
-		if !r.TLS.IsSecure {
-			score -= 20
-		}
-		if r.TLS.Certificate != nil && r.TLS.Certificate.IsExpired {
-			score -= 30
-		}
-		if r.TLS.Certificate != nil && r.TLS.Certificate.IsSelfSigned {
-			score -= 15
-		}
-		if r.TLS.Version == "TLS 1.0" || r.TLS.Version == "TLS 1.1" {
-			score -= 15
-		}
-	}
-
-	if r.Security != nil {
-		score -= (100 - r.Security.Score) / 5
-	}
-
-	for _, v := range r.Vulns {
-		switch v.Severity {
-		case "critical":
-			score -= 25
-		case "high":
-			score -= 15
-		case "medium":
-			score -= 8
-		case "low":
-			score -= 3
-		}
-	}
-
-	if score < 0 {
-		score = 0
-	}
-	if score > 100 {
-		score = 100
-	}
-	return score
+	return shared.CalculateRiskScore(r)
 }
 
 func min(a, b int) int {
