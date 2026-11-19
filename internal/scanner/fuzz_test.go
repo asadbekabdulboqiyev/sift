@@ -2,6 +2,7 @@ package scanner
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -195,5 +196,57 @@ func TestSha256Sum(t *testing.T) {
 	sum := w.Sum(nil)
 	if len(sum) != 32 {
 		t.Errorf("len(Sum) = %d, want 32", len(sum))
+	}
+}
+
+// cancelBlockingRequester parks every gate check until the run context is done.
+// It lets the test cancel a campaign while its worker pool is mid-flight, the
+// exact window in which the unbuffered mutation job channel can strand the
+// producer after workers exit on ctx.Err().
+type cancelBlockingRequester struct{}
+
+func (*cancelBlockingRequester) Check(ctx context.Context, method, rawURL string, intrusive bool) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (*cancelBlockingRequester) Do(req *http.Request) (*http.Response, error) {
+	return nil, errors.New("must not be reached")
+}
+
+// TestFuzzRunReturnsAfterContextCancellation pins the cancellation contract of
+// Fuzzer.Run. Workers leave the mutation loop as soon as ctx is cancelled, so
+// the producer must stop feeding the unbuffered jobs channel too; otherwise the
+// send blocks forever after the last worker leaves and Run never returns.
+func TestFuzzRunReturnsAfterContextCancellation(t *testing.T) {
+	f, err := NewFuzzer(FuzzConfig{
+		BaseURL:     "http://127.0.0.1:1/",
+		Paths:       []string{"/p"},
+		Methods:     []string{"GET"},
+		Seed:        1,
+		Mutations:   50,
+		Concurrency: 2,
+		Timeout:     time.Second,
+	}, &cancelBlockingRequester{})
+	if err != nil {
+		t.Fatalf("NewFuzzer: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		_ = f.Run(ctx)
+		close(done)
+	}()
+
+	// Give workers time to enter Check before cancelling.
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+		// Run honored cancellation and returned.
+	case <-time.After(2 * time.Second):
+		t.Fatal("Fuzzer.Run did not return after context cancellation: producer blocked on the unbuffered jobs channel after workers exited")
 	}
 }

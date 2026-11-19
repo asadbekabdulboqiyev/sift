@@ -317,15 +317,30 @@ func (f *Fuzzer) Run(ctx context.Context) *FuzzResult {
 		}()
 	}
 
-	// Generate mutations.
+	// Generate mutations. The jobs channel is unbuffered, so the producer must
+	// honor ctx too: workers leave the loop on cancellation, and a send with no
+	// receiver left would block Run forever. Selecting on ctx.Done() lets the
+	// producer stop feeding the channel, close it and join the workers.
 	count := 0
+	producing := true
+	total := f.cfg.Mutations * len(f.cfg.Paths) * len(f.cfg.Methods)
 	for _, p := range f.cfg.Paths {
+		if !producing {
+			break
+		}
 		for _, m := range f.cfg.Methods {
+			if !producing {
+				break
+			}
 			for i := 0; i < f.cfg.Mutations; i++ {
 				label, body, isIntrusive := f.mutate(p, m, injection, headerVals, writeMethods, bodyMut, f.cfg.Intrusive)
-				jobs <- mutateJob{method: m, path: p, baseBody: body, label: label, intrusive: isIntrusive}
-				count++
-				if count >= f.cfg.Mutations*len(f.cfg.Paths)*len(f.cfg.Methods) {
+				select {
+				case jobs <- mutateJob{method: m, path: p, baseBody: body, label: label, intrusive: isIntrusive}:
+					count++
+				case <-ctx.Done():
+					producing = false
+				}
+				if !producing || count >= total {
 					break
 				}
 			}
