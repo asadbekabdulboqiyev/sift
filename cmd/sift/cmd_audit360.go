@@ -118,6 +118,17 @@ func verifyAudit360File(path, pinnedKey string, asJSON, quiet bool) {
 		emitAudit360Verify(out, err, asJSON, quiet)
 		exitProcess(1)
 	}
+	// The dashboard's JSON download wraps the sealed report in
+	// {"job_id", "state", "report"}. Verify the inner object: the wrapper is
+	// unsigned transport metadata, and unmarshalling it as a bare report would
+	// silently drop the seal fields and report a genuine report as INVALID.
+	// Bare reports keep working exactly as before.
+	if inner, ok, err := unwrapAudit360Download(raw); err != nil {
+		emitAudit360Verify(out, fmt.Errorf("parse report: %w", err), asJSON, quiet)
+		exitProcess(1)
+	} else if ok {
+		raw = inner
+	}
 	var report audit360.Audit360Report
 	if err := json.Unmarshal(raw, &report); err != nil {
 		emitAudit360Verify(out, fmt.Errorf("parse report: %w", err), asJSON, quiet)
@@ -147,6 +158,30 @@ func verifyAudit360File(path, pinnedKey string, asJSON, quiet bool) {
 //
 // The limit is applied to the read, not just to a stat before it, so a file
 // that grows between the check and the read cannot slip past it.
+// audit360DownloadEnvelope is the shape of the dashboard's JSON/Signed-JSON
+// download. Audit360Report has neither a job_id nor a report field, so the two
+// together identify the wrapper without ever matching a bare report.
+type audit360DownloadEnvelope struct {
+	JobID  string          `json:"job_id"`
+	State  string          `json:"state"`
+	Report json.RawMessage `json:"report"`
+}
+
+// unwrapAudit360Download returns the inner sealed report when raw is a
+// dashboard download. ok is false for a bare report (the original format), so
+// old files still verify. Only the inner object is passed to the verifier: the
+// wrapper's job_id/state are not signed and carry no evidence.
+func unwrapAudit360Download(raw []byte) (inner []byte, ok bool, err error) {
+	var env audit360DownloadEnvelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return nil, false, err
+	}
+	if env.JobID == "" || len(env.Report) == 0 {
+		return raw, false, nil
+	}
+	return env.Report, true, nil
+}
+
 func readAudit360Report(path string) ([]byte, error) {
 	f, err := os.Open(filepath.Clean(path)) // #nosec G304 -- path is an operator-selected report file
 	if err != nil {
