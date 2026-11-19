@@ -47,9 +47,41 @@ Coverage target: **80%+** for the project over time. New changes should not redu
 - **Tagging:** releases are tagged with `git tag`.
 - **Builds:** release builds are produced via `./scripts/build-all.sh` (and project release workflows where applicable).
 
-## 7. Maintainers
+## 7. Ownership and good first issues
+
+Risk-sensitive subsystems — the load `engine`, `attest` (sealing/verification),
+and `authz` (authorization and dial control) — are maintained by the project
+lead. Changes there need review from the lead before merge.
+
+Everything else is open to contributors. Good first contributions:
+
+- Documentation fixes and examples (`README.md`, `docs/`).
+- New scanner checks and their regression tests, following the existing
+  `internal/scanner/core` patterns.
+- Dashboard polish and small UI fixes under `internal/dashboard/`.
+- Test isolation and coverage improvements.
+
+A useful contribution does not have to add a feature. A pull request that makes
+one package smaller, removes duplication, or simplifies a hot path is welcome.
+Keep a self-imposed ceiling of roughly 400-600 lines per new file so reviews stay
+tractable; split larger changes along existing package boundaries instead of
+rewriting them wholesale.
+
+See `docs/ROADMAP.md` for known limitations and planned engineering work.
+
+## 8. Maintainers
 
 See `MAINTAINERS.md` for the current maintainer list.
+
+## Dashboard scope
+
+The web dashboard is a **local-first operator console**: it is designed to run
+on the operator's own machine against targets they are authorized to test. The
+API under `/api/...` is the contract; the bundled JavaScript is only a client of
+that contract. Treat the dashboard as a control surface for one operator, not
+as a multi-tenant service exposed to the public internet. See
+`docs/DEPLOYMENT-HARDENING.md` before exposing any dashboard endpoint beyond
+localhost.
 
 ## Questions
 
