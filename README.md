@@ -3,7 +3,7 @@
 [![Go 1.26+](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev/dl/)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
-[![Version](https://img.shields.io/badge/Version-0.17.0-green.svg)](https://github.com/asadbekabdulboqiyev/sift/releases/tag/v0.17.0)
+[![Version](https://img.shields.io/badge/Version-0.18.0-green.svg)](https://github.com/asadbekabdulboqiyev/sift/releases/tag/v0.18.0)
 
 **Verifiable load & security evidence for systems you own.**
 
@@ -17,7 +17,7 @@
 
 - [Overview](#overview)
 - [Key Capabilities](#key-capabilities)
-- [What's Included in 0.17.0](#whats-included-in-0170)
+- [What's Included in 0.18.0](#whats-included-in-0180)
 - [Comparison with Paid Alternatives](#comparison-with-paid-alternatives)
 - [System Requirements](#system-requirements)
 - [Installation](#installation)
@@ -145,7 +145,17 @@ The dashboard includes quick actions for local demos: **Use VoltStore demo** (`h
 
 ---
 
-## What's Included in 0.17.0
+## What's Included in 0.18.0
+
+**Canonical finding model, code decomposition, and reliability**
+
+- **One canonical finding type (`internal/finding`):** certificate and audit360 paths now emit through adapters into a single model with a `confidence` enum (`verified`, `heuristic`, `unchecked`). The legacy JSON shape is unchanged.
+- **Source split without behavior change:** `vuln_scanner.go` went from 1468 to 305 lines across 4 new check files; `dashboard/server.go` went from 1441 to 429 lines across 8 new files. Race tests pass.
+- **Lower bus factor:** expanded good-first issues in `CONTRIBUTING.md`, an explicit ownership map in `MAINTAINERS.md`, and a new `docs/ROADMAP-90D.md`.
+- **Reliability fixes:** idempotent pentest report conversion, a top-level TLS opt-out flag, consistent test naming, and a confidence breakdown in reports.
+- **Verification:** fast and heavy (integration) test tiers both pass.
+
+**Included from 0.17.0**
 
 **Verifiable certificates: trust anchors, printed-copy verification, A4**
 
@@ -241,7 +251,7 @@ Sift can be installed in multiple ways depending on your environment and operati
 ```bash
 git clone https://github.com/asadbekabdulboqiyev/sift.git
 cd sift
-./scripts/install-local.sh 0.17.0
+./scripts/install-local.sh 0.18.0
 # or: make install
 ```
 This builds all binaries, installs them to `$(go env GOBIN)` (or `$SIFT_INSTALL_DIR`), and performs macOS signing/launch checks.
@@ -255,9 +265,9 @@ sift version
 
 #### Option C: Release installer script (review before running)
 ```bash
-curl -fsSL -o install.sh https://raw.githubusercontent.com/asadbekabdulboqiyev/sift/v0.17.0/scripts/install.sh
+curl -fsSL -o install.sh https://raw.githubusercontent.com/asadbekabdulboqiyev/sift/v0.18.0/scripts/install.sh
 less install.sh
-./install.sh v0.17.0
+./install.sh v0.18.0
 ```
 Notes:
 - The script downloads release archives, verifies checksums (and can verify signatures if `cosign` is installed), installs binaries, and performs macOS signature/launch validation.
@@ -267,7 +277,7 @@ Notes:
 ```bash
 git clone https://github.com/asadbekabdulboqiyev/sift.git
 cd sift
-./scripts/build-all.sh 0.17.0
+./scripts/build-all.sh 0.18.0
 # binaries in ./bin
 ```
 
@@ -277,7 +287,7 @@ cd sift
 ```bash
 git clone https://github.com/asadbekabdulboqiyev/sift.git
 cd sift
-./scripts/install-local.sh 0.17.0
+./scripts/install-local.sh 0.18.0
 # or: make build && copy ./bin/* to a PATH directory
 ```
 
@@ -289,9 +299,9 @@ export PATH="$PATH:$(go env GOPATH)/bin"
 
 #### Option C: Release installer script
 ```bash
-curl -fsSL -o install.sh https://raw.githubusercontent.com/asadbekabdulboqiyev/sift/v0.17.0/scripts/install.sh
+curl -fsSL -o install.sh https://raw.githubusercontent.com/asadbekabdulboqiyev/sift/v0.18.0/scripts/install.sh
 less install.sh
-./install.sh v0.17.0
+./install.sh v0.18.0
 ```
 
 #### Option D: Release archives (manual)
@@ -329,12 +339,12 @@ git clone https://github.com/asadbekabdulboqiyev/sift.git
 cd sift
 
 # Build all binaries for current platform
-./scripts/build-all.sh 0.17.0
+./scripts/build-all.sh 0.18.0
 # or
 make build
 
 # Optional: install locally (with macOS signing/launch checks on Darwin)
-./scripts/install-local.sh 0.17.0
+./scripts/install-local.sh 0.18.0
 ```
 
 Produced binaries (local build): `Sift`, `Sift-dashboard`, `Sift-master`, `Sift-worker`, `Sift-replay`, `Sift-scan` (canonical names). Build/install scripts also create lowercase aliases: `sift`, `sift-dashboard`, `sift-master`, `sift-worker`, `sift-replay`, `sift-scan` for cross-platform CLI usage.
@@ -373,20 +383,20 @@ Always download from the official repository release page and verify integrity b
 #### Build images from source
 ```bash
 # Main/all-in-one image (per Dockerfile)
-docker build -t sift:0.17.0 .
+docker build -t sift:0.18.0 .
 
 # Distributed images
-docker build -f Dockerfile.master -t sift-master:0.17.0 .
-docker build -f Dockerfile.worker -t sift-worker:0.17.0 .
+docker build -f Dockerfile.master -t sift-master:0.18.0 .
+docker build -f Dockerfile.worker -t sift-worker:0.18.0 .
 ```
 
 #### Run examples
 ```bash
 # CLI help
-docker run --rm sift:0.17.0 sift --help
+docker run --rm sift:0.18.0 sift --help
 
 # Dashboard (bind to localhost on host)
-docker run --rm -p 127.0.0.1:8888:8888 sift:0.17.0 sift dashboard -listen 0.0.0.0:8888 --insecure
+docker run --rm -p 127.0.0.1:8888:8888 sift:0.18.0 sift dashboard -listen 0.0.0.0:8888 --insecure
 ```
 
 > Container defaults, entrypoints, and exposed ports may differ by image. Review the corresponding `Dockerfile`/compose configuration before production use.
@@ -482,9 +492,9 @@ sift --help | rg "simulate|xray|bounty"
 # 2) Rebuild and install latest local build (from repo root)
 cd /path/to/sift
 git pull
-./scripts/build-all.sh 0.17.0
-SIFT_INSTALL_DIR="$HOME/.local/bin" ./scripts/install-local.sh 0.17.0
-./scripts/install-local.sh 0.17.0
+./scripts/build-all.sh 0.18.0
+SIFT_INSTALL_DIR="$HOME/.local/bin" ./scripts/install-local.sh 0.18.0
+./scripts/install-local.sh 0.18.0
 
 # 3) Verify again
 sift version
@@ -1256,7 +1266,7 @@ See `docs/DEPLOYMENT-HARDENING.md` for detailed checklists and examples.
 ### Build
 ```bash
 make build
-./scripts/build-all.sh 0.17.0
+./scripts/build-all.sh 0.18.0
 ```
 
 ### Test and Validation
@@ -1297,7 +1307,7 @@ make verifier
 
 ### Latest version or new features not visible (macOS/CLI/dashboard)
 - Check installed binaries and version: `which -a sift && sift version`.
-- Rebuild/reinstall: `./scripts/build-all.sh 0.17.0 && ./scripts/install-local.sh 0.17.0`.
+- Rebuild/reinstall: `./scripts/build-all.sh 0.18.0 && ./scripts/install-local.sh 0.18.0`.
 - If another copy is earlier in `PATH` (e.g. `~/go/bin` vs `~/.local/bin`), update/remove the stale one or adjust `PATH`.
 - For dashboard UI, restart the dashboard process and hard refresh the browser (`Cmd+Shift+R`).
 - Confirm the running dashboard serves latest APIs: `curl -sS http://127.0.0.1:8888/api/version`.

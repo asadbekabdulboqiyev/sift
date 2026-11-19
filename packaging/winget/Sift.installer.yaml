@@ -1,13 +1,13 @@
 PackageIdentifier: asadbekabdulboqiyev.Sift
-PackageVersion: 0.17.0
+PackageVersion: 0.18.0
 ManifestType: installer
 InstallerType: zip
 MinimumOSVersion: 10.0.17763.0
-ReleaseNotes: https://github.com/asadbekabdulboqiyev/Sift/releases/tag/v0.17.0
-ReleaseNotesUrl: https://github.com/asadbekabdulboqiyev/Sift/releases/tag/v0.17.0
+ReleaseNotes: https://github.com/asadbekabdulboqiyev/Sift/releases/tag/v0.18.0
+ReleaseNotesUrl: https://github.com/asadbekabdulboqiyev/Sift/releases/tag/v0.18.0
 Installers:
   - Architecture: arm64
-    InstallerUrl: https://github.com/asadbekabdulboqiyev/Sift/releases/download/v0.17.0/Sift_0.17.0_windows_arm64.zip
+    InstallerUrl: https://github.com/asadbekabdulboqiyev/Sift/releases/download/v0.18.0/Sift_0.18.0_windows_arm64.zip
     InstallerSha256: e251a45963928b9ddf9dc9d76640448fcee67dd1a22fff0fb53ee0b885c2c4f7
 FileExtensions:
   - ss

@@ -1,15 +1,15 @@
 # Windows Package Manager manifest for Sift.
 #
 # Put this directory in a winget-pkgs fork as:
-#   manifests/a/asadbekabdulboqiyev/Sift/0.17.0/Sift.yaml
-#   manifests/a/asadbekabdulboqiyev/Sift/0.17.0/
+#   manifests/a/asadbekabdulboqiyev/Sift/0.18.0/Sift.yaml
+#   manifests/a/asadbekabdulboqiyev/Sift/0.18.0/
 #       Sift.installer.yaml   (see packaging/winget/)
 #
 # Both SHA-256 values below are the ones in the release's checksums.txt.
 # Re-check them before submitting: a stale hash installs nothing.
 
 PackageIdentifier: asadbekabdulboqiyev.Sift
-PackageVersion: 0.17.0
+PackageVersion: 0.18.0
 DefaultLocale: en-US
 ManifestType: installer
 InstallerType: zip
@@ -17,8 +17,8 @@ License: Apache-2.0
 Publisher: asadbekabdulboqiyev
 Author: Sift maintainers
 Homepage: https://github.com/asadbekabdulboqiyev/Sift
-ReleaseNotes: https://github.com/asadbekabdulboqiyev/Sift/releases/tag/v0.17.0
-ReleaseNotesUrl: https://github.com/asadbekabdulboqiyev/Sift/releases/tag/v0.17.0
+ReleaseNotes: https://github.com/asadbekabdulboqiyev/Sift/releases/tag/v0.18.0
+ReleaseNotesUrl: https://github.com/asadbekabdulboqiyev/Sift/releases/tag/v0.18.0
 InstallationNotes: |
   Pure Go build: no libpcap, no C runtime, no system dependencies.
 
@@ -41,7 +41,7 @@ InstallerSwitches:
 
 Installers:
   - Architecture: x64
-    InstallerUrl: https://github.com/asadbekabdulboqiyev/Sift/releases/download/v0.17.0/Sift_0.17.0_windows_amd64.zip
+    InstallerUrl: https://github.com/asadbekabdulboqiyev/Sift/releases/download/v0.18.0/Sift_0.18.0_windows_amd64.zip
     InstallerSha256: 70ee00f9067596820992809e7128d813ebd88e9ab117dfaee86fbd7c0199292f
 
 FileExtensions:
