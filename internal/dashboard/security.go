@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 )
 
 // --- Security helpers -------------------------------------------------------
@@ -84,8 +86,5 @@ func IsLoopbackAddr(addr string) bool {
 	if host == "" {
 		return false // ":port" wildcard — all interfaces
 	}
-	if ip := net.ParseIP(host); ip != nil {
-		return ip.IsLoopback()
-	}
-	return strings.EqualFold(strings.Trim(host, "[]"), "localhost")
+	return shared.IsLoopbackHost(host)
 }

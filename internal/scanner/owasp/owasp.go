@@ -1539,6 +1539,10 @@ func (c *OWASPChecker) extractPort() int {
 	return port
 }
 
+// isLoopbackHost is deliberately broader than shared.IsLoopbackHost: OWASP
+// targets may use "foo.localhost" (a wildcard-DNS spelling) and mixed case,
+// both of which must be treated as local. Do not replace this with the shared
+// helper without preserving the ".localhost" suffix check.
 func isLoopbackHost(host string) bool {
 	h := strings.TrimSpace(strings.ToLower(host))
 	if h == "" {

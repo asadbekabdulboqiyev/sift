@@ -21,23 +21,15 @@ import (
 	"net"
 	"net/http"
 	"strings"
+
+	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 )
 
 // isLoopbackHost reports whether a host name (no port, no brackets) names the
-// loopback interface. "localhost" is included because browsers and operators
-// both use it; every loopback literal (127.0.0.0/8, ::1) is included because
-// the dashboard defaults to 127.0.0.1.
+// loopback interface. Delegates to the canonical shared helper so the dashboard
+// gate and the other loopback checks cannot drift apart.
 func isLoopbackHost(host string) bool {
-	if host == "" {
-		return false
-	}
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
-	if ip := net.ParseIP(host); ip != nil {
-		return ip.IsLoopback()
-	}
-	return false
+	return shared.IsLoopbackHost(host)
 }
 
 // hostnameOf strips the port and IPv6 brackets from an HTTP Host or listen
