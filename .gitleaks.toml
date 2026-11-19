@@ -86,13 +86,13 @@ regexes = ['''Access gate refused load: capacity/breaking''']
 
 # ── 5. Dummy JWTs in the CLI scan tests ──────────────────────────────────────
 # The tests pass `eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.UNIQUESIGMARKER` (alg=none,
-# unsigned, literal marker) to prove the scanner reports what it was given. The
-# directory was `cmd/stress-strike` before the rename, so both names are listed.
+# unsigned, literal marker) to prove the scanner reports what it was given.
 # Matched by that exact token only.
 [[rules.allowlists]]
 description = "CLI scan tests: unsigned alg=none JWT with the literal UNIQUESIGMARKER payload"
-condition = "AND"
-paths = ['''cmd/stress-strike/''', '''cmd/sift/''']
+# Match the literal test marker only, not a directory name. Test fixtures with
+# this exact token were committed under a former command path, so a path-based
+# allowlist would either name that retired path or fail on git history scans.
 regexTarget = "match"
 regexes = ['''eyJhbGciOiJub25lIn0\.eyJzdWIiOiIxIn0\.UNIQUESIGMARKER''']
 
