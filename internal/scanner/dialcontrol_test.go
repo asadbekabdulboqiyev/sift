@@ -13,13 +13,19 @@ package scanner
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/authz"
+	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
 )
 
 // TestGuardCarriesTheDialControlToItsClient is the HTTP path: the Guard builds
@@ -172,5 +178,137 @@ func TestDialControlStaysOffByDefault(t *testing.T) {
 	}()
 	if res := ScanPortsWithControl(ctx, "127.0.0.1", []int{port}, nil, nil); res.Opened != 1 {
 		t.Errorf("opened = %d with no control, want 1", res.Opened)
+	}
+}
+
+// TestGuardChecksProxyTargetBeforeSending is the CWE-290 proxy case: the socket
+// hook sees the proxy address, never the destination, so a destination that
+// rebinds to a restricted class must be re-checked by Do() itself.
+func TestGuardChecksProxyTargetBeforeSending(t *testing.T) {
+	var proxyHits atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		proxyHits.Add(1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("proxied"))
+	}))
+	defer proxy.Close()
+	proxyURL, err := url.Parse(proxy.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector := func(*http.Request) (*url.URL, error) { return proxyURL, nil }
+
+	// A public approval must refuse a loopback destination even though the
+	// socket connects to the (loopback) proxy, which the hook alone would see.
+	refusing := mustGuard(t, GuardConfig{
+		AllowAll:    true,
+		Timeout:     time.Second,
+		DialControl: authz.DialControl(authz.ClassPublic),
+		Proxy:       selector,
+	})
+	// Point the destination at loopback explicitly; the proxy is what the
+	// socket would dial, so only the destination check can produce this error.
+	req, err := http.NewRequest(http.MethodGet, "http://127.0.0.1:1/probe", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := refusing.Do(req); err == nil {
+		t.Fatal("proxied request to a restricted destination was sent")
+	} else if !errors.Is(err, core.ErrOutOfScope) || !strings.Contains(err.Error(), "refusing proxy dial to target") {
+		t.Fatalf("error = %v, want an out-of-scope refusal naming the proxy target check", err)
+	}
+	if got := proxyHits.Load(); got != 0 {
+		t.Fatalf("proxy received %d requests, want 0: the refusal was not applied before sending", got)
+	}
+
+	// A loopback approval allows the destination, so the request really goes
+	// through the configured proxy. This proves the check is not a blanket
+	// refusal of every proxied request.
+	allowing := mustGuard(t, GuardConfig{
+		AllowAll:    true,
+		Timeout:     2 * time.Second,
+		DialControl: authz.DialControl(authz.ClassLoopback),
+		Proxy:       selector,
+	})
+	dest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("request reached the destination directly; the proxy was bypassed")
+	}))
+	defer dest.Close()
+	req, err = http.NewRequest(http.MethodGet, dest.URL+"/probe", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := allowing.Do(req)
+	if err != nil {
+		t.Fatalf("allowed proxied request failed: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if got := proxyHits.Load(); got != 1 {
+		t.Fatalf("proxy received %d requests, want 1", got)
+	}
+}
+
+// TestGuardSkipsProxyTargetCheckWithoutAProxy documents the compatibility
+// promise: a direct dial (no proxy) is covered by the socket hook alone, and a
+// Guard with no DialControl has no address-level decision to re-apply.
+func TestGuardSkipsProxyTargetCheckWithoutAProxy(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	for name, cfg := range map[string]GuardConfig{
+		"no proxy": {
+			AllowAll:    true,
+			Timeout:     2 * time.Second,
+			DialControl: authz.DialControl(authz.ClassLoopback),
+			Proxy:       func(*http.Request) (*url.URL, error) { return nil, nil },
+		},
+		"no dial control": {
+			AllowAll: true,
+			Timeout:  2 * time.Second,
+			Proxy:    func(*http.Request) (*url.URL, error) { return url.Parse("http://127.0.0.1:1") },
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			g := mustGuard(t, cfg)
+			req, err := http.NewRequest(http.MethodGet, srv.URL+"/probe", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := g.Do(req)
+			if err != nil {
+				t.Fatalf("Do: %v", err)
+			}
+			_ = resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("status = %d, want 200", resp.StatusCode)
+			}
+		})
+	}
+}
+
+// TestGuardFailsClosedWhenProxySelectorErrors proves a broken proxy selector
+// cannot silently skip the destination check when a proxy would apply.
+func TestGuardFailsClosedWhenProxySelectorErrors(t *testing.T) {
+	g := mustGuard(t, GuardConfig{
+		AllowAll:    true,
+		Timeout:     time.Second,
+		DialControl: authz.DialControl(authz.ClassLoopback),
+		Proxy: func(*http.Request) (*url.URL, error) {
+			return nil, fmt.Errorf("proxy selector failed")
+		},
+	})
+	req, err := http.NewRequest(http.MethodGet, "http://127.0.0.1:1/probe", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The client's transport will also fail on the selector error; the point
+	// is that Do() returns an error rather than sending the request unchecked.
+	if _, err := g.Do(req); err == nil {
+		t.Fatal("request with a failing proxy selector succeeded")
 	}
 }

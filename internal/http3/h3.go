@@ -33,17 +33,34 @@ type ProbeResult struct {
 	Error       string        `json:"error,omitempty"`
 }
 
-// Probe checks whether host:port supports HTTP/3 over QUIC. It first tries to
-// read the Alt-Svc header over plain HTTPS (port 443 by default), then
-// attempts a QUIC handshake to confirm H3 is actually reachable.
+// ProbeOptions configures a Probe.
+type ProbeOptions struct {
+	// InsecureSkipVerify disables TLS certificate verification for both the
+	// Alt-Svc HTTPS probe and the QUIC handshake. It is off by default: a
+	// target presenting an untrusted or self-signed certificate is reported as
+	// unreachable rather than silently trusted. Only set it for lab targets you
+	// own, where the self-signed certificate is expected.
+	InsecureSkipVerify bool
+}
+
+// Probe checks whether host:port supports HTTP/3 over QUIC with secure TLS
+// verification. It is ProbeWithOptions with the zero (secure) options.
+//
+// It first tries to read the Alt-Svc header over HTTPS (port 443 by default),
+// then attempts a QUIC handshake to confirm H3 is actually reachable.
 func Probe(host string, port int) (*ProbeResult, error) {
+	return ProbeWithOptions(host, port, ProbeOptions{})
+}
+
+// ProbeWithOptions is Probe with explicit TLS options. See ProbeOptions.
+func ProbeWithOptions(host string, port int, opts ProbeOptions) (*ProbeResult, error) {
 	if port == 0 {
 		port = 443
 	}
 	res := &ProbeResult{Host: host, Port: port}
 
 	// 1. Check Alt-Svc via TLS handshake to the standard HTTPS port.
-	altSvc, err := checkAltSvc(host, port)
+	altSvc, err := checkAltSvc(host, port, opts.InsecureSkipVerify)
 	if err == nil {
 		res.AltSvcH3 = altSvc
 	}
@@ -59,10 +76,7 @@ func Probe(host string, port int) (*ProbeResult, error) {
 		MaxIncomingStreams:    10,
 		MaxIncomingUniStreams: 10,
 	}
-	tlsCfg := &tls.Config{
-		InsecureSkipVerify: true, // #nosec G402 -- probe targets may present self-signed certificates
-		NextProtos:         []string{"h3"},
-	}
+	tlsCfg := quicTLSConfig(host, opts)
 
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
@@ -81,6 +95,17 @@ func Probe(host string, port int) (*ProbeResult, error) {
 	return res, nil
 }
 
+// quicTLSConfig builds the TLS config for the QUIC handshake. Verification is
+// controlled by opts; ServerName is set explicitly so SNI and certificate
+// checking use the requested host rather than an empty value.
+func quicTLSConfig(host string, opts ProbeOptions) *tls.Config {
+	return &tls.Config{
+		ServerName:         host,
+		InsecureSkipVerify: opts.InsecureSkipVerify, // #nosec G402 -- caller opts in for self-signed lab targets
+		NextProtos:         []string{"h3"},
+	}
+}
+
 // Timeouts for the Alt-Svc probe. Without them a silent server would block
 // Probe forever: tls.Dial and conn.Read have no deadline by default.
 const (
@@ -91,10 +116,15 @@ const (
 
 // checkAltSvc attempts a TLS handshake and reads the Alt-Svc header to see if
 // the server advertises HTTP/3. Returns true if "h3=" or "h3-29=" appears.
-func checkAltSvc(host string, port int) (bool, error) {
+// insecure must be opted into explicitly; the default verifies the certificate.
+func checkAltSvc(host string, port int, insecure bool) (bool, error) {
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	dialer := &net.Dialer{Timeout: altSvcDialTimeout}
-	conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{InsecureSkipVerify: true}) // #nosec G402 -- Alt-Svc probe tolerates self-signed targets
+	cfg := &tls.Config{
+		ServerName:         host,
+		InsecureSkipVerify: insecure, // #nosec G402 -- caller opts in for self-signed lab targets
+	}
+	conn, err := tls.DialWithDialer(dialer, "tcp", addr, cfg)
 	if err != nil {
 		return false, err
 	}

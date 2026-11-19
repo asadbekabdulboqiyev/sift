@@ -270,7 +270,7 @@ func (c *Client) Exchange(ctx context.Context, code, verifier, nonce string) (*T
 		return nil, fmt.Errorf("oidc: token response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("oidc: token endpoint returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, tokenEndpointError(resp.StatusCode, body)
 	}
 
 	var tr tokenResponse
@@ -302,6 +302,52 @@ func (c *Client) Exchange(ctx context.Context, code, verifier, nonce string) (*T
 		tok.Email = email
 	}
 	return tok, nil
+}
+
+// tokenEndpointError builds a log-safe error for a non-200 token response.
+//
+// A provider may echo the authorization code, client secret or an entire HTML
+// page in its error body. Including that body in the error message leaks those
+// secrets into every log the caller writes (CWE-532). RFC 6749 gives a short,
+// machine-readable `error` code for exactly this purpose; that is the only
+// part of the response we surface.
+func tokenEndpointError(status int, body []byte) error {
+	code := oauthErrorCode(body)
+	if code == "" {
+		return fmt.Errorf("oidc: token endpoint returned %d", status)
+	}
+	return fmt.Errorf("oidc: token endpoint returned %d (error=%s)", status, code)
+}
+
+// oauthErrorCode extracts the sanitized OAuth 2.0 `error` code from a token
+// endpoint body. Anything that is not a JSON object with a safe code yields "".
+func oauthErrorCode(body []byte) string {
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return ""
+	}
+	return sanitizeErrorCode(payload.Error)
+}
+
+// sanitizeErrorCode accepts only RFC 6749-style codes: a non-empty ASCII
+// token of at most 64 characters drawn from letters, digits, '_', '-' and '.'.
+// `error_description` and arbitrary provider text never pass this filter.
+func sanitizeErrorCode(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || len(s) > 64 {
+		return ""
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.' {
+			continue
+		}
+		return ""
+	}
+	return s
 }
 
 // --- ID token verification ---------------------------------------------------

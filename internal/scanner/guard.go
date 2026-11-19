@@ -44,6 +44,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 	"github.com/asadbekabdulboqiyev/sift/internal/fingerprint"
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
 )
@@ -118,6 +119,19 @@ type GuardConfig struct {
 	// the target name, the dialer resolves it again, and DNS may answer
 	// differently the second time. Nil leaves the dialer unchanged.
 	DialControl func(network, address string, c syscall.RawConn) error
+
+	// Proxy selects the HTTP proxy for a request, with the same signature as
+	// http.Transport.Proxy. It is installed on the client's transport and used
+	// by Do() to decide whether the destination needs an explicit check.
+	//
+	// This matters for CWE-290 (DNS rebinding): with a proxy in the path the
+	// socket-level DialControl sees the PROXY address, never the destination,
+	// so a name that resolved to an approved IP at gate time can rebind to
+	// metadata/private space without the dial hook noticing. When Proxy returns
+	// a proxy for a request, Do() resolves the destination itself and runs every
+	// answer through DialControl via authz.CheckDialTarget. Nil means no proxy;
+	// NewGuard defaults it to http.ProxyFromEnvironment.
+	Proxy func(*http.Request) (*url.URL, error)
 }
 
 // Defaults. Exported so a caller can build a matching budget report.
@@ -132,6 +146,16 @@ const (
 	// maxRateWait bounds how long Do() will wait for a rate token before
 	// refusing, so a rate limit can never hang a scan forever.
 	maxRateWait = 5 * time.Second
+
+	// taintTTL bounds how long an intrusive refusal taints a target. The
+	// defense is against a probe that ignores a Check(..., true) refusal and
+	// calls Do() immediately, so a short window catches it while limiting
+	// false positives for later passive requests to the same URL.
+	taintTTL = 30 * time.Second
+
+	// maxTaintedTargets bounds the taint registry so a long scan full of
+	// refused intrusive probes cannot grow it without limit.
+	maxTaintedTargets = 4096
 )
 
 // GuardStats is a snapshot of Guard's counters.
@@ -167,6 +191,13 @@ type Guard struct {
 	client   *http.Client
 	budget   atomic.Int64 // requests reserved so far
 	stats    guardStatsInternal
+
+	// intrusiveTaint remembers targets refused by Check(..., true) so a probe
+	// that ignores that refusal and calls Do() directly cannot send them.
+	// Do() re-checks it as defense in depth. The registry is bounded and each
+	// entry expires after taintTTL; see taintTarget.
+	taintMu sync.Mutex
+	taint   map[string]time.Time
 }
 
 // NewGuard validates cfg and builds a Guard. It fails on a non-finite or
@@ -221,6 +252,9 @@ func NewGuard(cfg GuardConfig) (*Guard, error) {
 	if cfg.MaxBodyBytes == 0 {
 		cfg.MaxBodyBytes = core.DefaultProbeLimit
 	}
+	if cfg.Proxy == nil {
+		cfg.Proxy = http.ProxyFromEnvironment
+	}
 	cfg.RPS = rps
 	cfg.Burst = burst
 
@@ -242,19 +276,27 @@ func NewGuard(cfg GuardConfig) (*Guard, error) {
 		}
 	}
 	if cfg.DialControl != nil {
-		installDialControl(g.client, cfg.Timeout, cfg.DialControl)
+		installDialControl(g.client, cfg.Timeout, cfg.DialControl, cfg.Proxy)
+	}
+	// Make the transport use the same proxy selector Do() checks, so the
+	// authorization decision and the connection that is actually made agree.
+	if tr, ok := g.client.Transport.(*http.Transport); ok && tr != nil {
+		tr.Proxy = cfg.Proxy
 	}
 	return g, nil
 }
 
 // installDialControl puts control on the client's dialer, creating a transport
-// when the client is using the package default. Proxy settings are preserved so
-// an operator behind a proxy keeps working.
-func installDialControl(client *http.Client, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) {
+// when the client is using the package default. proxy is installed on that
+// transport so an operator behind a proxy keeps working and Do() sees the same
+// selector the connection uses.
+func installDialControl(client *http.Client, timeout time.Duration, control func(network, address string, c syscall.RawConn) error, proxy func(*http.Request) (*url.URL, error)) {
 	tr, ok := client.Transport.(*http.Transport)
 	if !ok || tr == nil {
-		tr = &http.Transport{Proxy: http.ProxyFromEnvironment}
+		tr = &http.Transport{Proxy: proxy}
 		client.Transport = tr
+	} else if proxy != nil {
+		tr.Proxy = proxy
 	}
 	dialer := &net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second, Control: control}
 	tr.DialContext = dialer.DialContext
@@ -311,6 +353,9 @@ func (g *Guard) Check(ctx context.Context, method, rawURL string, intrusive bool
 		return g.refuse(err, nil)
 	}
 	if intrusive && !g.cfg.Intrusive {
+		// Defense in depth: remember the target so a probe that ignores this
+		// refusal and calls Do() directly still cannot send it.
+		g.taintTarget(u)
 		return g.refuse(core.ErrIntrusiveDisabled, nil)
 	}
 	if !g.cfg.DryRun && g.budget.Load() >= g.cfg.MaxRequests {
@@ -338,6 +383,12 @@ func (g *Guard) Do(req *http.Request) (*http.Response, error) {
 		return nil, core.ErrDryRun
 	}
 	if err := g.checkScope(req.URL); err != nil {
+		return nil, g.refuse(err, nil)
+	}
+	if g.isTainted(req.URL) {
+		return nil, g.refuse(core.ErrIntrusiveDisabled, nil)
+	}
+	if err := g.checkProxyTarget(req); err != nil {
 		return nil, g.refuse(err, nil)
 	}
 	if !g.reserveBudget() {
@@ -462,6 +513,100 @@ func effectivePort(u *url.URL) int {
 		return 443
 	}
 	return 80
+}
+
+// ── intrusive taint ─────────────────────────────────────────────────────────
+
+// taintTarget records u as a target whose intrusive use was refused. It is
+// bounded and TTL'd: expired entries are swept first, then an arbitrary entry
+// is evicted if the registry is still full. Dropping a taint only weakens the
+// defense-in-depth layer; the primary gate is Check itself.
+func (g *Guard) taintTarget(u *url.URL) {
+	if u == nil {
+		return
+	}
+	key := taintKey(u)
+	now := time.Now()
+
+	g.taintMu.Lock()
+	defer g.taintMu.Unlock()
+	if g.taint == nil {
+		g.taint = make(map[string]time.Time)
+	}
+	for k, exp := range g.taint {
+		if !now.Before(exp) {
+			delete(g.taint, k)
+		}
+	}
+	for len(g.taint) >= maxTaintedTargets {
+		for k := range g.taint {
+			delete(g.taint, k)
+			break
+		}
+	}
+	g.taint[key] = now.Add(taintTTL)
+}
+
+// isTainted reports whether u was refused as intrusive recently. An expired
+// entry is removed and treated as absent, so the registry cannot grow forever
+// for a target that is only checked once.
+func (g *Guard) isTainted(u *url.URL) bool {
+	if u == nil {
+		return false
+	}
+	key := taintKey(u)
+	now := time.Now()
+
+	g.taintMu.Lock()
+	defer g.taintMu.Unlock()
+	exp, ok := g.taint[key]
+	if !ok {
+		return false
+	}
+	if !now.Before(exp) {
+		delete(g.taint, key)
+		return false
+	}
+	return true
+}
+
+// taintKey canonicalises a URL for the taint registry. scheme and host are
+// case-insensitive; the escaped path and raw query identify the specific
+// target. Query is included so refusing an intrusive payload on /api?q=...
+// does not also block a passive request to the clean /api.
+func taintKey(u *url.URL) string {
+	key := strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host) + u.EscapedPath()
+	if u.RawQuery != "" {
+		key += "?" + u.RawQuery
+	}
+	return key
+}
+
+// checkProxyTarget re-applies the authorization decision to the destination
+// when the request is going through a proxy. The socket-level DialControl sees
+// the proxy address in that case, so without this check a destination that
+// resolves to an approved IP at gate time could rebind to metadata or private
+// space unnoticed (CWE-290). It is a no-op when no DialControl or Proxy is set.
+func (g *Guard) checkProxyTarget(req *http.Request) error {
+	if g.cfg.DialControl == nil || g.cfg.Proxy == nil {
+		return nil
+	}
+	proxyURL, err := g.cfg.Proxy(req)
+	if err != nil || proxyURL == nil {
+		return nil // no proxy applies; the dial hook sees the real target
+	}
+	host := req.URL.Hostname()
+	if host == "" {
+		return fmt.Errorf("%w: proxy dial target has no host", core.ErrOutOfScope)
+	}
+	port := req.URL.Port()
+	if port == "" {
+		port = strconv.Itoa(effectivePort(req.URL))
+	}
+	if err := authz.CheckDialTarget(req.Context(), host, port, g.cfg.DialControl); err != nil {
+		return fmt.Errorf("%w: %v", core.ErrOutOfScope, err)
+	}
+	return nil
 }
 
 // ── scope patterns ──────────────────────────────────────────────────────────

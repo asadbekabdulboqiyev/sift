@@ -18,6 +18,12 @@ func verifyResultMap(res attest.VerifyResult) map[string]interface{} {
 		"valid":         res.Valid,
 		"format":        res.Format,
 		"samplesAbsent": res.SamplesAbsent,
+		// The CLI prints "issuer:"; the dashboard used to drop the verdict
+		// entirely. With no trust store the verifier still returns Valid=true,
+		// so the unpinned status is the only honest signal that nobody checked
+		// WHO signed the bundle. Keep it in every response, valid or not.
+		"issuerTrust":   string(res.IssuerTrust),
+		"issuerTrusted": res.IssuerTrust.Trusted(),
 		"bundleDigest":  res.BundleDigest,
 		"workers":       len(res.Workers),
 		"summary": map[string]interface{}{

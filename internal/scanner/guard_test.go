@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -470,5 +471,75 @@ func TestGuardStatsSnapshot(t *testing.T) {
 	s := g.Stats()
 	if s.RequestsRefused != 1 || s.RefusedIntrusive != 1 {
 		t.Errorf("stats = %+v, want 1 refusal, 1 intrusive", s)
+	}
+}
+
+// TestIgnoredIntrusiveRefusalCannotBeSentByDo is the defense-in-depth layer:
+// a probe that ignores a Check(..., true) refusal and calls Do() directly must
+// still be stopped. Passive requests to the same host, including a clean URL
+// that was never refused, keep working.
+func TestIgnoredIntrusiveRefusalCannotBeSentByDo(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	g := mustGuard(t, GuardConfig{
+		AllowAll: true,
+		Timeout:  2 * time.Second,
+		Proxy:    func(*http.Request) (*url.URL, error) { return nil, nil },
+	})
+	ctx := context.Background()
+	payloadURL := srv.URL + "/api?q=payload"
+
+	if err := g.Check(ctx, "GET", payloadURL, true); !errors.Is(err, core.ErrIntrusiveDisabled) {
+		t.Fatalf("intrusive Check = %v, want core.ErrIntrusiveDisabled", err)
+	}
+	req, err := http.NewRequest("GET", payloadURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.Do(req); !errors.Is(err, core.ErrIntrusiveDisabled) {
+		t.Fatalf("Do after ignored refusal = %v, want core.ErrIntrusiveDisabled", err)
+	}
+	if got := hits.Load(); got != 0 {
+		t.Fatalf("destination received %d requests, want 0: the ignored refusal leaked", got)
+	}
+
+	// The taint is scoped to the refused URL: a passive request to the clean
+	// path on the same host still goes through.
+	cleanReq, err := http.NewRequest("GET", srv.URL+"/api", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := g.Do(cleanReq)
+	if err != nil {
+		t.Fatalf("passive Do = %v, want success", err)
+	}
+	_ = resp.Body.Close()
+	if got := hits.Load(); got != 1 {
+		t.Fatalf("destination received %d requests, want 1", got)
+	}
+}
+
+// TestTaintedTargetExpires pins the TTL half of the registry: an entry is
+// ignored once its deadline passes, so a refusal does not taint forever.
+func TestTaintedTargetExpires(t *testing.T) {
+	g := mustGuard(t, GuardConfig{AllowAll: true})
+	u := guardMustURL(t, "http://t.test/api")
+	g.taintMu.Lock()
+	g.taint = map[string]time.Time{taintKey(u): time.Now().Add(-time.Second)}
+	g.taintMu.Unlock()
+
+	if g.isTainted(u) {
+		t.Fatal("an expired taint was still considered active")
+	}
+	g.taintMu.Lock()
+	_, present := g.taint[taintKey(u)]
+	g.taintMu.Unlock()
+	if present {
+		t.Fatal("an expired taint was not swept on read")
 	}
 }

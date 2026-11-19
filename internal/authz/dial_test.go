@@ -85,6 +85,43 @@ func TestDialControlIgnoresAddressesItCannotJudge(t *testing.T) {
 	}
 }
 
+// TestCheckDialTargetRejectsARestrictedDestination is the CWE-290 proxy case:
+// the socket hook will see the proxy, so the destination has to be classified
+// before the request is sent. IP literals and names both go through the same
+// hook, and one restricted answer among several is enough to fail closed.
+func TestCheckDialTargetRejectsARestrictedDestination(t *testing.T) {
+	ctx := context.Background()
+	for _, host := range []string{"169.254.169.254", "10.0.0.1", "localhost"} {
+		if err := CheckDialTarget(ctx, host, "80", DialControl(ClassPublic)); err == nil {
+			t.Errorf("%s: restricted destination passed a public approval", host)
+		}
+	}
+	if err := CheckDialTarget(ctx, "169.254.169.254", "80", DialControl(ClassMetadata)); err != nil {
+		t.Errorf("explicitly approved metadata destination refused: %v", err)
+	}
+	if err := CheckDialTarget(ctx, "localhost", "80", DialControl(ClassLoopback)); err != nil {
+		t.Errorf("loopback destination refused under a loopback approval: %v", err)
+	}
+}
+
+// TestCheckDialTargetFailsClosedOnResolutionProblems covers the fail-closed
+// half: an unresolved or absent target must never be treated as safe.
+func TestCheckDialTargetFailsClosedOnResolutionProblems(t *testing.T) {
+	control := DialControl(ClassPublic)
+	if err := CheckDialTarget(context.Background(), "sift-no-such-host.invalid", "80", control); err == nil {
+		t.Error("unresolvable destination passed the check")
+	}
+	if err := CheckDialTarget(context.Background(), "", "80", control); err == nil {
+		t.Error("empty host passed the check")
+	}
+	if err := CheckDialTarget(context.Background(), "example.com", "", control); err == nil {
+		t.Error("empty port passed the check")
+	}
+	if err := CheckDialTarget(context.Background(), "169.254.169.254", "80", nil); err != nil {
+		t.Errorf("nil control should be a no-op, got %v", err)
+	}
+}
+
 // TestDialControlStopsTheConnectionBeforeItIsMade is the end-to-end proof: a
 // real dialer with the hook installed never reaches the metadata address. It
 // fails immediately at the hook instead of waiting for a network timeout, which

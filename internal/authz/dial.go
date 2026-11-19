@@ -13,6 +13,7 @@
 package authz
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"syscall"
@@ -37,6 +38,55 @@ func DialControl(approved Class) func(network, address string, c syscall.RawConn
 		}
 		return nil
 	}
+}
+
+// CheckDialTarget applies a DialControl-style hook to a target host directly.
+//
+// With an HTTP proxy configured, the socket-level hook sees the PROXY address,
+// never the destination: a name that resolves to a public IP at gate time can
+// rebind to metadata or RFC1918 space and the dial hook cannot see it. Callers
+// that dial through a proxy must therefore resolve the destination themselves
+// and pass every resolved address through the same authorization hook.
+//
+// Fail-closed: an empty host/port, a resolution error, an empty answer, or any
+// resolved address the hook refuses all produce an error. A caller that ignores
+// this error is a caller that did not check.
+func CheckDialTarget(ctx context.Context, host, port string, control func(network, address string, c syscall.RawConn) error) error {
+	if control == nil {
+		return nil
+	}
+	if host == "" || port == "" {
+		return fmt.Errorf("authz: cannot check dial target with empty host or port")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	check := func(ip net.IP) error {
+		if err := control("tcp", net.JoinHostPort(ip.String(), port), nil); err != nil {
+			return fmt.Errorf("authz: refusing proxy dial to target %s: %w", ip, err)
+		}
+		return nil
+	}
+
+	if literal := net.ParseIP(host); literal != nil {
+		return check(literal)
+	}
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return fmt.Errorf("authz: cannot resolve proxy dial target %q: %w", host, err)
+	}
+	if len(ips) == 0 {
+		return fmt.Errorf("authz: proxy dial target %q resolved to no addresses", host)
+	}
+	// Every answer is checked: the dialer is free to pick any of them, so one
+	// restricted address is enough to refuse the request.
+	for _, ip := range ips {
+		if err := check(ip.IP); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // DenyClasses returns a net.Dialer.Control hook that refuses a connection to

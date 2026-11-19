@@ -295,3 +295,67 @@ func TestVerifyRejectsContradictorySignedAssessment(t *testing.T) {
 		})
 	}
 }
+
+// TestVerifyChainDetectsRemovedReorderedAndTruncatedLinks is the CWE-347 chain
+// regression. Verify deliberately checks one certificate; VerifyChain is the
+// additive multi-certificate check that makes the chain claim in the package
+// type comment true without breaking single-certificate verification.
+func TestVerifyChainDetectsRemovedReorderedAndTruncatedLinks(t *testing.T) {
+	kp, err := attest.GenerateKeypair()
+	if err != nil {
+		t.Fatalf("GenerateKeypair: %v", err)
+	}
+
+	assessments := make([]Assessment, 3)
+	for i := range assessments {
+		assessments[i] = validAssessment()
+		assessments[i].Target = "https://example.com/run/" + string(rune('a'+i))
+	}
+	c1, err := Issue(kp, assessments[0], "", "run-1")
+	if err != nil {
+		t.Fatalf("Issue(c1): %v", err)
+	}
+	h1, err := CertificateHash(c1)
+	if err != nil {
+		t.Fatalf("CertificateHash(c1): %v", err)
+	}
+	c2, err := Issue(kp, assessments[1], h1, "run-2")
+	if err != nil {
+		t.Fatalf("Issue(c2): %v", err)
+	}
+	h2, err := CertificateHash(c2)
+	if err != nil {
+		t.Fatalf("CertificateHash(c2): %v", err)
+	}
+	c3, err := Issue(kp, assessments[2], h2, "run-3")
+	if err != nil {
+		t.Fatalf("Issue(c3): %v", err)
+	}
+
+	if err := VerifyChain([]*Certificate{c1, c2, c3}); err != nil {
+		t.Fatalf("intact chain rejected: %v", err)
+	}
+	for i, c := range []*Certificate{c1, c2, c3} {
+		if err := Verify(c); err != nil {
+			t.Fatalf("single Verify(c%d): %v", i+1, err)
+		}
+	}
+
+	for _, tc := range []struct {
+		name  string
+		chain []*Certificate
+	}{
+		{"missing middle", []*Certificate{c1, c3}},
+		{"truncated history", []*Certificate{c2, c3}},
+		{"reordered", []*Certificate{c1, c3, c2}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := VerifyChain(tc.chain); err == nil {
+				t.Fatal("broken chain verified")
+			}
+		})
+	}
+	if err := Verify(c3); err != nil {
+		t.Fatalf("chain check must be additive: single Verify broke: %v", err)
+	}
+}

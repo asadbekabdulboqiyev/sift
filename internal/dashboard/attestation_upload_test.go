@@ -67,6 +67,8 @@ func TestAttestationVerifyUpload_ValidBundle(t *testing.T) {
 		Valid         bool   `json:"valid"`
 		Format        string `json:"format"`
 		SamplesAbsent bool   `json:"samplesAbsent"`
+		IssuerTrust   string `json:"issuerTrust"`
+		IssuerTrusted bool   `json:"issuerTrusted"`
 		BundleDigest  string `json:"bundleDigest"`
 		Workers       int    `json:"workers"`
 		Summary       struct {
@@ -86,6 +88,15 @@ func TestAttestationVerifyUpload_ValidBundle(t *testing.T) {
 	}
 	if !out.SamplesAbsent {
 		t.Error("samplesAbsent = false; the upload carries no sidecar, so this must be honest about the narrower scope")
+	}
+	// CWE-345: no trust store is configured on this endpoint, so Valid=true
+	// alone must not read as "the signer was verified". The trust verdict is
+	// now part of the API response for every caller.
+	if out.IssuerTrust != string(attest.IssuerUnpinned) {
+		t.Errorf("issuerTrust = %q, want %q", out.IssuerTrust, attest.IssuerUnpinned)
+	}
+	if out.IssuerTrusted {
+		t.Error("issuerTrusted = true with no trust anchor configured")
 	}
 	if out.BundleDigest == "" {
 		t.Error("bundleDigest is empty")
@@ -178,5 +189,31 @@ func TestAttestationVerifyUpload_MethodAndOriginGates(t *testing.T) {
 	s.serveApp(w, req)
 	if w.Code != http.StatusForbidden {
 		t.Errorf("cross-origin status = %d, want 403", w.Code)
+	}
+}
+
+// TestVerifyResultMapReportsIssuerTrust pins the shared renderer used by both
+// attestation verify endpoints: the issuer verdict follows the verifier result
+// instead of being silently dropped. A self-signed bundle can be Valid=true
+// and still be unpinned; the API must say so.
+func TestVerifyResultMapReportsIssuerTrust(t *testing.T) {
+	for _, tc := range []struct {
+		trust   attest.IssuerTrust
+		trusted bool
+	}{
+		{attest.IssuerPinned, true},
+		{attest.IssuerUnpinned, false},
+		{attest.IssuerUntrusted, false},
+		{attest.IssuerMissing, false},
+	} {
+		t.Run(string(tc.trust), func(t *testing.T) {
+			out := verifyResultMap(attest.VerifyResult{IssuerTrust: tc.trust})
+			if got := out["issuerTrust"]; got != string(tc.trust) {
+				t.Errorf("issuerTrust = %v, want %q", got, tc.trust)
+			}
+			if got := out["issuerTrusted"]; got != tc.trusted {
+				t.Errorf("issuerTrusted = %v, want %v", got, tc.trusted)
+			}
+		})
 	}
 }

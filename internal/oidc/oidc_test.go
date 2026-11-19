@@ -537,6 +537,64 @@ func TestExchangeTokenEndpointError(t *testing.T) {
 	}
 }
 
+// TestExchangeErrorBodyIsRedacted is the CWE-532 fix: a provider that echoes a
+// secret in its error body must not leak it through the returned error (which
+// callers routinely log). Only the HTTP status and the sanitized OAuth error
+// code are surfaced.
+func TestExchangeErrorBodyIsRedacted(t *testing.T) {
+	const secret = "super-secret-authorization-code-abc123"
+	p := newFakeProvider(t, fakeProviderConfig{
+		tokenFn: func(p *fakeProvider, form url.Values) (int, string) {
+			return http.StatusBadRequest, `{"error":"invalid_grant","error_description":"code ` + secret + ` was rejected"}`
+		},
+	})
+	c := p.newClient(t)
+
+	_, err := c.Exchange(t.Context(), "code", "", "")
+	if err == nil {
+		t.Fatal("Exchange must fail when the token endpoint errors")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "400") || !strings.Contains(msg, "error=invalid_grant") {
+		t.Fatalf("error = %q, want the status and the OAuth error code", msg)
+	}
+	if strings.Contains(msg, secret) || strings.Contains(msg, "error_description") {
+		t.Fatalf("error = %q leaked the provider's raw body", msg)
+	}
+}
+
+// TestTokenEndpointErrorSanitization covers bodies that carry no usable code:
+// they must degrade to the status alone, never to raw provider text.
+func TestTokenEndpointErrorSanitization(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string // substring that must be absent, if any
+	}{
+		{"html body", `<html><body>token=abc123</body></html>`, "token=abc123"},
+		{"code with punctuation", `{"error":"invalid_grant\nX-Evil: 1"}`, "X-Evil"},
+		{"very long code", `{"error":"` + strings.Repeat("a", 65) + `"}`, strings.Repeat("a", 65)},
+		{"plain text", "server exploded with stack trace", "stack trace"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tokenEndpointError(http.StatusInternalServerError, []byte(tc.body))
+			if strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %q leaked %q", err, tc.want)
+			}
+			if !strings.Contains(err.Error(), "500") {
+				t.Fatalf("error = %q, want the status code", err)
+			}
+		})
+	}
+
+	// A well-formed code is preserved so operators can still diagnose the
+	// OAuth failure.
+	if got := tokenEndpointError(http.StatusBadRequest, []byte(`{"error":"invalid_client"}`)).Error(); !strings.Contains(got, "error=invalid_client") {
+		t.Fatalf("error = %q, want the sanitized code", got)
+	}
+}
+
 func TestExchangeEmptyCode(t *testing.T) {
 	p := newFakeProvider(t, fakeProviderConfig{})
 	c := p.newClient(t)

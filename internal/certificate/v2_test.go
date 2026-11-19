@@ -192,10 +192,10 @@ func TestVerifyRejectsTamperedSealValidityDisplay(t *testing.T) {
 	}
 }
 
-// TestVerifyStillAcceptsV1 pins the compatibility guarantee: a certificate
-// issued before v2 — signed over the assessment only, envelope filled in
-// afterwards — must keep verifying, because the v2 rules cannot be applied
-// retroactively.
+// TestVerifyStillAcceptsV1 pins the compatibility guarantee for the shape v1
+// itself produced: a bare certificate signed over the assessment only, with no
+// unverifiable envelope claims, must keep verifying. The v2 rules cannot be
+// applied retroactively to that signed payload.
 func TestVerifyStillAcceptsV1(t *testing.T) {
 	kp, err := attest.GenerateKeypair()
 	if err != nil {
@@ -207,26 +207,22 @@ func TestVerifyStillAcceptsV1(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Sign: %v", err)
 	}
-	// What the v1 Issue path did after signing.
-	c.PreviousCertificateHash = strings.Repeat("a", 64)
-	c.ExperimentReference = "exp-ref"
-	c.ValidityPeriod = validityPeriod
 	c.CertificateID = CertificateID(c)
-	c.HTML = HTML(c)
 
 	if c.Version != Version {
 		t.Fatalf("version = %q, want %q", c.Version, Version)
 	}
 	if err := Verify(c); err != nil {
-		t.Fatalf("a v1 certificate must keep verifying: %v", err)
+		t.Fatalf("a bare v1 certificate must keep verifying: %v", err)
 	}
 }
 
-// TestV1EnvelopeRemainsOutsideTheSignature documents the known v1 limitation
-// rather than pretending it was fixed: old certificates are accepted as they
-// were issued, but the envelope is still editable. Everything this build issues
-// is v2, where TestVerifyRejectsTamperedValidityPeriod applies.
-func TestV1EnvelopeRemainsOutsideTheSignature(t *testing.T) {
+// TestV1RejectsUnverifiableEnvelope is the CWE-347 regression: v1 did not sign
+// the envelope, so a holder could rewrite validity, the chain link or the source
+// reference and recompute the derived id. A v1 certificate that asserts those
+// fields must now be refused and re-issued as v2; recomputing CertificateID no
+// longer launders the edit.
+func TestV1RejectsUnverifiableEnvelope(t *testing.T) {
 	kp, err := attest.GenerateKeypair()
 	if err != nil {
 		t.Fatalf("GenerateKeypair: %v", err)
@@ -242,13 +238,48 @@ func TestV1EnvelopeRemainsOutsideTheSignature(t *testing.T) {
 	c.CertificateID = CertificateID(c)
 	c.HTML = HTML(c)
 
-	legacy := *c
-	legacy.ValidityPeriod = "36500 days (no expiry)"
-	legacy.CertificateID = CertificateID(&legacy)
-	legacy.HTML = HTML(&legacy)
+	if err := Verify(c); err == nil {
+		t.Fatal("a v1 certificate with unsigned envelope claims verified")
+	}
 
-	if err := Verify(&legacy); err != nil {
-		t.Fatalf("v1 compatibility broke: %v", err)
+	for _, tc := range []struct {
+		name   string
+		mutate func(*Certificate)
+	}{
+		{"validity", func(c *Certificate) { c.ValidityPeriod = "36500 days (no expiry)" }},
+		{"previous hash", func(c *Certificate) { c.PreviousCertificateHash = strings.Repeat("b", 64) }},
+		{"reference", func(c *Certificate) { c.ExperimentReference = "some-other-run" }},
+		{"signed_at", func(c *Certificate) { c.SignedAt = "2027-01-01T00:00:00Z" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tampered := *c
+			tc.mutate(&tampered)
+			tampered.CertificateID = CertificateID(&tampered) // recomputing the id must not help
+			tampered.HTML = HTML(&tampered)
+			if err := Verify(&tampered); err == nil {
+				t.Fatal("tampered v1 envelope verified")
+			}
+		})
+	}
+}
+
+// TestSignedCertificateIDExcludesUnsignedV1Fields pins the derivation used by
+// the v1 guard: envelope-only edits must leave the signed id unchanged.
+func TestSignedCertificateIDExcludesUnsignedV1Fields(t *testing.T) {
+	kp, err := attest.GenerateKeypair()
+	if err != nil {
+		t.Fatalf("GenerateKeypair: %v", err)
+	}
+	v1, err := Sign(kp, validAssessment(), "")
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	base := signedCertificateID(v1)
+	v1.ValidityPeriod = "36500 days (no expiry)"
+	v1.PreviousCertificateHash = strings.Repeat("c", 64)
+	v1.ExperimentReference = "other"
+	if got := signedCertificateID(v1); got != base {
+		t.Fatalf("v1 signed id changed with unsigned envelope fields: %q -> %q", base, got)
 	}
 }
 

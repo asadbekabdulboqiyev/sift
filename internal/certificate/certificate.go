@@ -28,6 +28,7 @@ import (
 
 	"github.com/asadbekabdulboqiyev/sift/internal/attest"
 	"github.com/asadbekabdulboqiyev/sift/internal/finding"
+	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 )
 
 // Version is the original ss-cert envelope format. This build issues VersionV2;
@@ -123,9 +124,11 @@ type Assessment struct {
 // document (signature seal included) for display/printing.
 //
 // Hash chain: CertificateID is a unique per-certificate identifier and
-// PreviousCertificateHash binds this certificate to the one issued before it,
-// so any removed or re-ordered certificate breaks the chain and is detectable
-// during verification.
+// PreviousCertificateHash binds this certificate to the one issued before it.
+// Verify checks ONE certificate and cannot see a missing neighbour: use
+// VerifyChain on an ordered history (oldest first) to detect a removed,
+// re-ordered or truncated certificate. A single certificate carries no proof
+// that the rest of the history was presented.
 type Certificate struct {
 	Assessment              Assessment `json:"assessment"`
 	Signature               string     `json:"signature"`  // hex Ed25519 over the signed payload (v1: assessment, v2: assessment + envelope)
@@ -243,19 +246,13 @@ func canonical(a Assessment) ([]byte, error) {
 }
 
 // severityRank orders severities most-to-least for stable sorting.
+//
+// It delegates to shared.FindingSortKey, which preserves this exact ordering
+// (including the lack of whitespace trimming): canonical() feeds a signed JSON
+// document, so changing the key would change the signature of existing
+// certificates. Do not fold this into the audit scorer's SeverityRank.
 func severityRank(s string) int {
-	switch strings.ToLower(s) {
-	case "critical":
-		return 0
-	case "high":
-		return 1
-	case "medium":
-		return 2
-	case "low":
-		return 3
-	default:
-		return 4
-	}
+	return shared.FindingSortKey(s)
 }
 
 // stripSeal removes the signature seal block from rendered HTML so the hash is
@@ -457,8 +454,12 @@ func decodeSignature(c *Certificate) (ed25519.PublicKey, []byte, error) {
 	return pub, sig, nil
 }
 
-// verifyV1 keeps the original ss-cert/v1 contract byte for byte so certificates
-// issued before v2 continue to verify.
+// verifyV1 keeps the original ss-cert/v1 signature contract byte for byte so
+// certificates issued before v2 continue to verify. The envelope, however, was
+// outside that signature: a holder could rewrite validity, the chain link or
+// the source reference and recompute the derived id. A v1 envelope carrying
+// those claims therefore cannot be authenticated and is refused (CWE-347).
+// Bare v1 certificates — the shape Sign itself returns — remain valid.
 func verifyV1(c *Certificate, pub ed25519.PublicKey, sig []byte) error {
 	msg, err := canonical(c.Assessment)
 	if err != nil {
@@ -473,7 +474,29 @@ func verifyV1(c *Certificate, pub ed25519.PublicKey, sig []byte) error {
 	if err := validateAssessment(c.Assessment); err != nil {
 		return err
 	}
+	if err := validateV1Envelope(c); err != nil {
+		return err
+	}
 	return validateEnvelope(c)
+}
+
+// validateV1Envelope refuses v1 claims that have no signature behind them.
+// Everything this build issues is v2, where the same fields are covered by the
+// envelope signature and remain verifiable.
+func validateV1Envelope(c *Certificate) error {
+	switch {
+	case strings.TrimSpace(c.ValidityPeriod) != "":
+		return fmt.Errorf("certificate: v1 validity_period is not signed; re-issue as %s", VersionV2)
+	case c.PreviousCertificateHash != "":
+		return fmt.Errorf("certificate: v1 previous_certificate_hash is not signed; re-issue as %s", VersionV2)
+	case strings.TrimSpace(c.ExperimentReference) != "":
+		return fmt.Errorf("certificate: v1 experiment_reference is not signed; re-issue as %s", VersionV2)
+	case strings.TrimSpace(c.SignedAt) != "" && c.SignedAt != c.Assessment.SignedAt:
+		return fmt.Errorf("certificate: v1 envelope signed_at is not signed; re-issue as %s", VersionV2)
+	case c.CertificateID != signedCertificateID(c):
+		return fmt.Errorf("certificate: v1 certificate_id is not derived from signed fields only")
+	}
+	return nil
 }
 
 // verifyV2 checks the signed payload that covers the assessment and the
@@ -639,6 +662,79 @@ func CertificateID(c *Certificate) string {
 	}
 	h := sha256.Sum256([]byte(c.Signature + "\x00" + c.PublicKey + "\x00" + c.Assessment.SignedAt + "\x00" + c.Assessment.Target + "\x00" + c.PreviousCertificateHash + "\x00" + c.ExperimentReference + "\x00" + c.ValidityPeriod))
 	return "ss-cert-" + hex.EncodeToString(h[:])[:16]
+}
+
+// signedCertificateID derives the identifier from signed material only. v1
+// signed the assessment, so envelope-only edits cannot change this value; v2
+// signed the envelope as well, so its three envelope fields are signed input.
+// Keep the two derivations distinct rather than changing CertificateID itself:
+// stored v1/v2 ids were computed with the historical formula and must keep
+// verifying unchanged.
+func signedCertificateID(c *Certificate) string {
+	if c == nil {
+		return ""
+	}
+	input := c.Signature + "\x00" + c.PublicKey + "\x00" + c.Assessment.SignedAt + "\x00" + c.Assessment.Target
+	if c.Version == VersionV2 {
+		input += "\x00" + c.PreviousCertificateHash + "\x00" + c.ExperimentReference + "\x00" + c.ValidityPeriod
+	} else {
+		// The historical v1 formula always appended three NUL-delimited
+		// envelope fields. With empty fields that is three trailing
+		// separators; keep the byte layout so bare v1 ids verify unchanged.
+		input += "\x00\x00\x00"
+	}
+	h := sha256.Sum256([]byte(input))
+	return "ss-cert-" + hex.EncodeToString(h[:])[:16]
+}
+
+// CertificateHash returns the sha256 of the stored JSON bytes of c. This is the
+// value issuers put into the next certificate's PreviousCertificateHash field.
+func CertificateHash(c *Certificate) (string, error) {
+	if c == nil {
+		return "", fmt.Errorf("certificate: nil certificate")
+	}
+	raw, err := json.Marshal(c)
+	if err != nil {
+		return "", fmt.Errorf("certificate: marshal certificate: %w", err)
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// VerifyChain verifies every certificate and then checks the hash chain over
+// an ordered history, oldest first. It is the multi-certificate check that
+// Verify (a single-certificate check) cannot perform: a removed, re-ordered or
+// truncated link is reported here, not by Verify on one surviving document.
+//
+// The first certificate must be the genesis entry (no previous link), so a
+// truncated history cannot be passed off as a complete one. Pass nil/empty for
+// an empty history: that verifies trivially.
+func VerifyChain(certs []*Certificate) error {
+	if len(certs) == 0 {
+		return nil
+	}
+	for i, c := range certs {
+		if c == nil {
+			return fmt.Errorf("certificate: chain[%d]: nil certificate", i)
+		}
+		if err := Verify(c); err != nil {
+			return fmt.Errorf("certificate: chain[%d]: %w", i, err)
+		}
+		if i == 0 {
+			if strings.TrimSpace(c.PreviousCertificateHash) != "" {
+				return fmt.Errorf("certificate: chain[0] is not the genesis certificate (previous link is set)")
+			}
+			continue
+		}
+		want, err := CertificateHash(certs[i-1])
+		if err != nil {
+			return fmt.Errorf("certificate: chain[%d]: hash predecessor: %w", i, err)
+		}
+		if c.PreviousCertificateHash != want {
+			return fmt.Errorf("certificate: chain[%d] does not follow chain[%d]: previous hash mismatch", i, i-1)
+		}
+	}
+	return nil
 }
 
 // VerifyBytes parses a JSON certificate and verifies it.
