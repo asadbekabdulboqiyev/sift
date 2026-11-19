@@ -53,7 +53,16 @@
     return JSON.parse(raw);
   }
 
-  function kv(k, v) { return '<div class="ins-kv-row"><span class="k">' + esc(k) + '</span><span class="v">' + esc(v == null || v === '' ? '—' : v) + '</span></div>'; }
+  // trustedHTML marks a string that is already safe to insert as markup. Only
+  // badge() creates one, and it escapes the text it interpolates. kv() unwraps
+  // it so a badge renders as a real <span> instead of showing literal tags.
+  function trustedHTML(html) { return { __html: html }; }
+
+  function kv(k, v) {
+    var val = (v == null || v === '') ? '—' : v;
+    var html = (val && typeof val === 'object' && typeof val.__html === 'string') ? val.__html : esc(val);
+    return '<div class="ins-kv-row"><span class="k">' + esc(k) + '</span><span class="v">' + html + '</span></div>';
+  }
   function pct(v) { return (v == null || !isFinite(v)) ? '—' : (Number(v).toFixed(2) + '%'); }
   function num(v) {
     if (v == null || !isFinite(v)) return '—';
@@ -66,7 +75,7 @@
   }
   function badge(text, tone) {
     var cls = tone === 'good' ? 'ok' : (tone === 'bad' ? 'err' : (tone === 'warn' ? 'warn' : ''));
-    return '<span class="ins-badge ' + cls + '">' + esc(text) + '</span>';
+    return trustedHTML('<span class="ins-badge ' + cls + '">' + esc(text) + '</span>');
   }
   function renderList(items, cls) {
     items = items || [];
@@ -181,7 +190,7 @@
     var prob = b.status === 'NOT_CONFIGURED' ? 'NOT_CONFIGURED' : pct((b.probability || 0) * 100);
     var ci = b.status === 'NOT_CONFIGURED' ? '—' : (pct((b.confidence_interval && b.confidence_interval.low || 0) * 100) + ' – ' + pct((b.confidence_interval && b.confidence_interval.high || 0) * 100));
     var detail = b.status === 'NOT_CONFIGURED' ? (b.note || 'No threshold configured') : ((b.breaches || 0) + '/' + (b.trials || 0) + ' iterations; threshold ' + num(b.threshold));
-    return '<tr><td>' + esc(label) + '</td><td>' + badge(b.status, tone) + '</td><td>' + esc(prob) + '</td><td>' + esc(ci) + '</td><td>' + esc(detail) + '</td></tr>';
+    return '<tr><td>' + esc(label) + '</td><td>' + badge(b.status, tone).__html + '</td><td>' + esc(prob) + '</td><td>' + esc(ci) + '</td><td>' + esc(detail) + '</td></tr>';
   }
 
   function renderBreachSummary(sum) {
@@ -372,7 +381,7 @@
           points.map(function (it) {
             var breach = (it.breach != null ? it.breach : it.Breach);
             var risk = it.risk || it.Risk || '—';
-            return '<tr><td>' + esc(it.parameter || it.Parameter || '') + '</td><td>' + esc(num(it.value != null ? it.value : it.Value)) + '</td><td>' + esc(num(it.delta != null ? it.delta : it.Delta)) + '</td><td>' + esc(num(it.p99_ms != null ? it.p99_ms : (it.p99_ms_p50 != null ? it.p99_ms_p50 : it.P99MS))) + '</td><td>' + esc(breach == null ? '—' : pct(Number(breach) * 100)) + '</td><td>' + badge(risk, risk === 'high' ? 'bad' : (risk === 'elevated' ? 'warn' : 'good')) + '</td><td>' + esc(it.note || it.Note || '') + '</td></tr>';
+            return '<tr><td>' + esc(it.parameter || it.Parameter || '') + '</td><td>' + esc(num(it.value != null ? it.value : it.Value)) + '</td><td>' + esc(num(it.delta != null ? it.delta : it.Delta)) + '</td><td>' + esc(num(it.p99_ms != null ? it.p99_ms : (it.p99_ms_p50 != null ? it.p99_ms_p50 : it.P99MS))) + '</td><td>' + esc(breach == null ? '—' : pct(Number(breach) * 100)) + '</td><td>' + badge(risk, risk === 'high' ? 'bad' : (risk === 'elevated' ? 'warn' : 'good')).__html + '</td><td>' + esc(it.note || it.Note || '') + '</td></tr>';
           }).join('') + '</tbody></table>';
       } else {
         html += '<p class="ins-note warn">No sensitivity points returned (insufficient data or simulation failure).</p>';
