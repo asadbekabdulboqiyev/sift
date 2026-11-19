@@ -241,14 +241,14 @@ identity is established, or that any customer has paid. No revenue to date.
 
 ## Slide 11 — Team
 
-> **[FILL IN BEFORE THE PITCH — do not present placeholders as facts.]**
+> Team composition to be confirmed before presentation.
 
 | Role | Needed profile | Status |
 |---|---|---|
-| Founder / CEO | Enterprise sales into performance/QA or vendor-risk buyers | **FILL IN** |
-| Founding engineer — protocol | Applied cryptography (signatures, Merkle/transparency logs) + Go | **FILL IN** |
-| Founding engineer — measurement/engine | Distributed load generation, latency measurement & statistics | **FILL IN** |
-| Advisor — audit/assurance | GRC/audit background to open the certificate channel | **FILL IN** |
+| Founder / CEO | Enterprise sales into performance/QA or vendor-risk buyers | To be confirmed |
+| Founding engineer — protocol | Applied cryptography (signatures, Merkle/transparency logs) + Go | To be confirmed |
+| Founding engineer — measurement/engine | Distributed load generation, latency measurement & statistics | To be confirmed |
+| Advisor — audit/assurance | GRC/audit background to open the certificate channel | To be confirmed |
 
 **Evidence of execution:** a production-grade Go load-testing engine with
 distributed mode, TLS fingerprinting, VeriGate protection, an authorization gate

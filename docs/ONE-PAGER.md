@@ -124,7 +124,7 @@ ones.
 
 **Contact**
 
-> **[FILL IN]** — founder name · email · repository/docs URL
+> Contact details to be confirmed before presentation.
 
 *Market figures referenced in the full pitch are labelled ESTIMATE and must be
 re-verified. This sheet is not a certification, audit opinion, or legal

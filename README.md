@@ -5,9 +5,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)]()
 [![Version](https://img.shields.io/badge/Version-0.17.0-green.svg)](https://github.com/asadbekabdulboqiyev/sift/releases/tag/v0.17.0)
 
-**Sift** is a professional, self-hostable toolkit written in Go for **multi-protocol load testing**, **traffic replay**, **security scanning/pentest workflows**, **verifiable (cryptographically attestable) evidence**, and **planning/triage insights**.
-
-It is designed for engineers, QA teams, and security practitioners who need a unified CLI/dashboard workflow for performance validation, authorized security assessment, CI quality gates, reproducible evidence, capacity what-if analysis, and evidence-oriented bounty triage.
+**Verifiable load & security evidence for systems you own.**
 
 > **Authorized testing only.** Use Sift only against systems you own or have explicit written permission to test. Unauthorized load generation, scanning, or exploitation attempts may be illegal and harmful.
 
@@ -70,6 +68,10 @@ It is designed for engineers, QA teams, and security practitioners who need a un
 
 ## Overview
 
+**Sift** is a professional, self-hostable toolkit written in Go for **multi-protocol load testing**, **traffic replay**, **security scanning/pentest workflows**, **verifiable (cryptographically attestable) evidence**, and **planning/triage insights**.
+
+It is designed for engineers, QA teams, and security practitioners who need a unified CLI/dashboard workflow for performance validation, authorized security assessment, CI quality gates, reproducible evidence, capacity what-if analysis, and evidence-oriented bounty triage.
+
 Sift unifies multiple testing, assessment, and evidence workflows in one toolchain:
 
 - **Performance/load testing:** HTTP/HTTPS, WebSocket, gRPC, TCP, and UDP workloads with configurable profiles and scenarios
@@ -93,7 +95,7 @@ Unified 1-click full diagnostic for **any `http(s)` target** with mode selection
 
 Pipeline stages: **1. Scanning Security** (headers/TLS/OWASP) → **2. Testing Load Limit** (skipped in Passive) → **3. Calculating Resilience** (0–100, risk level/remediation) → **4. Sealing VPMP Certificate** (Ed25519 attestation over canonical report digest).
 
-**Evidence-based scoring (v3):** `scoring_version: sift.audit360-scoring/v3` with split scores (0–100) for overall, `security`, `resilience`, `capacity`, `evidence_quality`, and **assessment `coverage`** (evidence basis). Scoring is transparent and driven by measured/observed evidence: weaknesses, partial/untested areas, and unmeasured capacity/load reduce confidence/scores accordingly; unavailable or refused-load capacity is never fabricated. Every detected weakness is reported as an individual, detailed finding (severity, source, impact, remediation, observed evidence) in the scorecard and sealed report. The local perfect demo target (`examples/perfect_demo_site/`, Standard/authorized, fully measured) can still achieve **100/100** under v3.
+**Evidence-based scoring (v3):** `scoring_version: sift.audit360-scoring/v3` with split scores (0–100) for overall, `security`, `resilience`, `capacity`, `evidence_quality`, and **assessment `coverage`** (evidence basis). Scoring is transparent and driven by measured/observed evidence: weaknesses, partial/untested areas, and unmeasured capacity/load reduce confidence/scores accordingly; unavailable or refused-load capacity is never fabricated. Every detected weakness is reported as an individual, detailed finding (severity, source, impact, remediation, observed evidence) in the scorecard and sealed report. In a local, authorized Standard run against the bundled demo target (`examples/perfect_demo_site/`), the measured score can reach **100/100** under v3.
 
 Output includes `resilience_score`, `risk_level`, `breaking_point_users`, `max_safe_rps`, detailed findings, **deterministic prioritized recommended action notes** (included in sealed reports), `certificate_id`, `vpmp_signature`, and ISO8601 `timestamp`.
 
@@ -159,18 +161,18 @@ The dashboard includes quick actions for local demos: **Use VoltStore demo** (`h
 **100-point demo target, visual guide, and dashboard audit flow**
 
 - **100-point demo site example (`examples/perfect_demo_site/`):** local, authorized Sift 360° target with recommended security headers and stable endpoints (`/`, `/health`), polished UI, and English documentation (`README.md`, `GUIDE.md`).
-- **Visual guide with real screenshots (`/guide`):** served by the demo site at `http://127.0.0.1:8095/guide` (`examples/perfect_demo_site/guide.html`, `guide-assets/`), captured via **ego-browser** from real local/authorized runs. Shows the exact audit flow (Dashboard → Sift 360° → **Test 100-point demo site** → progress → 100/100 scorecard) and where/what to change (security headers/CSP and code locations, endpoint stability, Standard-mode measurable load/evidence) with a checklist.
+- **Visual guide with real screenshots (`/guide`):** served by the demo site at `http://127.0.0.1:8095/guide` (`examples/perfect_demo_site/guide.html`, `guide-assets/`), captured via **ego-browser** from real local/authorized runs. Shows the audit flow against the local demo target (Dashboard → Sift 360° → **Test 100-point demo site** → progress → its 100/100 scorecard) and where/what to change (security headers/CSP and code locations, endpoint stability, Standard-mode measurable load/evidence) with a checklist.
 - **Dashboard quick action:** **`Test 100-point demo site`** prefills `http://127.0.0.1:8095`, sets Standard mode with authorization, performs a reachability preflight (actionable warning if unreachable; proceeds so the run is not blocked by browser preflight restrictions), and starts the audit.
 - **Audit360 reports:** deterministic, prioritized recommended action notes are generated and sealed into reports (additive), alongside existing no-fabrication/measured-evidence behavior.
 
 **Hardening and tests (verified in this cycle)**
 
 - Dashboard/audit360 helper and API guard coverage added; JS/asset and flow fixes maintained. Pentest report/output error handling and run-start refusal/guard behavior hardened in prior staged commits on this line.
-- **Verification (measured):** `gofmt` clean, `go vet ./...` OK, `go build ./...` OK; package tests and targeted `-race` runs pass in controlled environments (see commit/test evidence). In a local authorized Standard audit with the demo target reachable, the example target measured **100/100** (security/resilience/capacity/evidence 100, 0 findings, Low Risk, sealed report).
+- **Verification (measured):** `gofmt` clean, `go vet ./...` OK, `go build ./...` OK; package tests and targeted `-race` runs pass in controlled environments (see commit/test evidence). In a local authorized Standard audit of the demo target, the example target measured **100/100** (all split scores 100, 0 findings, Low Risk, sealed report).
 
 **Recent updates on the 0.16.x line**
 
-- **360° evidence-based scoring v3:** `sift.audit360-scoring/v3` with split scores plus assessment `coverage` (evidence basis), stronger evidence-driven deductions and transparent notes; every detected security/load/evidence issue is reported as an individual, detailed finding. No-fabrication preserved (untested/unmeasured/refused capacity explicitly reported). The local 100-point demo site (`127.0.0.1:8095`, Standard/authorized) still measures **100/100** (security/resilience/capacity/evidence/coverage 100, 0 findings, Low Risk, sealed) under v3.
+- **360° evidence-based scoring v3:** `sift.audit360-scoring/v3` with split scores plus assessment `coverage` (evidence basis), stronger evidence-driven deductions and transparent notes; every detected security/load/evidence issue is reported as an individual, detailed finding. No-fabrication preserved (untested/unmeasured/refused capacity explicitly reported). Against the local demo site (`127.0.0.1:8095`, Standard/authorized), the measured score can reach **100/100** (all split scores 100, 0 findings, Low Risk, sealed) under v3.
 - **Pentest full weakness breakdown:** every discovered weakness is reported individually with full detail across all sources (headers/TLS/CORS, passive/intrusive/deep/sensitive-file, CVE/NVD, OWASP and other checks) — severity, evidence, impact, remediation, location/parameter/CWE/source/confidence as available — consistently in CLI, dashboard, certificates, and JSON/HTML/Markdown/professional reports (not limited to OWASP category summaries). OWASP coverage/status remains separate and `NOT TESTED` is never reported as `PASS`. Scoring/counters/merge/dedupe aligned to the detailed finding set.
 
 **Included from 0.16.4**
@@ -1359,3 +1361,5 @@ Before submitting changes, run applicable build/test/lint checks.
 ---
 
 Sift is built for teams that need **performance testing, security assessment, and verifiable evidence** in one consistent, scriptable, and self-hostable workflow.
+
+> Not related to Stratus Security's Sift.
