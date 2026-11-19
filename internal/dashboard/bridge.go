@@ -164,6 +164,11 @@ func (b *EngineBridge) RecordRequest(statusCode int, latency time.Duration, isEr
 	collector := b.collector
 	engineFeeds := b.engineFeedsSamples
 	startTime := b.startTime
+	// Counters are mutated under this lock, so read them here as well. Reading
+	// them after Unlock raced with every other RecordRequest caller and could
+	// produce an RPS/error-rate snapshot that never existed.
+	totalReqs := b.totalReqs
+	totalErrors := b.totalErrors
 	b.mu.Unlock()
 
 	// Only synthesise a record here when the engine is not already the sample
@@ -189,10 +194,10 @@ func (b *EngineBridge) RecordRequest(statusCode int, latency time.Duration, isEr
 	if elapsedSec <= 0 {
 		elapsedSec = 0.001 // avoid division by zero
 	}
-	rps := float64(b.totalReqs) / elapsedSec
+	rps := float64(totalReqs) / elapsedSec
 	var errorRate float64
-	if b.totalReqs > 0 {
-		errorRate = float64(b.totalErrors) / float64(b.totalReqs) * 100
+	if totalReqs > 0 {
+		errorRate = float64(totalErrors) / float64(totalReqs) * 100
 	}
 	// Read percentiles live
 	b.mu.Lock()
