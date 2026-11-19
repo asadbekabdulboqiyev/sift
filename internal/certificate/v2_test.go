@@ -287,3 +287,19 @@ func TestPDFLinesNameTheSealFormat(t *testing.T) {
 		t.Errorf("nil-cert title = %q, want %q", got, want)
 	}
 }
+
+// TestSealNamesTheVerifierForItsOwnFormat pins the instruction printed on the
+// seal. It used to tell the reader to run `python3 sift_verify.py`, which
+// verifies vpmp/v1 evidence bundles and rejects a certificate file — so a
+// reader following the document's own instructions got an error instead of an
+// answer. The seal must name the command that accepts what it is printed on.
+func TestSealNamesTheVerifierForItsOwnFormat(t *testing.T) {
+	c := issueValid(t)
+
+	if !strings.Contains(c.HTML, "sift certificate cert.json") {
+		t.Error("seal does not name `sift certificate cert.json`")
+	}
+	if strings.Contains(c.HTML, "sift_verify.py") {
+		t.Error("seal points at sift_verify.py, which does not accept a certificate")
+	}
+}

@@ -436,7 +436,7 @@ func RenderHTMLMeta(a Assessment, m DocumentMeta) string {
         exhaustive, or that the signer is an authority you trust. It is
         tamper-evident evidence, not a warranty.
         <div class="h" style="margin-top:2.6mm">How to verify</div>
-        <code>sift certificate cert.json</code> &nbsp;or&nbsp; <code>python3 sift_verify.py</code>
+        <code>sift certificate cert.json</code> &nbsp;or&nbsp; <code>sift certificate cert.pdf</code>
         <br>
         Pin the issuer once with <code>sift trust add --key &lt;issuer.pub&gt;</code>,
         then add <code>--require-anchor</code> so a certificate from any other key is
