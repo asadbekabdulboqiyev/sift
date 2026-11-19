@@ -120,11 +120,14 @@ func VerifySeal(report *Audit360Report, signatureHex, pubKeyHex string) (bool, s
 	if !ed25519.Verify(pub, digest[:], sig) {
 		return false, "signature verification failed"
 	}
-	if report.CertificateID != "" && report.CertificateID != "unavailable" {
-		expected := hex.EncodeToString(digest[:16])
-		if report.CertificateID != expected {
-			return false, "certificate id does not match sealed payload digest"
-		}
+	// The certificate id is not covered by the signature itself: it is derived
+	// from the sealed payload digest, so verification recomputes it and requires
+	// an exact match. Skipping the check when the field was blank (or the old
+	// "unavailable" display sentinel) let anyone strip the id from an otherwise
+	// valid report and still get Signed=true.
+	expected := hex.EncodeToString(digest[:16])
+	if report.CertificateID != expected {
+		return false, "certificate id does not match sealed payload digest"
 	}
 	return true, "ok"
 }

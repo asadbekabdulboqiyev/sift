@@ -255,6 +255,11 @@ func TestSealAndVerify(t *testing.T) {
 	if certID == "" {
 		t.Fatal("certificate id must not be empty")
 	}
+	// Seal returns the seal; the caller stores it on the report, exactly as the
+	// orchestrator does through SealWithKey. Verification then recomputes the
+	// certificate id from the payload and requires it to match.
+	rep.CertificateID = certID
+	rep.VPMPSignature = sig
 	if sig != "" {
 		ok, reason := VerifySeal(rep, sig, pub)
 		if !ok {
