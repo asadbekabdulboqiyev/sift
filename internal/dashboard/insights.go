@@ -565,6 +565,14 @@ func (s *Server) handleInsightsBountyVerifyUpload(w http.ResponseWriter, r *http
 	// required because verification re-hashes against the manifest).
 	for _, art := range m.Artifacts {
 		want := filepath.ToSlash(art.Path)
+		// The manifest is user-supplied, so art.Path is untrusted. Reject any
+		// path that is not a plain relative path before it reaches the
+		// filesystem: a traversal path used to be joined onto the temp dir and
+		// os.Stat'ed, so uploaded_artifacts reported whether an arbitrary file
+		// on the host exists. VerifyPackage rejects such paths anyway.
+		if !bounty.ValidArtifactPath(want) {
+			continue
+		}
 		wantAbs := filepath.Join(tmpDir, filepath.FromSlash(want))
 		if _, err := os.Stat(wantAbs); err == nil {
 			saved[want] = wantAbs

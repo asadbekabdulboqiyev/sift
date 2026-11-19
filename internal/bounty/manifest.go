@@ -399,7 +399,7 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("bounty: duplicate artifact role %q", art.Role)
 		}
 		seenRoles[art.Role] = struct{}{}
-		if !validArtifactPath(art.Path) {
+		if !ValidArtifactPath(art.Path) {
 			return fmt.Errorf("bounty: artifact %q has unsafe path %q", art.Role, art.Path)
 		}
 		if _, dup := seenPaths[art.Path]; dup {
@@ -572,16 +572,17 @@ func packageRelativePath(path string) (string, error) {
 		}
 		slash = base
 	}
-	if !validArtifactPath(slash) {
+	if !ValidArtifactPath(slash) {
 		return "", fmt.Errorf("bounty: unsafe artifact path %q", path)
 	}
 	return slash, nil
 }
 
-// validArtifactPath accepts only non-empty, relative, slash-separated paths
+// ValidArtifactPath accepts only non-empty, relative, slash-separated paths
 // with no traversal segments. This is what makes joining a stored path with a
-// base directory safe.
-func validArtifactPath(p string) bool {
+// base directory safe: any caller that turns an untrusted path into a
+// filesystem path must reject it here first, before os.Stat, open or copy.
+func ValidArtifactPath(p string) bool {
 	if p == "" || len(p) > 1024 || !utf8.ValidString(p) {
 		return false
 	}

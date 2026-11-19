@@ -402,7 +402,7 @@ func (r *VerificationReport) finish() {
 // resolveArtifactPath joins a stored, validated relative path to baseDir and
 // re-checks containment.
 func resolveArtifactPath(baseDir, rel string) (string, error) {
-	if !validArtifactPath(rel) {
+	if !ValidArtifactPath(rel) {
 		return "", fmt.Errorf("bounty: unsafe artifact path %q", rel)
 	}
 	base := filepath.Clean(baseDir)

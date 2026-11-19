@@ -199,13 +199,13 @@ func TestManifestValidateArtifactCountLimit(t *testing.T) {
 
 func TestManifestValidateRejectsUnsafePaths(t *testing.T) {
 	for _, path := range []string{"", "/etc/passwd", "../secret", "a/../../b", "./x", "a//b", "a\\b", "."} {
-		if validArtifactPath(path) {
-			t.Errorf("validArtifactPath(%q) = true, want false", path)
+		if ValidArtifactPath(path) {
+			t.Errorf("ValidArtifactPath(%q) = true, want false", path)
 		}
 	}
 	for _, path := range []string{"report.md", "nested/report.md", "a.b.c"} {
-		if !validArtifactPath(path) {
-			t.Errorf("validArtifactPath(%q) = false, want true", path)
+		if !ValidArtifactPath(path) {
+			t.Errorf("ValidArtifactPath(%q) = false, want true", path)
 		}
 	}
 }
