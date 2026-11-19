@@ -392,6 +392,17 @@ func owaspValidateFlags(req *OWASPScanRequest) (rps float64, budget int64, timeo
 	return rps, budget, time.Duration(secs) * time.Second, nil
 }
 
+// newBoundOWASPChecker is the single place a checker is wired to a Guard. Both
+// the OWASP and the pentest handlers use it: the checker owns dial paths the
+// Guard's HTTP client never sees (the deprecated-TLS probe), so binding only
+// Requester would leave those sockets outside the authorization decision.
+func newBoundOWASPChecker(base string, gate *scanner.Guard) *scanner.OWASPChecker {
+	checker := scanner.NewOWASPChecker(base)
+	checker.Requester = gate
+	checker.DialControl = gate.DialControl()
+	return checker
+}
+
 // owaspGate runs the authorization decision the CLI runs before it scans. The
 // web path is not a bypass: an offensive (intrusive) scan needs an approval
 // entry AND the ticket naming it, exactly like `Sift pentest`.
@@ -639,9 +650,7 @@ func (s *Server) handleOWASPScan(w http.ResponseWriter, r *http.Request) {
 	coverage := make(map[string]int, len(owaspCategoryIDs))
 
 	for _, base := range bases {
-		checker := scanner.NewOWASPChecker(base)
-		checker.Requester = gate
-		checker.DialControl = gate.DialControl()
+		checker := newBoundOWASPChecker(base, gate)
 		report := checker.CheckAll()
 		for _, id := range owaspCategoryIDs {
 			cat, ok := report.Categories[id]
