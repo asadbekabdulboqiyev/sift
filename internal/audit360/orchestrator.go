@@ -61,6 +61,20 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 	budgetCtx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 
+	// A cancelled parent means the caller no longer wants this run: retention
+	// evicted the job, or the process is shutting down. Only ctx is consulted —
+	// budgetCtx's own deadline is a normal outcome (a partial report inside the
+	// time budget), never a cancellation.
+	aborted := func() error {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("audit360: run cancelled: %w", err)
+		}
+		return nil
+	}
+	if err := aborted(); err != nil {
+		return nil, err
+	}
+
 	emit := func(stageID, status, detail, errMsg string) {
 		if sink != nil {
 			sink(stageID, status, detail, errMsg)
@@ -91,6 +105,12 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 	}
 
 	// Stage 2: Breaking point stress test (skipped in passive mode)
+	// Re-check before spending the largest slice of the budget and before any
+	// further traffic is sent.
+	if err := aborted(); err != nil {
+		emit(StageStress, StatusFailed, "", err.Error())
+		return nil, err
+	}
 	var stress StressOutcome
 	var plannedStressDurSec, plannedStressMaxUsers int
 	if opt.Mode == ModePassive {
@@ -130,6 +150,12 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 	emit(StageResilience, StatusCompleted, fmt.Sprintf("Scores calculated (overall %d/100, security %d, resilience %d, capacity %d, evidence %d, %s).", breakdown.Overall, breakdown.Security, breakdown.Resilience, breakdown.Capacity, breakdown.EvidenceQuality, risk), "")
 
 	// Stage 4: VPMP sealing
+	// A cancelled run must never be sealed: a signature attests that this
+	// report is the outcome of a completed audit.
+	if err := aborted(); err != nil {
+		emit(StageSeal, StatusFailed, "", err.Error())
+		return nil, err
+	}
 	emit(StageSeal, StatusRunning, "Sealing report with VPMP v1-compatible attestation...", "")
 	now := opt.Now().UTC()
 	testCfg := &TestConfiguration{
