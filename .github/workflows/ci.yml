@@ -140,6 +140,51 @@ jobs:
           $p = "coverage.out"
           (Get-Content $p -Raw) -replace "`r`n", "`n" | Set-Content -NoNewline $p
 
+  # ── fast unit tests: default build, no `integration` tag ───────────────────
+  # Files that start with `//go:build integration` are invisible to a plain
+  # `go test ./...`, so this job is the fast feedback loop: unit tests only,
+  # no real load runs and no long-lived loopback listeners. The `test` job
+  # above still runs this same set under -race with coverage on three OSes;
+  # this job pins the exact command a developer runs locally.
+  test-unit:
+    name: Unit tests (default build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Fast unit tests
+        run: go test ./... -count=1
+
+  # ── heavy integration tests: `integration` tag only ────────────────────────
+  # These are the load/protocol/E2E tests: they open real loopback listeners,
+  # drive multi-second runs and can consume the host ephemeral port range
+  # (16 384 ports on macOS). Kept out of the default build so they never
+  # starve a developer's feedback loop or break an unrelated dial with
+  # EADDRNOTAVAIL. GOFLAGS=-p=1 serialises packages (the same correctness
+  # setting the `test` job uses) while keeping the documented command intact.
+  test-integration:
+    name: Integration tests (tagged)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GOFLAGS: -p=1
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Heavy integration tests
+        run: go test -tags=integration ./... -count=1
+
   # ── coverage gate ─────────────────────────────────────────────────────────
   # -coverpkg=./... in the test job is what makes this number meaningful; the
   # old workflow ran plain `go test` so per-package coverage flattered itself.
