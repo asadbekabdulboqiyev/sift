@@ -319,7 +319,7 @@ func TestInprocDashboardTelemetryHelpers(t *testing.T) {
 		if eng.Telemetry() == nil {
 			cancel()
 			<-done
-			t.Skip("engine telemetry never became available")
+			t.Fatal("engine telemetry never became available during a live run")
 		}
 		if _, ok := engineTelemetry(eng); !ok {
 			t.Error("engineTelemetry = false during a live run")
