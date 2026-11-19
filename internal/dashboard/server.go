@@ -209,8 +209,15 @@ type AttestationVerifyRequest struct{}
 // --- Dashboard Server -------------------------------------------------------
 
 type Server struct {
-	upgrader  websocket.Upgrader
-	clients   map[*websocket.Conn]bool
+	upgrader websocket.Upgrader
+	clients  map[*websocket.Conn]bool
+	// wsWrites holds one mutex per live connection. gorilla/websocket allows
+	// exactly one writer at a time per connection and panics otherwise, while
+	// snapshot broadcasts, run-state broadcasts and the initial handshake can
+	// all fire from different goroutines. Every write goes through writeWS, so
+	// they serialize on the connection's own mutex instead of killing the
+	// process. Guarded by mu.
+	wsWrites  map[*websocket.Conn]*sync.Mutex
 	wsSem     chan struct{} // caps simultaneous WebSocket connections
 	mu        sync.RWMutex
 	snapshot  *LiveSnapshot
@@ -260,6 +267,7 @@ func NewServer() *Server {
 			WriteBufferSize: 1024,
 		},
 		clients:      make(map[*websocket.Conn]bool),
+		wsWrites:     make(map[*websocket.Conn]*sync.Mutex),
 		wsSem:        make(chan struct{}, maxWSConnections),
 		owaspSem:     make(chan struct{}, 1),
 		allowedHosts: make(map[string]struct{}),
@@ -775,6 +783,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		s.mu.Lock()
 		delete(s.clients, conn)
+		delete(s.wsWrites, conn)
 		s.mu.Unlock()
 		_ = conn.Close()
 	}()
@@ -811,7 +820,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		"history": s.history,
 	})
 	s.mu.RUnlock()
-	_ = conn.WriteMessage(websocket.TextMessage, initMsg)
+	_ = s.writeWS(conn, initMsg)
 
 	// Listen for commands
 	for {
@@ -1120,6 +1129,33 @@ func IsLoopbackAddr(addr string) bool {
 
 // --- Broadcast --------------------------------------------------------------
 
+// wsWriteLock returns the write mutex for one connection, creating it on
+// first use. Callers must not hold s.mu when calling this.
+func (s *Server) wsWriteLock(c *websocket.Conn) *sync.Mutex {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.wsWrites == nil {
+		s.wsWrites = make(map[*websocket.Conn]*sync.Mutex)
+	}
+	mu, ok := s.wsWrites[c]
+	if !ok {
+		mu = &sync.Mutex{}
+		s.wsWrites[c] = mu
+	}
+	return mu
+}
+
+// writeWS is the only path that writes a data frame to a dashboard client.
+// gorilla/websocket panics on concurrent writes to one connection, and that
+// panic happens in a broadcast goroutine, which takes the whole process down.
+// Serializing here keeps one slow or contended writer from crashing the server.
+func (s *Server) writeWS(c *websocket.Conn, msg []byte) error {
+	mu := s.wsWriteLock(c)
+	mu.Lock()
+	defer mu.Unlock()
+	return c.WriteMessage(websocket.TextMessage, msg)
+}
+
 func (s *Server) broadcast() {
 	s.mu.RLock()
 	snap := s.snapshot
@@ -1139,7 +1175,7 @@ func (s *Server) broadcast() {
 
 	var dead []*websocket.Conn
 	for _, c := range clients {
-		if err := c.WriteMessage(websocket.TextMessage, msg); err != nil {
+		if err := s.writeWS(c, msg); err != nil {
 			dead = append(dead, c)
 		}
 	}
@@ -1149,6 +1185,7 @@ func (s *Server) broadcast() {
 		for _, c := range dead {
 			_ = c.Close()
 			delete(s.clients, c)
+			delete(s.wsWrites, c)
 		}
 		s.mu.Unlock()
 	}
@@ -1173,7 +1210,7 @@ func (s *Server) broadcastRunState() {
 
 	var dead []*websocket.Conn
 	for _, c := range clients {
-		if err := c.WriteMessage(websocket.TextMessage, msg); err != nil {
+		if err := s.writeWS(c, msg); err != nil {
 			dead = append(dead, c)
 		}
 	}
@@ -1183,6 +1220,7 @@ func (s *Server) broadcastRunState() {
 		for _, c := range dead {
 			_ = c.Close()
 			delete(s.clients, c)
+			delete(s.wsWrites, c)
 		}
 		s.mu.Unlock()
 	}
