@@ -197,13 +197,30 @@ Scenario files are parsed with `gopkg.in/yaml.v3 v3.x`.
 
 ---
 
-## 7. Reporting a vulnerability
+## 7. Reporting a vulnerability and disclosure process
 
-This is an internal tool. If you find a security issue in this repository,
-report it to the project maintainers **before** publishing details. Include:
+If you find a security issue in this repository, report it privately to the
+maintainer at **asadbeksoon0421@icloud.com** *before* publishing details. This
+single address handles security reports, general, legal, and enterprise/sales
+inquiries.
+
+Include in your report:
 
 - a description of the issue and its impact;
 - the affected component and version (`./bin/Sift --version`);
 - a minimal reproduction (scenario file or command line) if possible.
 
 Do not include real credentials in the report.
+
+### What to expect
+
+- **Response within 48 hours:** you will receive an initial acknowledgment
+  confirming that your report was received.
+- **Triage:** the maintainer will confirm the finding, assess severity and
+  impact, and let you know whether it is accepted or needs more information.
+- **Fix:** for accepted issues, a remediation plan and target timeline will be
+  shared, followed by a fix and, where applicable, a released patch.
+- **Coordinated disclosure:** the fix and any public advisory will be timed with
+  you. Please allow a reasonable embargo (commonly up to 90 days, adjusted for
+  severity and fix status) and do not disclose publicly before coordination.
+  Researchers may be credited after remediation if desired.

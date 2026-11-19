@@ -4,7 +4,7 @@ Current maintainers of the Sift project.
 
 ## Lead Maintainer
 
-- **Asadbek Abdulboqiyev** — `asadbek@techcorp.example`
+- **Asadbek Abdulboqiyev** — `asadbeksoon0421@icloud.com`
   - GitHub: `@asadbekabdulboqiyev`
   - Responsibilities: architecture, release management, security, and code review.
 
@@ -22,5 +22,5 @@ Current maintainers of the Sift project.
 ## Contact
 
 - **Issues:** GitHub Issues
-- **Security:** `security@techcorp.example` (responsible disclosure)
-- **General:** `maintainers@techcorp.example`
+- **Security:** `asadbeksoon0421@icloud.com` (responsible disclosure)
+- **General:** `asadbeksoon0421@icloud.com`

@@ -1,11 +1,14 @@
 # Licensing
 
-Sift is **open core**. The project has two tiers:
+All software in Sift is open source. Every file in this repository is licensed
+under the **Apache License 2.0**. An optional commercial **Enterprise** tier
+consists of support and services around that same code — it is not a separate
+codebase and it does not gate any software feature.
 
 | Tier | License | What it covers |
 |---|---|---|
-| **Core** (this repository) | [Apache License 2.0](LICENSE) | The CLI, load engine, protocol clients, scenario engine, replay, scanner/pentest, VeriGate, dashboard, reports, and the public Go library in `api/` |
-| **Enterprise** (separate, commercial) | Commercial license | Features built for organisations that must pass procurement and InfoSec review |
+| **Core** (this repository) | [Apache License 2.0](LICENSE) | Everything in this repository: the CLI, load engine, protocol clients, scenario engine, replay, scanner/pentest, VeriGate, dashboard (including OIDC/SAML and RBAC), multi-tenant control plane, persistent run history and audit log, reports, and the public Go library in `api/` |
+| **Enterprise** (optional commercial services) | Commercial services agreement | Priority support, SLA, hosted/managed deployment, compliance/procurement package, and custom integration — services around the same Apache-2.0 software |
 
 ---
 
@@ -18,23 +21,38 @@ in [`LICENSE`](LICENSE) and the attributions in [`NOTICE`](NOTICE).
 
 The full text of the core license is in [`LICENSE`](LICENSE).
 
-## 2. Enterprise tier — commercial
+## 2. Enterprise tier — commercial support and services
 
-The following capabilities are reserved for a commercial license. They are
-**not** part of this repository and are not covered by Apache-2.0:
+Everything in this repository is licensed under **Apache-2.0**. This explicitly
+includes the following capabilities, which are present in the source tree and
+used by the dashboard and server:
 
-- Single sign-on (OIDC / SAML) and role-based access control
-- The multi-tenant control plane (teams, projects, per-tenant isolation)
+- Single sign-on (OIDC / SAML) and role-based access control (RBAC);
+- The multi-tenant control plane (teams, projects, per-tenant isolation);
 - Persistent run history and the audit log of who ran what, against which
-  target, when, and under whose approval
-- The managed distributed fleet (autoscaling, hosted coordinator)
+  target, when, and under whose approval;
+- The distributed fleet coordination code.
 
-These are the features that turn an excellent open-source tool into something a
-bank, hospital, or government buyer can put through procurement. Keeping them
-commercially licensed is what funds the core. Nothing in the core loses
-functionality because of this split — the core stays a complete, usable tool.
+None of these capabilities are removed from the open-source repository, withheld
+from Apache-2.0, or gated behind a commercial license, a license key, or a build
+tag. The Apache-2.0 core is a complete, usable tool on its own.
 
-To discuss a commercial license, contact the maintainer (see [`README.md`](README.md)).
+The commercial **Enterprise** tier is a set of *services* around that same
+Apache-2.0 software. It covers only:
+
+- Priority support (including 24/7 response targets, as defined by contract);
+- A contractual Service Level Agreement (SLA);
+- Hosted / managed deployment (including autoscaling and a hosted coordinator);
+- A compliance and procurement package (documentation and support for InfoSec
+  and procurement review — no certification is implied by this license);
+- Custom integration work.
+
+These are support, deployment, and contractual offerings, not software features
+that are absent from the repository. The commercial tier does not reduce core
+functionality in any way.
+
+To discuss a commercial support agreement, contact the maintainer (see
+[`MAINTAINERS.md`](MAINTAINERS.md)).
 
 ## 3. Relicensing note (prior releases)
 

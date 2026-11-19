@@ -4,27 +4,47 @@
 **Version:** 1.0  
 **Date:** 2026-11-05
 
-This document outlines a potential enterprise/support tier around the open-core Sift project. It does **not** claim certifications, guarantees, or commercial availability unless explicitly stated elsewhere.
+This document outlines a potential enterprise/support tier around the Sift project. It does **not** claim certifications, guarantees, or commercial availability unless explicitly stated elsewhere.
 
-## 1. Open-core boundary (illustrative)
+## 1. Open-core boundary
 
-| Capability | Open Core (Apache-2.0) | Potential Enterprise Tier |
-|---|---:|---:|
-| HTTP load testing | ✅ | ✅ |
-| Security scanning (TLS/WAF/HTTP/security checks) | ✅ | ✅ |
-| Distributed mode + worker controls | ✅ | ✅ |
-| Dashboard (web UI) | ✅ | ✅ |
-| OIDC / RBAC support (project capabilities) | ✅ | ✅ |
-| HTTP/3/QUIC-related capabilities (as implemented) | ✅ | ✅ |
-| Browser-based testing (as implemented) | ✅ | ✅ |
-| SLA commitments | ❌ | Possible (contractual) |
-| Priority support (24/7) | ❌ | Possible (contractual) |
-| SOC 2 Type II / ISO 27001 certification | ❌ | Not currently claimed |
-| Dedicated account management | ❌ | Possible (contractual) |
-| Custom deployment/support packages | ❌ | Possible (contractual) |
-| Advanced audit/export/compliance workflows | Partial/roadmap-dependent | Possible (contractual/roadmap) |
+Every software capability in Sift is in this repository and licensed under
+**Apache-2.0**. This includes single sign-on (OIDC / SAML), role-based access
+control (RBAC), the multi-tenant control plane (teams, projects, per-tenant
+isolation), and persistent run history with audit logging. No feature is removed
+from the open-source repository or withheld behind a commercial license, a
+license key, or a build tag.
 
-## 2. Potential enterprise offerings (non-binding)
+| Capability | In this repository (Apache-2.0) |
+|---|---:|
+| HTTP load testing | ✅ |
+| Security scanning (TLS/WAF/HTTP/security checks) | ✅ |
+| Distributed mode + worker controls | ✅ |
+| Dashboard (web UI) | ✅ |
+| OIDC / SAML single sign-on | ✅ |
+| Role-based access control (RBAC) | ✅ |
+| Multi-tenant control plane (teams, projects, per-tenant isolation) | ✅ |
+| Persistent run history and audit log | ✅ |
+| HTTP/3/QUIC-related capabilities (as implemented) | ✅ |
+| Browser-based testing (as implemented) | ✅ |
+
+The commercial tier below adds **services only**; it adds no software features
+and removes none.
+
+## 2. Enterprise services (commercial, optional)
+
+The Enterprise tier is a set of commercial services around the same Apache-2.0
+software. It covers only:
+
+| Service | Enterprise |
+|---|---:|
+| Priority support (24/7, response targets by severity) | ✅ (contractual) |
+| SLA commitments | ✅ (contractual) |
+| Hosted / managed deployment (including managed distributed fleet) | ✅ |
+| Compliance / procurement documentation and support | ✅ (contractual) |
+| Dedicated account management | ✅ (contractual) |
+| Custom integration | ✅ (contractual) |
+| SOC 2 Type II / ISO 27001 certification | ❌ — Not currently claimed |
 
 ### 2.1 Support and SLA
 - Response-time targets by severity (contract-defined)
@@ -32,18 +52,21 @@ This document outlines a potential enterprise/support tier around the open-core 
 - Operational support guidance for self-hosted deployments
 
 ### 2.2 Compliance and governance (roadmap-dependent)
-- Audit log export and retention guidance
+- Audit log export and retention guidance (the audit log itself is in the Apache-2.0 repository)
 - Security/compliance documentation support
 - Formal certifications would require separate audits and are **not** claimed by this document
 
 ### 2.3 Deployment assistance
+- Hosted / managed deployment, including the managed distributed fleet
 - Docker/Helm/Kubernetes deployment guidance
 - On-prem/self-hosted rollout assistance
 - Architecture review for distributed deployments
 
 ## 3. Example pricing tiers (placeholder)
 
-> Pricing below is illustrative only and not a published offer.
+> Pricing below is illustrative only and not a published offer. Plans describe
+> support/services only — all software features are included in Apache-2.0
+> regardless of plan.
 
 | Plan | Example Price | Users/Admins | Support |
 |---|---:|---:|---|
@@ -54,14 +77,14 @@ This document outlines a potential enterprise/support tier around the open-core 
 ## 4. When an enterprise/support tier may be relevant
 
 - Organizations requiring contractual support/SLA commitments
-- Teams needing deployment assistance for production/self-hosted environments
-- Customers with governance/audit workflow requirements (subject to implemented capabilities)
+- Teams needing hosted/managed deployment or deployment assistance for production/self-hosted environments
+- Customers with governance/audit workflow requirements (the underlying capabilities are available in Apache-2.0)
 
-The open-core project remains focused on providing core technical capabilities; any commercial tier would primarily cover support, services, and contractual commitments.
+The open-core project provides all core technical capabilities under Apache-2.0; any commercial tier exclusively covers support, services, and contractual commitments.
 
 ## 5. Open items
 
 - [ ] Define actual commercial packaging and support boundaries (if pursued)
 - [ ] Validate compliance roadmap separately (no certification claims until audited)
-- [ ] Establish billing/licensing/support processes (if commercialized)
+- [ ] Establish billing/support processes (if commercialized)
 - [ ] Publish official support/contact channels for enterprise inquiries

@@ -29,9 +29,9 @@
 If you discover a security vulnerability in Sift:
 
 1. **Do not disclose publicly before coordination.**
-2. **Report privately:** send details to `security@techcorp.example`.
+2. **Report privately:** send details to `asadbeksoon0421@icloud.com`.
 3. **Include:** vulnerability type, affected component/location, reproduction steps, and impact assessment.
-4. **Response target:** acknowledgment within 5 business days; remediation plan or fix timeline typically within 30 business days (severity-dependent).
+4. **Response target:** acknowledgment within 48 hours; triage, remediation plan, and a fix timeline follow, with the final fix and public disclosure coordinated with the reporter.
 5. **Credit:** researchers may be credited after remediation if desired.
 
 Please allow a reasonable embargo period (commonly up to 90 days, adjusted based on risk and fix status) before public disclosure.
@@ -84,7 +84,7 @@ Sift is provided **"as is"**, without warranties. Operators are responsible for 
 
 | Purpose | Contact |
 |---|---|
-| General questions | `maintainers@techcorp.example` |
-| Security reports | `security@techcorp.example` |
-| Legal / DPA inquiries | `legal@techcorp.example` |
-| Enterprise / sales inquiries | `sales@techcorp.example` |
+| General questions | `asadbeksoon0421@icloud.com` |
+| Security reports | `asadbeksoon0421@icloud.com` |
+| Legal / DPA inquiries | `asadbeksoon0421@icloud.com` |
+| Enterprise / sales inquiries | `asadbeksoon0421@icloud.com` |
