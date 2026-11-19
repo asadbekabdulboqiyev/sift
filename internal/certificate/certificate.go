@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/attest"
+	"github.com/asadbekabdulboqiyev/sift/internal/finding"
 )
 
 // Version is the original ss-cert envelope format. This build issues VersionV2;
@@ -44,6 +45,33 @@ type Finding struct {
 	Severity string `json:"severity"` // critical, high, medium, low, info
 	Title    string `json:"title"`
 	Evidence string `json:"evidence,omitempty"`
+}
+
+// Canonical converts a certificate finding into the shared model. Only the
+// fields this legacy shape carries are set; canonical-only fields stay at
+// their zero values. The signed assessment payload keeps its exact JSON form.
+func (f Finding) Canonical() finding.Finding {
+	return finding.Finding{
+		ID:       f.ID,
+		Severity: f.Severity,
+		Title:    f.Title,
+		Evidence: f.Evidence,
+	}
+}
+
+// ToCanonical is the function form of Finding.Canonical.
+func ToCanonical(f Finding) finding.Finding { return f.Canonical() }
+
+// FromCanonical converts a shared finding back into the legacy certificate
+// shape. Canonical-only fields have no certificate representation and are
+// intentionally dropped.
+func FromCanonical(f finding.Finding) Finding {
+	return Finding{
+		ID:       f.ID,
+		Severity: f.Severity,
+		Title:    f.Title,
+		Evidence: f.Evidence,
+	}
 }
 
 // ComplianceResult maps one framework control to pass/fail.

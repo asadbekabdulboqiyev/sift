@@ -1,6 +1,10 @@
 package audit360
 
-import "time"
+import (
+	"time"
+
+	"github.com/asadbekabdulboqiyev/sift/internal/finding"
+)
 
 // Stage identifiers for progress reporting.
 const (
@@ -45,6 +49,35 @@ type Finding struct {
 	Remediation   string `json:"remediation"`
 	Evidence      string `json:"evidence,omitempty"` // measured/observed evidence supporting the finding
 	Source        string `json:"source,omitempty"`   // security_scan|stress_test|system|evidence_quality
+}
+
+// Canonical converts an audit360 finding into the shared model. ImpactSummary
+// is the audit360 spelling of the canonical impact field.
+func (f Finding) Canonical() finding.Finding {
+	return finding.Finding{
+		Title:       f.Title,
+		Severity:    f.Severity,
+		Impact:      f.ImpactSummary,
+		Remediation: f.Remediation,
+		Evidence:    f.Evidence,
+		Source:      f.Source,
+	}
+}
+
+// ToCanonical is the function form of Finding.Canonical.
+func ToCanonical(f Finding) finding.Finding { return f.Canonical() }
+
+// FromCanonical converts a shared finding back into the legacy audit360 shape.
+// Canonical-only fields have no audit360 representation and are dropped.
+func FromCanonical(f finding.Finding) Finding {
+	return Finding{
+		Title:         f.Title,
+		Severity:      f.Severity,
+		ImpactSummary: f.Impact,
+		Remediation:   f.Remediation,
+		Evidence:      f.Evidence,
+		Source:        f.Source,
+	}
 }
 
 // ScoreBreakdown provides separate assessments (0-100) by category.
