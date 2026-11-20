@@ -59,13 +59,16 @@ type runOptions struct {
 	resourceEvidenceFile string
 	authzOpts            gateOptions
 
-	dashAuthTokens    stringListFlags
-	dashAuthAPIKeys   stringListFlags
-	dashAuthOrigins   stringListFlags
-	dashAuthRateLimit float64
-	dashAuthBurst     int
-	dashAuthProxy     bool
-	dashAuthInsecure  bool
+	dashAuthTokens      stringListFlags
+	dashAuthAPIKeys     stringListFlags
+	dashAuthOrigins     stringListFlags
+	dashAuthOIDC        stringListFlags
+	dashAuthRBAC        stringListFlags
+	dashAuthRBACEnabled bool
+	dashAuthRateLimit   float64
+	dashAuthBurst       int
+	dashAuthProxy       bool
+	dashAuthInsecure    bool
 
 	scenario *config.Scenario
 }
@@ -131,9 +134,12 @@ func addRunDashboardFlags(fs *flag.FlagSet, o *runOptions) {
 	fs.Var(&o.dashAuthTokens, "dashboard-auth-token", "bearer token required for the dashboard control API (repeatable)")
 	fs.Var(&o.dashAuthAPIKeys, "dashboard-auth-api-key", "SHA-256 hex of an accepted dashboard API key (repeatable)")
 	fs.Var(&o.dashAuthOrigins, "dashboard-auth-origin", "allowed origin for state-changing requests (repeatable; CSRF)")
+	fs.Var(&o.dashAuthOIDC, "dashboard-auth-oidc", "OIDC issuer:client_id pairs for ID token verification (repeatable; last valid pair wins)")
+	fs.Var(&o.dashAuthRBAC, "dashboard-auth-rbac", "subject:role1,role2 role assignments (repeatable; requires --dashboard-auth-oidc)")
 	fs.Float64Var(&o.dashAuthRateLimit, "dashboard-auth-rate-limit", 0, "per-client-IP request rate limit (0 = disabled)")
 	fs.IntVar(&o.dashAuthBurst, "dashboard-auth-rate-burst", 0, "rate limiter bucket capacity (default 1)")
 	fs.BoolVar(&o.dashAuthProxy, "dashboard-auth-trust-proxy", false, "honor X-Forwarded-For / X-Real-IP for the limiter (only behind a trusted proxy)")
+	fs.BoolVar(&o.dashAuthRBACEnabled, "dashboard-auth-rbac-enabled", false, "enable role-based access control for dashboard endpoints")
 	fs.BoolVar(&o.dashAuthInsecure, "dashboard-insecure", false, "acknowledge running the unauthenticated dashboard control API on a non-loopback address (demo only)")
 }
 

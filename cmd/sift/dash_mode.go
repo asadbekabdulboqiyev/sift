@@ -162,13 +162,18 @@ func runWithDashboard(scenario *config.Scenario, dashListen, reportDir string, d
 		fmt.Fprintln(os.Stderr, "address (--listen 127.0.0.1:8888), or pass --dashboard-insecure to acknowledge the risk.")
 		exitProcess(1)
 	}
+	// Forward the entire AuthOptions value to ApplyAuth: OIDC issuer/client,
+	// role claim, the RBAC toggle and subject->role assignments travel with
+	// the token/origin fields, so `sift run --mode dashboard` enforces the same
+	// policy as the standalone sift-dashboard entry point.
 	var auth *dashboard.Auth
 	switch {
 	case dashAuth.HasCredentials():
 		auth = srv.ApplyAuth(dashAuth)
 		defer auth.Close()
-		fmt.Printf("  🔒 Control API protected (tokens=%d api-keys=%d origins=%d)\n",
-			len(dashAuth.Tokens), len(dashAuth.APIKeyHashes), len(dashAuth.AllowedOrigins))
+		fmt.Printf("  🔒 Control API protected (tokens=%d api-keys=%d origins=%d oidc=%t rbac=%t)\n",
+			len(dashAuth.Tokens), len(dashAuth.APIKeyHashes), len(dashAuth.AllowedOrigins),
+			dashAuth.OIDCIssuer != "", dashAuth.RBACEnabled)
 	case !dashboard.IsLoopbackAddr(dashListen):
 		fmt.Fprintln(os.Stderr, "WARNING: dashboard is listening on a non-loopback interface with NO authentication (--dashboard-insecure).")
 		fmt.Fprintln(os.Stderr, "Anyone who can reach this address can start/stop load runs. Publish the port on loopback only.")

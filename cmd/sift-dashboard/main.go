@@ -37,6 +37,24 @@ func (s *flagStrings) Set(v string) error {
 	return nil
 }
 
+// parseOIDCPairs parses issuer:client_id flag values. It splits on the LAST
+// colon so an issuer that is a URL with a port stays intact, e.g.
+// "https://issuer.example.com:8443:client-id" -> issuer "https://...:8443",
+// client "client-id". Malformed entries are skipped; the last valid pair wins.
+// This mirrors dashboardAuthOptions in `sift run --dashboard` so both entry
+// points configure OIDC identically.
+func parseOIDCPairs(entries []string) (issuer, clientID string) {
+	for _, entry := range entries {
+		idx := strings.LastIndex(entry, ":")
+		if idx <= 0 || idx == len(entry)-1 {
+			continue
+		}
+		issuer = strings.TrimSpace(entry[:idx])
+		clientID = strings.TrimSpace(entry[idx+1:])
+	}
+	return issuer, clientID
+}
+
 func isVersionArg(arg string) bool {
 	switch arg {
 	case "version", "--version", "-version", "-v":
@@ -145,15 +163,7 @@ Examples:
 		}
 	})
 
-	// Parse OIDC issuer:client_id pairs
-	var oidcIssuer, oidcClientID string
-	for _, entry := range authOIDC {
-		parts := strings.SplitN(entry, ":", 2)
-		if len(parts) == 2 {
-			oidcIssuer = strings.TrimSpace(parts[0])
-			oidcClientID = strings.TrimSpace(parts[1])
-		}
-	}
+	oidcIssuer, oidcClientID := parseOIDCPairs(authOIDC)
 
 	authOpts := dashboard.AuthOptions{
 		Tokens:         authTokens,

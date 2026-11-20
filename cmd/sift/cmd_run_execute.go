@@ -17,6 +17,26 @@ import (
 // dashboardAuthOptions translates the CLI auth flags into the dashboard's
 // auth options without changing any default or validation.
 func dashboardAuthOptions(o *runOptions) dashboard.AuthOptions {
+	// Mirror the standalone sift-dashboard flags: --dashboard-auth-oidc takes
+	// issuer:client_id pairs (the last valid pair wins) and --dashboard-auth-rbac
+	// takes subject:role1,role2 assignments. Split on the LAST colon so an
+	// issuer that is a URL ("https://issuer.example.com:client-id") works too.
+	// The role claim defaults to "role", matching sift-dashboard's hardcoded
+	// value; it stays empty when OIDC is not configured so existing defaults
+	// are untouched.
+	var oidcIssuer, oidcClientID, roleClaim string
+	for _, entry := range o.dashAuthOIDC {
+		idx := strings.LastIndex(entry, ":")
+		if idx <= 0 || idx == len(entry)-1 {
+			continue
+		}
+		oidcIssuer = strings.TrimSpace(entry[:idx])
+		oidcClientID = strings.TrimSpace(entry[idx+1:])
+	}
+	if oidcIssuer != "" && oidcClientID != "" {
+		roleClaim = "role"
+	}
+
 	return dashboard.AuthOptions{
 		Tokens:         o.dashAuthTokens,
 		APIKeyHashes:   o.dashAuthAPIKeys,
@@ -25,6 +45,11 @@ func dashboardAuthOptions(o *runOptions) dashboard.AuthOptions {
 		RateLimitBurst: o.dashAuthBurst,
 		TrustProxy:     o.dashAuthProxy,
 		AllowAnonymous: o.dashAuthInsecure,
+		OIDCIssuer:     oidcIssuer,
+		OIDCClientID:   oidcClientID,
+		OIDCRoleClaim:  roleClaim,
+		RBACEnabled:    o.dashAuthRBACEnabled,
+		RBACRole:       o.dashAuthRBAC,
 	}
 }
 
