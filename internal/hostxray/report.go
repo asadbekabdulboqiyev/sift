@@ -70,14 +70,18 @@ func LoadSignals(path string) ([]Signal, error) {
 
 	if trimmed[0] == '{' {
 		var wrapper struct {
-			Signals []rawSignal `json:"signals"`
+			// A pointer distinguishes an absent "signals" key (a single
+			// signal object) from a present but empty one (a wrapper with
+			// nothing to join). With a plain slice both look empty and the
+			// single-object shape documented above is rejected by mistake.
+			Signals *[]rawSignal `json:"signals"`
 		}
 		wrapperErr := json.Unmarshal(trimmed, &wrapper)
-		if wrapperErr == nil && len(wrapper.Signals) > 0 {
-			return convertSignals(wrapper.Signals)
-		}
-		if wrapperErr == nil && len(wrapper.Signals) == 0 {
-			return nil, fmt.Errorf("host xray: signal file %s contains no signals", filepath.Clean(path))
+		if wrapperErr == nil && wrapper.Signals != nil {
+			if len(*wrapper.Signals) == 0 {
+				return nil, fmt.Errorf("host xray: signal file %s contains no signals", filepath.Clean(path))
+			}
+			return convertSignals(*wrapper.Signals)
 		}
 		var single rawSignal
 		if err := json.Unmarshal(trimmed, &single); err == nil {
