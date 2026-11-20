@@ -14,7 +14,10 @@ package main
 //
 //	Sift trust add --key school.pub --label "School #12"   # enrol once
 //	Sift trust list                                        # review it
-//	Sift verify --bundle b.json --require-anchor           # enforce it
+//	Sift verify --bundle b.json                            # anchor required by default
+//
+// Since F-02 (2026-11-20) --require-anchor is the default; --allow-unpinned is
+// the explicit opt-out for a self-consistency-only check.
 //
 // A trust store holds public keys only, so it is world-readable and safe to
 // commit to a repository where a reviewer can see every change.
@@ -123,9 +126,10 @@ func trustAdd(args []string) {
 	}
 	fmt.Printf("  store:  %s (%d issuers)\n", *storePath, store.Len())
 	fmt.Println()
-	fmt.Println("Enforce it:")
-	fmt.Printf("  Sift verify --bundle <bundle.json> --require-anchor\n")
-	fmt.Printf("  Sift certificate <cert.json> --require-anchor\n")
+	fmt.Println("Verify (anchor now required by default):")
+	fmt.Printf("  Sift verify --bundle <bundle.json>\n")
+	fmt.Printf("  Sift certificate <cert.json>\n")
+	fmt.Println("For a self-consistency-only check: add --allow-unpinned")
 }
 
 // trustList implements: Sift trust list [--json]
@@ -371,7 +375,8 @@ Examples:
   Sift keygen --out school.pem
   Sift trust add --key school.pem --label "School #12"
   Sift trust list
-  Sift verify --bundle bundle.json --require-anchor
+  Sift verify --bundle bundle.json                    # trust anchor required by default
   Sift certificate cert.json --trust-store ./trust.json
+  Sift verify --bundle bundle.json --allow-unpinned   # explicit self-consistency-only check
 `)
 }

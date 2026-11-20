@@ -57,7 +57,9 @@ func TestCertificateCLIIssueThenVerifyRoundTrip(t *testing.T) {
 	}
 
 	certPath := out + ".json"
-	res = runCommandFn(t, cmdCertificate, "certificate", certPath)
+	// F-02: no issuer is pinned in this throwaway home, so the legacy
+	// self-consistency check needs the explicit opt-out.
+	res = runCommandFn(t, cmdCertificate, "certificate", certPath, "--allow-unpinned")
 	if res.code != 0 {
 		t.Fatalf("verify exit = %d, stdout = %s, stderr = %s", res.code, res.stdout, res.stderr)
 	}

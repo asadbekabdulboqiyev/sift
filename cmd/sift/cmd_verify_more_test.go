@@ -34,7 +34,7 @@ func TestCLIVerifyJSONProofsVerifiedNonzero(t *testing.T) {
 	coord, worker := vbFreshKeys(t)
 	bundlePath, samplesPath, _ := vbWritePack(t, coord, worker, "w1", vbRecords("w1", 5))
 
-	res := runCLI(t, "verify", "--bundle", bundlePath, "--samples", samplesPath, "--json")
+	res := runCLI(t, "verify", "--bundle", bundlePath, "--samples", samplesPath, "--json", "--allow-unpinned")
 	if res.code != 0 {
 		t.Fatalf("verify --json exit = %d, want 0\nstdout:\n%s\nstderr:\n%s", res.code, res.stdout, res.stderr)
 	}
@@ -62,7 +62,7 @@ func TestCLIVerifyNoSidecarIsDocumentedPass(t *testing.T) {
 	coord, worker := vbFreshKeys(t)
 	bundlePath, _, _ := vbWritePack(t, coord, worker, "w1", vbRecords("w1", 5))
 
-	res := runCLI(t, "verify", "--bundle", bundlePath, "--json")
+	res := runCLI(t, "verify", "--bundle", bundlePath, "--json", "--allow-unpinned")
 	if res.code != 0 {
 		t.Fatalf("verify without sidecar exit = %d, want 0\nstdout:\n%s\nstderr:\n%s", res.code, res.stdout, res.stderr)
 	}
@@ -74,7 +74,7 @@ func TestCLIVerifyNoSidecarIsDocumentedPass(t *testing.T) {
 		t.Fatalf("want valid=true samples_absent=true, got %+v", got)
 	}
 
-	human := runCLI(t, "verify", "--bundle", bundlePath)
+	human := runCLI(t, "verify", "--bundle", bundlePath, "--allow-unpinned")
 	if human.code != 0 || !strings.Contains(human.stdout, "PASS") || !strings.Contains(human.stdout, "absent") {
 		t.Fatalf("human no-sidecar output unexpected (exit %d):\nstdout:\n%s\nstderr:\n%s",
 			human.code, human.stdout, human.stderr)
@@ -198,7 +198,7 @@ func TestCLIVerifyExpectKeyWrongValidKeyFails(t *testing.T) {
 // not a panic (which would surface as exit 2).
 func TestCLIVerifyNonexistentPathFailsExit1(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "does-not-exist.json")
-	res := runCLI(t, "verify", "--bundle", missing)
+	res := runCLI(t, "verify", "--bundle", missing, "--allow-unpinned")
 	if res.code != 1 {
 		t.Fatalf("verify missing bundle exit = %d, want 1\nstdout:\n%s\nstderr:\n%s", res.code, res.stdout, res.stderr)
 	}
@@ -218,7 +218,7 @@ func TestCLIVerifyWrongFormatFails(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	res := runCLI(t, "verify", "--bundle", path)
+	res := runCLI(t, "verify", "--bundle", path, "--allow-unpinned")
 	if res.code != 1 {
 		t.Fatalf("verify wrong-format bundle exit = %d, want 1\nstdout:\n%s\nstderr:\n%s", res.code, res.stdout, res.stderr)
 	}
@@ -249,10 +249,11 @@ func mutateBundle(t *testing.T, path string, fn func(*attest.Bundle)) {
 // assertVerifyFails runs verify over the pack with --json and requires exit 1
 // with a machine-readable report that disagrees with the pack. Requiring a valid
 // JSON report means a non-zero exit cannot be an incidental crash that happened
-// to exit 1.
+// to exit 1. --allow-unpinned keeps the assertion on the tamper check rather
+// than on F-02's default anchor requirement (covered separately).
 func assertVerifyFails(t *testing.T, bundlePath, samplesPath string) {
 	t.Helper()
-	res := runCLI(t, "verify", "--bundle", bundlePath, "--samples", samplesPath, "--json")
+	res := runCLI(t, "verify", "--bundle", bundlePath, "--samples", samplesPath, "--json", "--allow-unpinned")
 	if res.code != 1 {
 		t.Fatalf("verify exit = %d, want 1\nstdout:\n%s\nstderr:\n%s", res.code, res.stdout, res.stderr)
 	}
@@ -272,7 +273,7 @@ func assertVerifyFails(t *testing.T, bundlePath, samplesPath string) {
 // loading, before a report is produced: it requires exit 1 and no panic text.
 func assertVerifyFailsNoPanic(t *testing.T, bundlePath, samplesPath string) {
 	t.Helper()
-	res := runCLI(t, "verify", "--bundle", bundlePath, "--samples", samplesPath)
+	res := runCLI(t, "verify", "--bundle", bundlePath, "--samples", samplesPath, "--allow-unpinned")
 	if res.code != 1 {
 		t.Fatalf("verify exit = %d, want 1\nstdout:\n%s\nstderr:\n%s", res.code, res.stdout, res.stderr)
 	}

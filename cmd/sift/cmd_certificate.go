@@ -10,10 +10,12 @@ package main
 //	Sift certificate pentest.json           # issue cert.json/.html/.pdf
 //	Sift certificate cert.json              # verify it
 //	Sift certificate cert.pdf               # verify a printed copy
+//	Sift certificate cert.pdf --allow-unpinned  # explicit legacy opt-out
 //	Sift certificate --explain              # plain-English explanation
 //
 // The old flag forms still work (`--from`, `--verify --cert`); nothing that
-// scripts already use was removed.
+// scripts already use was removed. F-02 (2026-11-20): --require-anchor is ON by
+// default, so an unpinned signer is INVALID unless --allow-unpinned is passed.
 
 import (
 	"bytes"
@@ -39,18 +41,19 @@ func defaultCertificateKeyPath() string {
 
 func cmdCertificate() {
 	var (
-		from      string
-		out       string
-		format    string
-		keyPath   string
-		issuer    string
-		verify    bool
-		certPath  string
-		explain   bool
-		quiet     bool
-		trustPath string
-		require   bool
-		asJSON    bool
+		from          string
+		out           string
+		format        string
+		keyPath       string
+		issuer        string
+		verify        bool
+		certPath      string
+		explain       bool
+		quiet         bool
+		trustPath     string
+		require       bool
+		allowUnpinned bool
+		asJSON        bool
 	)
 
 	fs := flag.NewFlagSet("certificate", flag.ContinueOnError)
@@ -66,7 +69,10 @@ func cmdCertificate() {
 	fs.BoolVar(&explain, "explain", false, "explain what the certificate is and how to get/check one")
 	fs.BoolVar(&quiet, "quiet", false, "only print the result, not the next steps")
 	fs.StringVar(&trustPath, "trust-store", "", "issuer trust store (JSON file or key directory); default: $SIFT_HOME/trust.json when it exists")
-	fs.BoolVar(&require, "require-anchor", false, "fail unless the signer is in the trust store")
+	// F-02: secure default at the CLI layer; the certificate library keeps its
+	// explicit requireAnchor parameter unchanged for other callers.
+	fs.BoolVar(&require, "require-anchor", true, "require a trust anchor (default); fail unless the signer is in the trust store")
+	fs.BoolVar(&allowUnpinned, "allow-unpinned", false, "explicitly allow an unpinned signer (disables --require-anchor)")
 	fs.BoolVar(&asJSON, "json", false, "emit a machine-readable verification report")
 
 	if err := fs.Parse(os.Args[2:]); err != nil {
@@ -91,6 +97,19 @@ func cmdCertificate() {
 			}
 			fatal(fmt.Errorf("certificate: %w", err))
 		}
+	}
+
+	// Resolve the trust policy once, after both parses, so a flag placed after
+	// the file name cannot slip past the conflict check.
+	requireSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "require-anchor" {
+			requireSet = true
+		}
+	})
+	anchorRequired, err := resolveAnchorPolicy(require, allowUnpinned, requireSet)
+	if err != nil {
+		fatal(fmt.Errorf("certificate: %w", err))
 	}
 
 	// A verify run that names an output asks for a fresh printable copy. This is
@@ -136,7 +155,7 @@ func cmdCertificate() {
 	}
 
 	if certPath != "" {
-		verifyCertificateFile(certPath, quiet, trustPath, require, asJSON, reissue)
+		verifyCertificateFile(certPath, quiet, trustPath, anchorRequired, asJSON, reissue)
 		return
 	}
 
@@ -273,9 +292,12 @@ func verifyCertificateFile(path string, quiet bool, trustPath string, requireAnc
 	if !check.Trusted() {
 		fmt.Println()
 		fmt.Println("Who signed this is not established: the certificate carries its own signer key.")
-		fmt.Println("To check identity, pin the issuer once and verify again:")
+		if !requireAnchor {
+			fmt.Println("This passed only because --allow-unpinned was given (F-02 opt-out); by default it is INVALID.")
+		}
+		fmt.Println("To check identity, pin the issuer once and verify again (the default):")
 		fmt.Println("  Sift trust add --key <issuer.pub> --label \"<name>\"")
-		fmt.Printf("  Sift certificate %s --require-anchor\n", path)
+		fmt.Printf("  Sift certificate %s\n", path)
 	}
 }
 
@@ -331,9 +353,12 @@ func verifyCertificatePDFFile(path string, data []byte, store *attest.TrustStore
 	if !res.Check.Trusted() {
 		fmt.Println()
 		fmt.Println("Who signed this is not established: the certificate carries its own signer key.")
-		fmt.Println("To check identity, pin the issuer once and verify again:")
+		if !requireAnchor {
+			fmt.Println("This passed only because --allow-unpinned was given (F-02 opt-out); by default it is INVALID.")
+		}
+		fmt.Println("To check identity, pin the issuer once and verify again (the default):")
 		fmt.Println("  Sift trust add --key <issuer.pub> --label \"<name>\"")
-		fmt.Printf("  Sift certificate %s --require-anchor\n", path)
+		fmt.Printf("  Sift certificate %s\n", path)
 	}
 }
 
@@ -535,12 +560,13 @@ func issueCertificate(from, out, format, keyPath, issuer string, quiet bool) {
 		fmt.Printf("    %s\n", p)
 	}
 	fmt.Println()
-	fmt.Println("Verify it (offline, no key needed):")
+	fmt.Println("Verify it (offline, no verification key needed):")
 	if hasFile(written, stem+".json") {
 		fmt.Printf("  Sift certificate %s.json\n", stem)
 	} else {
 		fmt.Printf("  Sift certificate <certificate>.json\n")
 	}
+	fmt.Println("  (needs a pinned issuer by default since F-02; see Sift trust add)")
 	fmt.Println()
 	fmt.Println("Share the .html copy for a printable view; the .json is the proof.")
 	fmt.Println("Tip: the dashboard's Certificate page verifies a dropped file and issues from a dropped report.")
@@ -576,9 +602,13 @@ func printCertificateGuide(explain bool) {
     Sift certificate cert.json --format pdf --out cert
 
   Both forms are the same command: it looks at the file and knows which one
-  you meant. No flags, no key hunting, no network. A PDF verifies on its own:
-  it carries the signed certificate and a digest of the words on its pages, so
-  an edited printout fails even when the JSON inside it is untouched.
+  you meant. No key hunting, no network. A PDF verifies on its own: it carries
+  the signed certificate and a digest of the words on its pages, so an edited
+  printout fails even when the JSON inside it is untouched.
+
+  Since F-02 (2026-11-20) verification REQUIRES a pinned issuer by default.
+  An unpinned signer is INVALID (exit 1). For the old self-consistency-only
+  check, opt out explicitly with --allow-unpinned.
 
   First issue creates a persistent sealing key at:
     ` + defaultCertificateKeyPath() + `
@@ -587,9 +617,10 @@ func printCertificateGuide(explain bool) {
 	if !explain {
 		fmt.Println(`
   More:
-    Sift certificate --explain     what the certificate proves
+    Sift certificate --explain          what the certificate proves
     Sift trust add --key issuer.pub --label "School #12"
-    Sift certificate cert.json --require-anchor
+    Sift certificate cert.json          verify against the pinned issuer (default)
+    Sift certificate cert.json --allow-unpinned   explicit legacy opt-out
     Sift pentest --target URL --authorized TICKET --format json`)
 		return
 	}
@@ -605,27 +636,34 @@ WHAT IT IS
   changes, verification fails.
 
 WHAT IT PROVES — AND WHAT IT DOES NOT
-  It proves: this report was sealed by this signing key, and the document you
-  are reading is the one that was sealed.
-  It does not prove: the target is secure, the scan was exhaustive, or the
-  signer is a trusted authority. It is tamper-evident evidence, not a warranty.
-  That is why every certificate states the coverage and marks untested
-  categories as NOT TESTED instead of inventing a PASS.
+  It proves: this report was sealed by this signing key, the document you
+  are reading is the one that was sealed, and — by default — that the signer
+  is an issuer you pinned out of band.
+  It does not prove: the target is secure, the scan was exhaustive, or that
+  a pinned issuer did the work honestly. It is tamper-evident evidence, not
+  a warranty. That is why every certificate states the coverage and marks
+  untested categories as NOT TESTED instead of inventing a PASS.
 
-WHO ISSUED IT — THE TRUST ANCHOR
-  A certificate carries the key that signed it, so a passing check only proves
-  the file is self-consistent: anyone can mint a keypair and seal any numbers.
-  To establish identity, pin the issuer's public key once, out of band:
+WHO ISSUED IT — THE TRUST ANCHOR (F-02: NOW MANDATORY BY DEFAULT)
+  A certificate carries the key that signed it, so a passing signature alone
+  only proves self-consistency: anyone can mint a keypair and seal any numbers.
+  Before 2026-11-20 an unpinned certificate was reported VALID with exit 0;
+  that was F-02. Verification now requires a trust anchor by default and an
+  unpinned signer is INVALID (exit 1). Pin the issuer's public key once,
+  out of band:
 
     Sift trust add --key school.pub --label "School #12"   # enrol once
-    Sift certificate cert.json --require-anchor            # enforce it
+    Sift certificate cert.json                             # enforce it (default)
 
   The pinned set lives at ` + defaultTrustStorePath() + ` and holds public keys
   only, so it is safe to review or commit. After that, a certificate from any
   other key is refused, and every report names the issuer it accepted.
 
   Precedence: --trust-store wins when given; otherwise the default store is used
-  when it exists; --require-anchor turns "no store" into a failure.
+  when it exists; with no store the check fails. --allow-unpinned is the explicit
+  opt-out that restores the old self-consistency-only behaviour. Passing both
+  --allow-unpinned and --require-anchor is a usage error; --require-anchor=false
+  is equivalent to --allow-unpinned.
 
 HOW TO OBTAIN ONE
   1. Register the authorization the target owner gave you:
@@ -637,9 +675,12 @@ HOW TO OBTAIN ONE
   4. Send cert.json (proof) and cert.html (readable copy).
 
 HOW TO VERIFY ONE
-  Command line:   Sift certificate cert.json
+  Command line:   Sift certificate cert.json                    # pinned (default)
+  Legacy mode:    Sift certificate cert.json --allow-unpinned   # opt-out, F-02
+  Other store:    Sift certificate cert.json --trust-store trust.json
   Dashboard:      open the dashboard, Certificate page, drop cert.json
-  Exit codes:     0 = VALID, 1 = INVALID (the reason is printed)
+  Exit codes:     0 = VALID, 1 = INVALID (the reason is printed). An unpinned
+                  signer is INVALID unless --allow-unpinned was given.
 
 WHERE THE CODE LIVES
   internal/certificate — ss-cert/v1 sign/verify, document binding, HTML/PDF.

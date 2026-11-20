@@ -773,7 +773,10 @@ VERIFY_RC=0
 verify_now() {
   set +e
   if [ "${MODE}" = "live" ]; then
-    "$BIN" verify --bundle "${BUNDLE}" --samples "${SAMPLES}"
+    # F-02: --require-anchor is on by default; this demo verifies a bundle this
+    # script just sealed itself, with no out-of-band trust store. Opt out
+    # explicitly so the self-consistency check still passes.
+    "$BIN" verify --bundle "${BUNDLE}" --samples "${SAMPLES}" --allow-unpinned
   else
     python3 "${REF}" verify --bundle "${BUNDLE}" --samples "${SAMPLES}"
   fi

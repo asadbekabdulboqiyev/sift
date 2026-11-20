@@ -109,7 +109,7 @@ func TestInprocVerifyValidBundle(t *testing.T) {
 	b := vbBuildBundle(t, coord, worker, "w1", vbRecords("w1", 5))
 	bundlePath := writeBundleToFile(t, b)
 
-	res := runCommandFn(t, func() { cmdVerify() }, "verify", "--bundle", bundlePath)
+	res := runCommandFn(t, func() { cmdVerify() }, "verify", "--bundle", bundlePath, "--allow-unpinned")
 	if res.code != 0 {
 		t.Fatalf("verify exit = %d, want 0 (stderr: %s)", res.code, res.stderr)
 	}
@@ -126,7 +126,7 @@ func TestInprocVerifyJSON(t *testing.T) {
 	b := vbBuildBundle(t, coord, worker, "w1", vbRecords("w1", 5))
 	bundlePath := writeBundleToFile(t, b)
 
-	res := runCommandFn(t, func() { cmdVerify() }, "verify", "--bundle", bundlePath, "--json")
+	res := runCommandFn(t, func() { cmdVerify() }, "verify", "--bundle", bundlePath, "--json", "--allow-unpinned")
 	if res.code != 0 {
 		t.Fatalf("verify --json exit = %d, want 0 (stderr: %s)", res.code, res.stderr)
 	}
@@ -163,7 +163,7 @@ func TestInprocVerifyWithSidecar(t *testing.T) {
 		t.Fatalf("close sidecar: %v", err)
 	}
 
-	res := runCommandFn(t, func() { cmdVerify() }, "verify", "--bundle", bundlePath, "--samples", samplesPath)
+	res := runCommandFn(t, func() { cmdVerify() }, "verify", "--bundle", bundlePath, "--samples", samplesPath, "--allow-unpinned")
 	if res.code != 0 {
 		t.Fatalf("verify with sidecar exit = %d, want 0 (stderr: %s)", res.code, res.stderr)
 	}
@@ -187,7 +187,7 @@ func TestInprocVerifyUsageAndLoadErrors(t *testing.T) {
 			if err := os.WriteFile(p, []byte(`{"not":"vpmp/v1"}`), 0o644); err != nil {
 				panic(err)
 			}
-			return []string{"verify", "--bundle", p}
+			return []string{"verify", "--bundle", p, "--allow-unpinned"}
 		}(), 1, "bundle is not valid"},
 		{"extra positional", []string{"verify", "--bundle", filepath.Join(home, "x.json"), "extra"}, 1, "Usage:"},
 	}
@@ -214,7 +214,7 @@ func TestInprocVerifyInvalidBundleFails(t *testing.T) {
 	if err := os.WriteFile(p, []byte(`{"format":"vpmp/v1","signature":{}}`), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	res := runCommandFn(t, func() { cmdVerify() }, "verify", "--bundle", p)
+	res := runCommandFn(t, func() { cmdVerify() }, "verify", "--bundle", p, "--allow-unpinned")
 	if res.code == 0 {
 		t.Fatalf("verify exit = 0, want non-zero for an invalid bundle (stdout: %s)", res.stdout)
 	}

@@ -438,9 +438,10 @@ func RenderHTMLMeta(a Assessment, m DocumentMeta) string {
         <div class="h" style="margin-top:2.6mm">How to verify</div>
         <code>sift certificate cert.json</code> &nbsp;or&nbsp; <code>sift certificate cert.pdf</code>
         <br>
-        Pin the issuer once with <code>sift trust add --key &lt;issuer.pub&gt;</code>,
-        then add <code>--require-anchor</code> so a certificate from any other key is
-        refused.
+        Pin the issuer once with <code>sift trust add --key &lt;issuer.pub&gt;</code>.
+        Verification requires a trust anchor by default, so a certificate from any
+        other key is refused. Use <code>--allow-unpinned</code> only for an explicit
+        self-consistency-only check.
       </div>
       <div class="sign">
         <div class="stamp">

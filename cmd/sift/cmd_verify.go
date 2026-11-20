@@ -10,6 +10,11 @@ package main
 //	exit status
 //	  0   the bundle is valid
 //	  1   the bundle is invalid, or the command could not run (fail closed)
+//
+// F-02 (2026-11-20): --require-anchor is ON by default. A pack whose signer is
+// not in a trust store is INVALID (exit 1) unless the operator explicitly opts
+// out with --allow-unpinned. The library default (attest.VerifyOptions) is
+// unchanged; this is a CLI policy decision.
 
 import (
 	"encoding/json"
@@ -80,7 +85,9 @@ func cmdVerify() {
 	skipCI := fs.Bool("skip-ci", false, "skip confidence-interval recomputation")
 	expectKey := fs.String("expect-key", "", "pin the coordinator public key (lowercase hex) out of band")
 	trustStorePath := fs.String("trust-store", "", "issuer trust store (JSON file or key directory); default: $SIFT_HOME/trust.json when it exists")
-	requireAnchor := fs.Bool("require-anchor", false, "fail unless the signing key is in the trust store")
+	// F-02: secure default. --allow-unpinned is the explicit, recorded opt-out.
+	requireAnchor := fs.Bool("require-anchor", true, "require a trust anchor (default); fail unless the signing key is in the trust store")
+	allowUnpinned := fs.Bool("allow-unpinned", false, "explicitly allow an unpinned signer (disables --require-anchor)")
 
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		if err == flag.ErrHelp {
@@ -98,6 +105,23 @@ func cmdVerify() {
 		if *asJSON {
 			emitVerifyCLIErrorJSON(fmt.Errorf("verify: --bundle is required"))
 		} else {
+			verifyUsage()
+		}
+		exitProcess(1)
+	}
+
+	requireSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "require-anchor" {
+			requireSet = true
+		}
+	})
+	anchorRequired, err := resolveAnchorPolicy(*requireAnchor, *allowUnpinned, requireSet)
+	if err != nil {
+		if *asJSON {
+			emitVerifyCLIErrorJSON(err)
+		} else {
+			fmt.Fprintln(os.Stderr, "verify:", err)
 			verifyUsage()
 		}
 		exitProcess(1)
@@ -127,7 +151,7 @@ func cmdVerify() {
 
 	var samples map[string][]attest.Record
 	var loadStats attest.SampleLoadStats
-	trustStore, err := loadVerifyTrustStore(*trustStorePath, *requireAnchor)
+	trustStore, err := loadVerifyTrustStore(*trustStorePath, anchorRequired)
 	if err != nil {
 		if *asJSON {
 			emitVerifyCLIErrorJSON(err)
@@ -161,7 +185,7 @@ func cmdVerify() {
 		ProofVerifyLimit:    *proofLimit,
 		SkipCICheck:         *skipCI,
 		TrustStore:          trustStore,
-		RequireTrustAnchor:  *requireAnchor,
+		RequireTrustAnchor:  anchorRequired,
 	})
 
 	if *asJSON {
@@ -330,6 +354,25 @@ func issuerSummaryLine(res attest.VerifyResult) string {
 	}
 }
 
+// resolveAnchorPolicy reduces the two user-facing trust flags to the single
+// requireAnchor value the verifiers take. F-02: --require-anchor is on by
+// default, --allow-unpinned is the explicit opt-out. requireSet says whether
+// --require-anchor was actually written on the command line (needed because
+// the BoolVar default is already true).
+//
+// Rule: contradictory flags are an error, not a silent weaken. --allow-unpinned
+// alone turns anchoring off; --allow-unpinned together with an explicit
+// --require-anchor is refused. --require-anchor=false plus --allow-unpinned is
+// consistent (both mean "allow unpinned") and is accepted. Both commands use
+// this helper so certificate and verify cannot drift apart.
+func resolveAnchorPolicy(requireAnchor, allowUnpinned, requireSet bool) (bool, error) {
+	if allowUnpinned && requireSet && requireAnchor {
+		return false, fmt.Errorf("--allow-unpinned conflicts with --require-anchor (on by default); " +
+			"choose one: pin an issuer, or opt out explicitly with --allow-unpinned")
+	}
+	return requireAnchor && !allowUnpinned, nil
+}
+
 // loadVerifyTrustStore resolves the trust anchor for one verification run.
 //
 // Precedence, and why:
@@ -340,8 +383,9 @@ func issuerSummaryLine(res attest.VerifyResult) string {
 //  2. $SIFT_HOME/trust.json, when it exists. Enrolling an issuer once should
 //     not require repeating a flag on every later command; the file only exists
 //     because an operator created it on purpose.
-//  3. Nothing, when no store exists. The run proceeds in the historical
-//     self-consistency mode and reports the issuer as unpinned.
+//  3. Nothing, when no store exists. Since F-02 this is a failure: the run only
+//     proceeds in self-consistency mode when the operator explicitly passed
+//     --allow-unpinned.
 //
 // A store that exists but does not parse always fails, whatever the flags say:
 // a broken anchor is a different problem from an absent one, and quietly
@@ -360,8 +404,9 @@ func loadVerifyTrustStore(path string, requireAnchor bool) (*attest.TrustStore, 
 		return nil, fmt.Errorf("trust store %s exists but could not be loaded: %w", def, err)
 	}
 	if requireAnchor {
-		return nil, fmt.Errorf("--require-anchor needs a trust store, but %s does not exist\n"+
-			"Pin an issuer first (Sift trust add --key <issuer.pub>), or pass --trust-store <path>", def)
+		return nil, fmt.Errorf("INVALID — no trust anchor: --require-anchor (on by default since F-02) needs a trust store, but %s does not exist\n"+
+			"Pin an issuer first (Sift trust add --key <issuer.pub>), pass --trust-store <path>, "+
+			"or opt out explicitly with --allow-unpinned", def)
 	}
 	return nil, nil
 }
@@ -398,23 +443,28 @@ Flags:
   --json                           emit a machine-readable JSON report
   --expect-key string              pin the coordinator public key (hex) out of band
   --trust-store string             issuer trust store (JSON file or key directory)
-  --require-anchor                 fail unless the signing key is in the trust store
+  --require-anchor                 require a trust anchor (DEFAULT since F-02)
+  --allow-unpinned                 opt out: allow an unpinned signer
   --max-samples-per-worker int     per-worker record limit (0 = default)
   --max-samples int                whole-file record limit (0 = default)
   --proof-limit int                SHA-256 budget for proof verification
   --skip-ci                        skip confidence-interval recomputation
 
-Issuer trust:
-  A bundle carries the key that signed it, so a valid signature only proves the
-  file is self-consistent. --trust-store adds the missing half: the set of
-  issuers you decided to accept. Precedence: --trust-store when given, otherwise
-  $SIFT_HOME/trust.json when it exists. With --require-anchor, a bundle from any
-  key outside that set fails, and a missing store is an error.
+Issuer trust (changed by F-02, 2026-11-20):
+  A bundle carries the key that signed it, so a valid signature alone proves
+  only self-consistency: anyone can mint a keypair. Verification therefore
+  requires a trust anchor BY DEFAULT. Precedence: --trust-store when given,
+  otherwise $SIFT_HOME/trust.json when it exists. A signer outside that set, or
+  a missing store, is INVALID (exit 1). --allow-unpinned is the explicit opt-out
+  for the old self-consistency-only behaviour. Passing --allow-unpinned together
+  with --require-anchor is a usage error; --require-anchor=false is the same
+  opt-out as --allow-unpinned.
 
 Examples:
-  Sift verify --bundle bundle.json --samples bundle.samples.jsonl
-  Sift verify --bundle bundle.json --json
   Sift trust add --key school.pub --label "School #12"
-  Sift verify --bundle bundle.json --require-anchor
+  Sift verify --bundle bundle.json --samples bundle.samples.jsonl
+  Sift verify --bundle bundle.json --trust-store trust.json
+  Sift verify --bundle bundle.json --json
+  Sift verify --bundle bundle.json --allow-unpinned   # explicit legacy mode
 `)
 }

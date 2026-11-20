@@ -358,19 +358,26 @@ func TestCLICertificateRequireAnchor(t *testing.T) {
 	home := t.TempDir()
 	env := []string{"SIFT_HOME=" + home}
 
-	// Historical behaviour: a certificate verifies without any trust setup.
+	// F-02 default: with no trust setup, an unpinned certificate is INVALID.
 	res := runCLIEnv(t, env, "certificate", certPath)
-	if res.code != 0 {
-		t.Fatalf("plain verify exit = %d, want 0\nstderr:\n%s", res.code, res.stderr)
+	if res.code != 1 {
+		t.Fatalf("default verify without a store exit = %d, want 1\nstdout:\n%s", res.code, res.stdout)
 	}
-	if !strings.Contains(res.stdout, "VALID") {
-		t.Fatalf("plain verify did not report VALID:\n%s", res.stdout)
-	}
-	if !strings.Contains(res.stdout, "unpinned") {
-		t.Fatalf("plain verify did not disclose that the issuer is unpinned:\n%s", res.stdout)
+	if !strings.Contains(res.stderr, "INVALID") {
+		t.Fatalf("default verify did not fail closed:\n%s", res.stderr)
 	}
 
-	// --require-anchor with nothing enrolled fails closed.
+	// The historical self-consistency check is still available as an explicit
+	// opt-out, and says so in its report.
+	res = runCLIEnv(t, env, "certificate", certPath, "--allow-unpinned")
+	if res.code != 0 {
+		t.Fatalf("opt-out verify exit = %d, want 0\nstderr:\n%s", res.code, res.stderr)
+	}
+	if !strings.Contains(res.stdout, "VALID") || !strings.Contains(res.stdout, "unpinned") {
+		t.Fatalf("opt-out did not report a valid but unpinned certificate:\n%s", res.stdout)
+	}
+
+	// Explicit --require-anchor with nothing enrolled also fails closed.
 	res = runCLIEnv(t, env, "certificate", certPath, "--require-anchor")
 	if res.code != 1 {
 		t.Fatalf("--require-anchor without a store exit = %d, want 1\nstdout:\n%s", res.code, res.stdout)

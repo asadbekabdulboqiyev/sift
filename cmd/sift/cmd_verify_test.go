@@ -389,7 +389,9 @@ func TestCLIKeygenVerifyEndToEnd(t *testing.T) {
 
 	bundlePath, samplesPath, _ := vbWritePack(t, coord, worker, "w1", vbRecords("w1", 5))
 
-	res := runCLI(t, "verify", "--bundle", bundlePath, "--samples", samplesPath)
+	// F-02: no issuer is pinned in the test home, so use the explicit opt-out
+	// for this signature/consistency round-trip.
+	res := runCLI(t, "verify", "--bundle", bundlePath, "--samples", samplesPath, "--allow-unpinned")
 	if res.code != 0 {
 		t.Fatalf("verify exit = %d, want 0\nstdout:\n%s\nstderr:\n%s", res.code, res.stdout, res.stderr)
 	}
@@ -399,14 +401,14 @@ func TestCLIKeygenVerifyEndToEnd(t *testing.T) {
 
 	// The same pack with only the bundle (no sidecar) must also pass: the
 	// signature and internal consistency are checkable without the receipts.
-	res = runCLI(t, "verify", "--bundle", bundlePath)
+	res = runCLI(t, "verify", "--bundle", bundlePath, "--allow-unpinned")
 	if res.code != 0 {
 		t.Fatalf("verify (no sidecar) exit = %d, want 0\nstdout:\n%s\nstderr:\n%s", res.code, res.stdout, res.stderr)
 	}
 
 	// An out-of-band pin of the correct coordinator key must pass, and a wrong
 	// pin must fail closed.
-	res = runCLI(t, "verify", "--bundle", bundlePath, "--samples", samplesPath, "--expect-key", attest.PublicKeyHex(coord.Public))
+	res = runCLI(t, "verify", "--bundle", bundlePath, "--samples", samplesPath, "--expect-key", attest.PublicKeyHex(coord.Public), "--allow-unpinned")
 	if res.code != 0 {
 		t.Fatalf("verify with correct --expect-key exit = %d, want 0\nstderr:\n%s", res.code, res.stderr)
 	}
@@ -422,7 +424,7 @@ func TestCLIVerifyJSONOutput(t *testing.T) {
 	coord, worker := vbFreshKeys(t)
 	bundlePath, samplesPath, _ := vbWritePack(t, coord, worker, "w1", vbRecords("w1", 5))
 
-	res := runCLI(t, "verify", "--bundle", bundlePath, "--samples", samplesPath, "--json")
+	res := runCLI(t, "verify", "--bundle", bundlePath, "--samples", samplesPath, "--json", "--allow-unpinned")
 	if res.code != 0 {
 		t.Fatalf("verify --json exit = %d, want 0\nstdout:\n%s\nstderr:\n%s", res.code, res.stdout, res.stderr)
 	}
@@ -475,7 +477,7 @@ func TestCLIVerifyTamperedSampleFails(t *testing.T) {
 		t.Fatalf("write tampered sidecar: %v", err)
 	}
 
-	res := runCLI(t, "verify", "--bundle", bundlePath, "--samples", samplesPath, "--json")
+	res := runCLI(t, "verify", "--bundle", bundlePath, "--samples", samplesPath, "--json", "--allow-unpinned")
 	if res.code != 1 {
 		t.Fatalf("verify tampered exit = %d, want 1\nstdout:\n%s\nstderr:\n%s", res.code, res.stdout, res.stderr)
 	}
@@ -511,7 +513,7 @@ func TestCLIVerifyBrokenBundleSignatureFails(t *testing.T) {
 		t.Fatalf("SaveBundle (tampered): %v", err)
 	}
 
-	res := runCLI(t, "verify", "--bundle", bundlePath, "--samples", samplesPath)
+	res := runCLI(t, "verify", "--bundle", bundlePath, "--samples", samplesPath, "--allow-unpinned")
 	if res.code != 1 {
 		t.Fatalf("verify broken-signature exit = %d, want 1\nstdout:\n%s\nstderr:\n%s", res.code, res.stdout, res.stderr)
 	}
@@ -540,7 +542,7 @@ func TestCLIVerifyMalformedBundleNoPanic(t *testing.T) {
 		t.Fatalf("write truncated bundle: %v", err)
 	}
 
-	res := runCLI(t, "verify", "--bundle", bundlePath)
+	res := runCLI(t, "verify", "--bundle", bundlePath, "--allow-unpinned")
 	if res.code != 1 {
 		t.Fatalf("verify truncated bundle exit = %d, want 1\nstdout:\n%s\nstderr:\n%s", res.code, res.stdout, res.stderr)
 	}
@@ -573,7 +575,7 @@ func TestCLIVerifyMixedUpWorkerIDsFails(t *testing.T) {
 		t.Fatalf("close sidecar: %v", err)
 	}
 
-	res := runCLI(t, "verify", "--bundle", bundlePath, "--samples", samplesPath)
+	res := runCLI(t, "verify", "--bundle", bundlePath, "--samples", samplesPath, "--allow-unpinned")
 	if res.code != 1 {
 		t.Fatalf("verify with mixed-up worker ids exit = %d, want 1\nstdout:\n%s\nstderr:\n%s", res.code, res.stdout, res.stderr)
 	}

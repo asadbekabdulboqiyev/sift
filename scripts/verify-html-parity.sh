@@ -194,10 +194,13 @@ fi
 
 last_rc=0
 run_go() {
+  # F-02: --require-anchor is on by default. This fixture has no pinned issuer
+  # by design (it checks Go/JS JSON parity, not issuer trust), so opt out
+  # explicitly on both call forms.
   if [[ -n "${3:-}" ]]; then
-    "$work/Sift" verify --bundle "$2" --samples "$3" --json >"$1" 2>/dev/null
+    "$work/Sift" verify --bundle "$2" --samples "$3" --json --allow-unpinned >"$1" 2>/dev/null
   else
-    "$work/Sift" verify --bundle "$2" --json >"$1" 2>/dev/null
+    "$work/Sift" verify --bundle "$2" --json --allow-unpinned >"$1" 2>/dev/null
   fi
   last_rc=$?
   return 0
