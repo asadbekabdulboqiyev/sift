@@ -42,7 +42,7 @@ InstallerSwitches:
 Installers:
   - Architecture: x64
     InstallerUrl: https://github.com/asadbekabdulboqiyev/Sift/releases/download/v0.18.1/Sift_0.18.1_windows_amd64.zip
-    InstallerSha256: 70ee00f9067596820992809e7128d813ebd88e9ab117dfaee86fbd7c0199292f
+    InstallerSha256: 26eb5cab1d203efa6ac1b56a06107374af1d0626fe9854667c0ec018c0cfb66d
 
 FileExtensions:
   - ss

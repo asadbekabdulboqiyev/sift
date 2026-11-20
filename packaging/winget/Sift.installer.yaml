@@ -8,7 +8,7 @@ ReleaseNotesUrl: https://github.com/asadbekabdulboqiyev/Sift/releases/tag/v0.18.
 Installers:
   - Architecture: arm64
     InstallerUrl: https://github.com/asadbekabdulboqiyev/Sift/releases/download/v0.18.1/Sift_0.18.1_windows_arm64.zip
-    InstallerSha256: e251a45963928b9ddf9dc9d76640448fcee67dd1a22fff0fb53ee0b885c2c4f7
+    InstallerSha256: c7c6e5dd3f3aef8f1f0fb163980221d276ef1caad8ee86b34a8a1361abbdc0cb
 FileExtensions:
   - ss
 Commands:

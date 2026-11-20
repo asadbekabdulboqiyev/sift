@@ -23,8 +23,8 @@
         "arm64": "https://github.com/asadbekabdulboqiyev/Sift/releases/download/v0.18.1/Sift_0.18.1_windows_arm64.zip"
     },
     "hash": {
-        "x64": "3e61bd735426eda116591d69dcbae28b0ba9f841f06c0a60c82d2c21c7a9a2b7",
-        "arm64": "8f1823b61e8bfece76cfd85247989ad96ef43b498eda57109533bd41c6d96b0c"
+        "x64": "26eb5cab1d203efa6ac1b56a06107374af1d0626fe9854667c0ec018c0cfb66d",
+        "arm64": "c7c6e5dd3f3aef8f1f0fb163980221d276ef1caad8ee86b34a8a1361abbdc0cb"
     },
     "autoupdate": {
         "x64": "https://github.com/asadbekabdulboqiyev/Sift/releases/download/v{{version}}/Sift_{{version}}_windows_amd64.zip",
