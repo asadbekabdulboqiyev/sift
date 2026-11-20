@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -80,7 +81,10 @@ func TestWritePreservesPermissions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("stat %s: %v", path, err)
 		}
-		if got := info.Mode().Perm(); got != perm {
+		// Windows has no POSIX permission bits: os.Chmod only toggles the
+		// read-only attribute and os.Stat reports 0666 for any writable file,
+		// so the assertion is meaningful on Unix (Linux/macOS) only.
+		if got := info.Mode().Perm(); runtime.GOOS != "windows" && got != perm {
 			t.Errorf("%s mode = %o, want %o", path, got, perm)
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -198,7 +199,10 @@ func TestWriteJSONLAndLoadJSONLRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	// Windows has no POSIX permission bits: os.Chmod only toggles the
+	// read-only attribute and os.Stat reports 0666 for any writable file,
+	// so the assertion is meaningful on Unix (Linux/macOS) only.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Errorf("artifact mode = %o, want 600", info.Mode().Perm())
 	}
 	dirInfo, err := os.Stat(dir)
