@@ -2,7 +2,6 @@ package scanner
 
 import (
 	"fmt"
-	"sort"
 	"syscall"
 	"time"
 
@@ -194,8 +193,4 @@ func calculateVulns(r *ScanResult) []Vuln {
 // calculateRiskScore delegates to the shared canonical rule.
 func calculateRiskScore(r *ScanResult) int {
 	return shared.CalculateRiskScore(r)
-}
-
-func init() {
-	sort.Sort(BySeverity(nil))
 }

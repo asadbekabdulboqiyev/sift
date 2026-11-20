@@ -1077,5 +1077,3 @@ func normalizeStressOutcome(s StressOutcome) StressOutcome {
 	}
 	return s
 }
-
-var _ = url.URL{}
