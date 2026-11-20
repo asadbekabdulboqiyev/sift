@@ -226,6 +226,10 @@ func NewGuard(cfg GuardConfig) (*Guard, error) {
 	if cfg.MaxBodyBytes < 0 {
 		return nil, fmt.Errorf("scanner: MaxBodyBytes must not be negative, got %d", cfg.MaxBodyBytes)
 	}
+	if !cfg.Fingerprint.Valid() {
+		return nil, fmt.Errorf("scanner: unknown TLS fingerprint profile %q (valid: %s)",
+			cfg.Fingerprint, strings.Join(fingerprint.Names(), ", "))
+	}
 
 	patterns, err := parseScopePatterns(cfg.Allow)
 	if err != nil {
@@ -340,14 +344,22 @@ func (g *Guard) Stats() GuardStats {
 // DryRun it returns nil (the request is within policy) and records the check in
 // DryRunChecked; the refusal is applied by Do.
 func (g *Guard) Check(ctx context.Context, method, rawURL string, intrusive bool) error {
-	_ = ctx
 	_ = method
 	if g == nil {
 		return core.ErrOutOfScope
 	}
+	if ctx != nil {
+		select {
+		case <-ctx.Done():
+			// An already-cancelled policy check must not be treated as an
+			// approval: the caller's deadline outranks the scope decision.
+			return ctx.Err()
+		default:
+		}
+	}
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return g.refuse(fmt.Errorf("%w: unparseable url %q: %v", core.ErrOutOfScope, rawURL, err), nil)
+		return g.refuse(fmt.Errorf("%w: unparseable url %q: %w", core.ErrOutOfScope, rawURL, err), nil)
 	}
 	if err := g.checkScope(u); err != nil {
 		return g.refuse(err, nil)
@@ -604,7 +616,7 @@ func (g *Guard) checkProxyTarget(req *http.Request) error {
 		port = strconv.Itoa(effectivePort(req.URL))
 	}
 	if err := authz.CheckDialTarget(req.Context(), host, port, g.cfg.DialControl); err != nil {
-		return fmt.Errorf("%w: %v", core.ErrOutOfScope, err)
+		return fmt.Errorf("%w: %w", core.ErrOutOfScope, err)
 	}
 	return nil
 }
@@ -674,7 +686,7 @@ func parseScopePattern(entry string) (scopePattern, error) {
 
 	host, port, portSet, err := splitHostPort(netloc)
 	if err != nil {
-		return scopePattern{}, fmt.Errorf("scanner: scope pattern %q: %v", entry, err)
+		return scopePattern{}, fmt.Errorf("scanner: scope pattern %q: %w", entry, err)
 	}
 	if strings.Contains(host, "/") {
 		return scopePattern{}, fmt.Errorf("scanner: scope pattern %q: put a space before a path prefix", entry)

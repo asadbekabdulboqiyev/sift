@@ -205,7 +205,14 @@ Examples:
 	scanPort := *port
 	if h, p, err := net.SplitHostPort(*target); err == nil {
 		scanHost = h
-		scanPort, _ = strconv.Atoi(p)
+		parsedPort, convErr := strconv.Atoi(p)
+		if convErr != nil {
+			usageError("invalid --target port %q: %v", p, convErr)
+		}
+		if parsedPort < 1 || parsedPort > 65535 {
+			usageError("invalid --target port %d: must be between 1 and 65535", parsedPort)
+		}
+		scanPort = parsedPort
 	}
 
 	// Configuration errors are usage errors (exit 2), resolved before any

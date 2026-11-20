@@ -31,12 +31,12 @@ func checkAssertion(a config.Assertion, status int, body []byte) error {
 		}
 	case "json_path":
 		if _, err := extractJSONPath(body, a.Value); err != nil {
-			return fmt.Errorf("json_path assertion %q failed: %v", a.Value, err)
+			return fmt.Errorf("json_path assertion %q failed: %w", a.Value, err)
 		}
 	case "regex":
 		re, err := regexp.Compile(a.Value)
 		if err != nil {
-			return fmt.Errorf("invalid regex assertion %q: %v", a.Value, err)
+			return fmt.Errorf("invalid regex assertion %q: %w", a.Value, err)
 		}
 		if !re.Match(body) {
 			return fmt.Errorf("regex assertion %q failed: pattern not found in body", a.Value)

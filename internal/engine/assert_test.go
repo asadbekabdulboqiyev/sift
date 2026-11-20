@@ -1,6 +1,9 @@
 package engine
 
 import (
+	"encoding/json"
+	"errors"
+	"regexp/syntax"
 	"strings"
 	"testing"
 
@@ -365,6 +368,32 @@ func TestAssertionErrorMessages(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "regex assertion") {
 			t.Errorf("error should mention regex: %v", err)
+		}
+	})
+}
+
+// TestAssertionErrorsKeepCause pins F16: json_path and regex assertion errors
+// must wrap the underlying json/regexp failure so errors.As can find it.
+func TestAssertionErrorsKeepCause(t *testing.T) {
+	t.Run("invalid json body", func(t *testing.T) {
+		err := checkAssertion(config.Assertion{Type: "json_path", Value: "data.token"}, 200, []byte("not json"))
+		if err == nil {
+			t.Fatal("expected json_path error")
+		}
+		var syntaxErr *json.SyntaxError
+		if !errors.As(err, &syntaxErr) {
+			t.Fatalf("json.SyntaxError lost from chain: %v", err)
+		}
+	})
+
+	t.Run("invalid regex", func(t *testing.T) {
+		err := checkAssertion(config.Assertion{Type: "regex", Value: "["}, 200, []byte("body"))
+		if err == nil {
+			t.Fatal("expected regex compile error")
+		}
+		var reErr *syntax.Error
+		if !errors.As(err, &reErr) {
+			t.Fatalf("regexp/syntax.Error lost from chain: %v", err)
 		}
 	})
 }

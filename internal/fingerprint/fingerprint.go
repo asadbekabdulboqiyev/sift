@@ -10,6 +10,8 @@ package fingerprint
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net"
 	"sort"
 	"strings"
@@ -120,17 +122,38 @@ func (o Options) resolved() Options {
 	return o
 }
 
-// NewDialer returns a DialTLSContext-compatible dialer that presents the
-// configured ClientHello fingerprint. The returned connection performs the
-// real TLS handshake with uTLS, so the caller gets a fully usable net.Conn.
-func NewDialer(opts Options) func(ctx context.Context, network, addr string) (net.Conn, error) {
+// ErrUnknownProfile is returned by NewDialerChecked when Options.Fingerprint
+// names a profile that has no ClientHello preset.
+var ErrUnknownProfile = errors.New("fingerprint: unknown profile")
+
+// NewDialerChecked returns a DialTLSContext-compatible dialer that presents the
+// configured ClientHello fingerprint, or an error wrapping ErrUnknownProfile
+// when opts.Fingerprint is not a known profile. Configuration mistakes are
+// reported at construction time instead of becoming a panic on a live request.
+func NewDialerChecked(opts Options) (func(ctx context.Context, network, addr string) (net.Conn, error), error) {
 	opts = opts.resolved()
 	id, ok := profileIDs[opts.Fingerprint]
 	if !ok {
-		// Default profile means dialing is never routed here; reaching this
-		// branch is a programming error, so make it loud rather than silent.
-		panic("fingerprint: unknown profile " + string(opts.Fingerprint))
+		return nil, fmt.Errorf("%w: %q", ErrUnknownProfile, opts.Fingerprint)
 	}
+	return newDialer(opts, id), nil
+}
+
+// NewDialer is the unchecked compatibility form of NewDialerChecked, kept for
+// callers that hold a func-typed field (e.g. http.Transport.DialTLSContext).
+// An unknown profile yields a dialer that fails every dial with
+// ErrUnknownProfile; it never panics. New callers should prefer
+// NewDialerChecked so a bad profile is caught before any connection is made.
+func NewDialer(opts Options) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	dialer, err := NewDialerChecked(opts)
+	if err != nil {
+		return func(context.Context, string, string) (net.Conn, error) { return nil, err }
+	}
+	return dialer
+}
+
+// newDialer builds the uTLS dialer for an already-validated profile ID.
+func newDialer(opts Options, id utls.ClientHelloID) func(ctx context.Context, network, addr string) (net.Conn, error) {
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
 		raw, err := opts.Dialer.DialContext(ctx, network, addr)
 		if err != nil {

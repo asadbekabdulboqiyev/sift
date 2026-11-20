@@ -96,6 +96,31 @@ func TestCLIInvalidTargetIsUsageError(t *testing.T) {
 	}
 }
 
+// TestCLIInvalidPortInTargetIsUsageError pins F18: a non-numeric or out-of-range
+// port in host:port must be reported as a usage error instead of silently
+// becoming port 0.
+func TestCLIInvalidPortInTargetIsUsageError(t *testing.T) {
+	cases := []struct {
+		target string
+		want   string
+	}{
+		{"example.com:notaport", "invalid --target port"},
+		{"example.com:0", "must be between 1 and 65535"},
+		{"example.com:65536", "must be between 1 and 65535"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.target, func(t *testing.T) {
+			res := runScan(t, nil, "-target", tc.target, "-dry-run")
+			if res.code != usageExitCode {
+				t.Fatalf("exit = %d, want %d (stderr %q)", res.code, usageExitCode, res.stderr)
+			}
+			if !strings.Contains(res.stderr, tc.want) {
+				t.Fatalf("stderr = %q, want substring %q", res.stderr, tc.want)
+			}
+		})
+	}
+}
+
 func TestCLIInvalidEnableIsUsageError(t *testing.T) {
 	res := runScan(t, nil, "-target", "example.com", "-enable", "nope")
 	if res.code != usageExitCode {

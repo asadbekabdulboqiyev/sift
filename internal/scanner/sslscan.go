@@ -163,7 +163,6 @@ func ScanSSLWithOptions(ctx context.Context, target string, control func(network
 	defer func() { _ = conn.Close() }()
 
 	config := &tls.Config{
-		// nolint:gosec
 		InsecureSkipVerify: insecure, // #nosec G402 -- only for this scan's explicit authorized-lab opt-out
 		ServerName:         host,
 		MinVersion:         tls.VersionTLS10,

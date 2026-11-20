@@ -531,7 +531,7 @@ func normalizeIfStep(st *Step, depth int) error {
 	}
 	cond, err := ParseCondition(st.Condition)
 	if err != nil {
-		return fmt.Errorf("step %q: %v", st.Name, err)
+		return fmt.Errorf("step %q: %w", st.Name, err)
 	}
 	st.Cond = cond
 	if len(st.Steps) == 0 {
@@ -571,7 +571,7 @@ func normalizeControlFlow(st *Step) error {
 	}
 	lower, upper, err := parseStatusMatcher(st.StopOnStatus)
 	if err != nil {
-		return fmt.Errorf("step %q: %v", st.Name, err)
+		return fmt.Errorf("step %q: %w", st.Name, err)
 	}
 	st.StopStatusLower, st.StopStatusUpper = lower, upper
 	return nil

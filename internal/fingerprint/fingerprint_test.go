@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -200,6 +201,43 @@ func TestProfilesProduceDistinctJA3(t *testing.T) {
 		t.Fatalf("profiles collapsed to one JA3: %v", h)
 	}
 	t.Logf("JA3 hashes seen: %v", h)
+}
+
+// TestNewDialerCheckedRejectsUnknownProfile pins F19: a bad profile is a
+// construction-time error, not a panic on a live request.
+func TestNewDialerCheckedRejectsUnknownProfile(t *testing.T) {
+	dialer, err := NewDialerChecked(Options{Fingerprint: Profile("nope")})
+	if dialer != nil || err == nil {
+		t.Fatalf("got dialer=%t err=%v, want (nil, error)", dialer != nil, err)
+	}
+	if !errors.Is(err, ErrUnknownProfile) {
+		t.Fatalf("error %v does not wrap ErrUnknownProfile", err)
+	}
+	dialer, err = NewDialerChecked(Options{Fingerprint: Chrome})
+	if dialer == nil || err != nil {
+		t.Fatalf("valid profile got dialer=%t err=%v", dialer != nil, err)
+	}
+}
+
+// TestNewDialerDoesNotPanicOnUnknownProfile covers the compatibility wrapper:
+// callers that still hold a func-typed field must get a dialer that fails
+// cleanly instead of crashing the process.
+func TestNewDialerDoesNotPanicOnUnknownProfile(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("NewDialer panicked on unknown profile: %v", r)
+		}
+	}()
+	dialer := NewDialer(Options{Fingerprint: Profile("nope")})
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	conn, err := dialer(ctx, "tcp", "127.0.0.1:1")
+	if conn != nil {
+		t.Fatalf("unexpected connection %v", conn)
+	}
+	if !errors.Is(err, ErrUnknownProfile) {
+		t.Fatalf("got %v, want ErrUnknownProfile", err)
+	}
 }
 
 func TestNamesAreValid(t *testing.T) {

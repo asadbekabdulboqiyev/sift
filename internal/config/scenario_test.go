@@ -1,8 +1,10 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"regexp/syntax"
 	"strings"
 	"testing"
 )
@@ -316,6 +318,45 @@ func TestNormalizeAddsSchemeForBareHosts(t *testing.T) {
 	if sc.Steps[2].URL != "https://secure.example.com" {
 		t.Errorf("absolute url changed: %q", sc.Steps[2].URL)
 	}
+}
+
+// TestNormalizeErrorsKeepCause pins F16: the step-level %w wrappers must keep
+// errors.Is/As able to reach the underlying parse/compile failure.
+func TestNormalizeErrorsKeepCause(t *testing.T) {
+	t.Run("if condition regex chain", func(t *testing.T) {
+		st := &Step{
+			Name:      "cond",
+			Type:      "if",
+			Condition: `x =~ "["`,
+			Steps:     []Step{{URL: "/x"}},
+		}
+		err := normalizeIfStep(st, 0)
+		if err == nil {
+			t.Fatal("expected invalid condition regex error")
+		}
+		var reErr *syntax.Error
+		if !errors.As(err, &reErr) {
+			t.Fatalf("regexp/syntax.Error lost from chain: %v", err)
+		}
+	})
+
+	t.Run("stop_on_status chain", func(t *testing.T) {
+		st := &Step{Name: "flow", StopOnStatus: "bogus"}
+		err := normalizeControlFlow(st)
+		if err == nil {
+			t.Fatal("expected invalid stop_on_status error")
+		}
+		cause := errors.Unwrap(err)
+		if cause == nil {
+			t.Fatalf("stop_on_status cause lost from chain: %v", err)
+		}
+		if !strings.Contains(cause.Error(), "invalid stop_on_status") {
+			t.Fatalf("unexpected cause %q", cause.Error())
+		}
+		if !strings.Contains(err.Error(), `step "flow"`) {
+			t.Fatalf("step context lost from message: %q", err.Error())
+		}
+	})
 }
 
 func TestWarmupValidation(t *testing.T) {

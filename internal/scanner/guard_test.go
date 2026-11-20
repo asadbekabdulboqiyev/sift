@@ -10,9 +10,11 @@ import (
 	"net/url"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/asadbekabdulboqiyev/sift/internal/fingerprint"
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
 )
 
@@ -521,6 +523,99 @@ func TestIgnoredIntrusiveRefusalCannotBeSentByDo(t *testing.T) {
 	_ = resp.Body.Close()
 	if got := hits.Load(); got != 1 {
 		t.Fatalf("destination received %d requests, want 1", got)
+	}
+}
+
+// TestGuardErrorsKeepCause pins F16: the three scanner wrappers must keep the
+// underlying failure reachable through errors.Is/errors.As.
+func TestGuardErrorsKeepCause(t *testing.T) {
+	t.Run("unparseable url", func(t *testing.T) {
+		g := mustGuard(t, GuardConfig{Allow: []string{"example.com"}})
+		err := g.Check(context.Background(), "GET", "http://[::1", false)
+		if !errors.Is(err, core.ErrOutOfScope) {
+			t.Fatalf("ErrOutOfScope lost from chain: %v", err)
+		}
+		var parseErr *url.Error
+		if !errors.As(err, &parseErr) {
+			t.Fatalf("url.Error lost from chain: %v", err)
+		}
+	})
+
+	t.Run("scope pattern port", func(t *testing.T) {
+		_, err := parseScopePattern("example.com:99999")
+		if err == nil {
+			t.Fatal("expected invalid port error")
+		}
+		cause := errors.Unwrap(err)
+		if cause == nil {
+			t.Fatalf("splitHostPort cause lost from chain: %v", err)
+		}
+		if !strings.Contains(cause.Error(), "invalid port") {
+			t.Fatalf("unexpected cause %q", cause.Error())
+		}
+	})
+
+	t.Run("proxy dial target", func(t *testing.T) {
+		refused := errors.New("test dial refusal")
+		g := mustGuard(t, GuardConfig{
+			DialControl: func(string, string, syscall.RawConn) error { return refused },
+			Proxy: func(*http.Request) (*url.URL, error) {
+				return &url.URL{Scheme: "http", Host: "127.0.0.1:8080"}, nil
+			},
+		})
+		req, err := http.NewRequest(http.MethodGet, "http://127.0.0.1/", nil)
+		if err != nil {
+			t.Fatalf("NewRequest: %v", err)
+		}
+		err = g.checkProxyTarget(req)
+		if !errors.Is(err, core.ErrOutOfScope) {
+			t.Fatalf("ErrOutOfScope lost from chain: %v", err)
+		}
+		if !errors.Is(err, refused) {
+			t.Fatalf("authz dial error lost from chain: %v", err)
+		}
+	})
+}
+
+// TestCheckCancelledContext pins F26: a cancelled/deadline-expired context must
+// make Check fail closed instead of silently approving the target.
+func TestCheckCancelledContext(t *testing.T) {
+	g := mustGuard(t, GuardConfig{Allow: []string{"example.com"}})
+	if err := g.Check(context.Background(), "GET", "http://example.com/", false); err != nil {
+		t.Fatalf("live context should be allowed: %v", err)
+	}
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := g.Check(cancelled, "GET", "http://example.com/", false); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled context: got %v, want context.Canceled", err)
+	}
+
+	expired, cancelDeadline := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancelDeadline()
+	if err := g.Check(expired, "GET", "http://example.com/", false); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expired context: got %v, want context.DeadlineExceeded", err)
+	}
+
+	stats := g.Stats()
+	if stats.DryRunChecked != 0 || stats.RequestsRefused != 0 {
+		t.Fatalf("cancelled checks must not be recorded as policy decisions: %+v", stats)
+	}
+}
+
+// TestNewGuardRejectsUnknownFingerprint pins F19: Guard validates the TLS
+// profile up front, so a bad name cannot reach the dialer at request time.
+func TestNewGuardRejectsUnknownFingerprint(t *testing.T) {
+	if _, err := NewGuard(GuardConfig{Fingerprint: fingerprint.Profile("nope")}); err == nil {
+		t.Fatal("unknown fingerprint profile must be rejected")
+	} else if !strings.Contains(err.Error(), "unknown TLS fingerprint profile") {
+		t.Fatalf("unhelpful error %q", err.Error())
+	}
+	if _, err := NewGuard(GuardConfig{Fingerprint: fingerprint.Chrome}); err != nil {
+		t.Fatalf("known profile rejected: %v", err)
+	}
+	if _, err := NewGuard(GuardConfig{}); err != nil {
+		t.Fatalf("default profile rejected: %v", err)
 	}
 }
 
