@@ -3,7 +3,7 @@
 # release.sh — Cross-compile, package, and publish a GitHub release.
 #
 # Usage:
-#   ./scripts/release.sh v0.18.0
+#   ./scripts/release.sh v0.18.1
 #
 # Requirements:
 #   - go toolchain on PATH
@@ -13,7 +13,7 @@ set -euo pipefail
 
 if [ $# -lt 1 ]; then
   echo "Usage: $0 <version>" >&2
-  echo "  e.g. $0 v0.18.0" >&2
+  echo "  e.g. $0 v0.18.1" >&2
   exit 1
 fi
 

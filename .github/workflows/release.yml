@@ -5,7 +5,7 @@ name: Release
 # the worker packages and the generated docker-compose file), and produced no
 # SBOMs or signatures.
 #
-# Trigger: push a tag matching v*  (git tag v0.18.0 && git push origin v0.18.0)
+# Trigger: push a tag matching v*  (git tag v0.18.1 && git push origin v0.18.1)
 
 on:
   push:

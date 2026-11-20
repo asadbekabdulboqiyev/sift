@@ -54,15 +54,15 @@ available for scripting.
 
 ### Build the packages once (optional — deploy-fleet does it automatically)
 ```bash
-./scripts/build-worker-linux.sh 0.18.0
-# -> dist/linux-worker/Sift-worker-v0.18.0-linux-amd64.tar.gz
+./scripts/build-worker-linux.sh 0.18.1
+# -> dist/linux-worker/Sift-worker-v0.18.1-linux-amd64.tar.gz
 ```
 
 ### Deploy one host (manual)
 ```bash
-scp dist/linux-worker/Sift-worker-v0.18.0-linux-amd64.tar.gz \
+scp dist/linux-worker/Sift-worker-v0.18.1-linux-amd64.tar.gz \
     deploy/fleet/bootstrap-worker.sh root@HOST:/tmp/
-ssh root@HOST 'cd /tmp && bash bootstrap-worker.sh Sift-worker-v0.18.0-linux-amd64.tar.gz \
+ssh root@HOST 'cd /tmp && bash bootstrap-worker.sh Sift-worker-v0.18.1-linux-amd64.tar.gz \
     SS_MASTER=10.0.0.5:50051 SS_TOKEN=secret'
 ```
 Environment knobs of the bootstrap: `SS_ID`, `SS_LISTEN` (default
@@ -137,7 +137,7 @@ connection counts use `network_mode: host` on the workers (bridge NAT
 throttles ephemeral sockets).
 
 Note: both Dockerfiles stamp the version from the `VERSION` build argument
-(default `dev`); pass `0.18.0` for the current release. The compose setup builds
+(default `dev`); pass `0.18.1` for the current release. The compose setup builds
 from source, so it always reflects the current checkout.
 
 ---

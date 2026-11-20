@@ -205,7 +205,7 @@ shape as certificate authorities and timestamping services.
 
 ## Slide 10 — Traction / MVP status (honest)
 
-**Working today** (in the `Sift` engine, v0.18.0):
+**Working today** (in the `Sift` engine, v0.18.1):
 
 - Distributed master/worker load generation; live telemetry aggregation.
 - **Pillar 2 partially live:** coordinated-omission correction exists in the
@@ -308,7 +308,7 @@ v1.1 with 5 design partners).*
 | Ed25519/Merkle verification detects single-byte tampering | **Technical claim** | Mechanically demonstrated by `scripts/demo-verified.sh` |
 | CO correction + 95% CI are implemented in the engine | **Status claim** | CO correction: yes (code + tests). Bundle-level CI: **not shipped** |
 | VeriGate adaptive difficulty works (rate limit, PoW, block) | **Status claim** | Yes — VeriGate tests + `demo-store-sla.sh` |
-| `keygen` / `verify` / `--emit-bundle` exist today | **Yes** | Shipped in v0.18.0; `scripts/demo-verified.sh` demonstrates the full cycle |
+| `keygen` / `verify` / `--emit-bundle` exist today | **Yes** | Shipped in v0.18.1; `scripts/demo-verified.sh` demonstrates the full cycle |
 | Market size figures | **ESTIMATE** | No — re-verify against named analyst sources |
 | Pricing tiers and ranges | **Designed pricing** | No — not validated with buyers |
 | SOM = USD 2.4M ARR (120 × USD 20k) | **ESTIMATE / internal model** | No — falsifiable bottom-up arithmetic |

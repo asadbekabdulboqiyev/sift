@@ -4,10 +4,10 @@
 # Sift — all-in-one image (run CLI + dashboard from one container).
 #
 # Build:
-#   docker build -t ghcr.io/asadbekabdulboqiyev/sift:0.18.0 .
+#   docker build -t ghcr.io/asadbekabdulboqiyev/sift:0.18.1 .
 #
 # Run (web dashboard):
-#   docker run --rm -p 127.0.0.1:8888:8888 ghcr.io/asadbekabdulboqiyev/sift:0.18.0 \
+#   docker run --rm -p 127.0.0.1:8888:8888 ghcr.io/asadbekabdulboqiyev/sift:0.18.1 \
 #     run --url https://example.com --users 100 --duration 60 \
 #          --mode dashboard --listen 0.0.0.0:8888 \
 #          --dashboard-auth-token "$(openssl rand -hex 24)"

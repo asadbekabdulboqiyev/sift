@@ -5,6 +5,71 @@ All notable changes to Sift are documented here. This file follows
 versioning. Entries are taken from git tags and commit history; nothing here is
 a promise of future work.
 
+## [v0.18.1] - 2026-11-20
+
+Repository-quality and release-hardening patch. No new user-facing features;
+behaviour is preserved unless noted below.
+
+### Security
+
+- RBAC now evaluates every authenticated request (including GET), path-first
+  and fail-closed; admin/audit endpoints require the matching permission.
+- Socket-level `authz.DialControl` is installed on CLI and dashboard run paths,
+  with proxy destinations rechecked via `authz.CheckDialTarget` to close the
+  DNS-rebinding SSRF path.
+- Default CSRF same-origin enforcement and a 20 RPS / burst 40 rate limit;
+  redirects are pinned to the initial host **and** scheme (no https→http
+  downgrade). HTTP read/write/header timeouts added.
+- Certificate/attestation trust: reject unsigned v1 envelope fields, derive
+  `CertificateID` from signed fields only, expose `issuerTrust` in the attest
+  result, and add `VerifyChain` for multi-certificate paths (CWE-347/345).
+- HTTP/3 probes verify TLS certificates by default (opt-in bypass only,
+  CWE-295); raw IdP token error bodies are redacted (CWE-532).
+- Invalid `--target` ports now fail at parse time with exit 2; unknown
+  fingerprint profiles no longer panic in `NewDialer`.
+
+### Fixed
+
+- Unify the report grade ladder behind `report.GradeForScore` across CLI,
+  dashboard, OWASP and vuln scanner; split the inverse CVE scale into
+  `SeverityGrade` and rename its JSON key to `cve_risk_score` so the two
+  opposing `risk_score` meanings no longer collide.
+- Repair CLI subcommand dispatch (lowercase `sift-<name>` paths, idempotent
+  prefix handling) and fix broken commands and examples in the docs.
+- Preserve error chains with `%w` across scenario parsing, Guard scope checks
+  and assertion errors; honour context cancellation in `Guard.Check`.
+- `LoadSignals` now distinguishes an absent `signals` key from a present but
+  empty one, so the documented single-object JSON shape loads correctly.
+
+### Changed
+
+- Centralize atomic file publication in `internal/shared/atomicfile.Write`
+  across 14 writers, preserving each site's durability level, and delegate
+  duplicated finding/risk, OWASP, severity and loopback rules to `internal/shared`.
+- Decompose high-complexity CLI commands and dashboard routing, and split the
+  1518-line `insights.go` into domain files — behaviour-preserving extractions.
+- Split protobuf generation into a pinned, byte-reproducible toolchain with a
+  CI drift check; drop 13 dead helpers and no-op/import-pin code.
+- CI: add `-count=1` (and `-race`) to test jobs so cached results cannot mask
+  stale tests; raise the Codecov coverage floor from 45% to 70% with fail-closed
+  upload; single Go version source; repair GoReleaser 422 asset handling and
+  sign/verify checksums in the same run.
+- Document lint-gating decisions (739 pre-existing issues retained under the
+  `only-new-issues` ratchet), real DCO 1.1, and honest security/commercial
+  claims. Bus factor of 1 is stated explicitly — still an open risk.
+
+### Added / Coverage
+
+- 68 deterministic tests for hostxray, evidence and dist/coordinator paths.
+  Measured coverage: `internal/hostxray` 37.4%→84.1%, `internal/evidence`
+  43.2%→90.7%, `internal/dist/coordinator` 57.0%→80.0%.
+- Version consistency gate keeps tag, `VERSION` file and source literal aligned;
+  README badge, install commands and winget manifests follow the release tag.
+
+Source: derived from `git log v0.18.0..HEAD` (16 DCO-signed commits) and local
+verification on 2026-11-20. Remote-only outcomes (CI status, Codecov gate,
+cosign same-run verification) are confirmed on the tagged run.
+
 ## [v0.18.0] - 2026-11-19
 
 ### Added
