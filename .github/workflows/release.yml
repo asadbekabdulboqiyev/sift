@@ -72,10 +72,49 @@ jobs:
       - name: go mod verify
         run: go mod verify
 
+  # ── cross-platform gate: a tag must be green on EVERY OS ──────────────────
+  # ci.yml's `test` job already runs these tests on 3 OSes, but ci.yml only
+  # triggers on branch pushes/PRs — never on a `v*` tag — so it cannot gate a
+  # release. v0.18.1 was tagged while 4 macOS/Windows tests were red because
+  # this workflow had no such job. `release` now depends on this matrix, so a
+  # single failing OS skips the publish entirely.
+  cross-platform-test:
+    name: Cross-platform tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read # checkout only: this job never signs or publishes
+    strategy:
+      # Report all three platforms even when one fails early; any failure
+      # still blocks `release` through `needs`.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Tests (all platforms)
+        # Force bash on Windows: the default pwsh mangles go argv items
+        # (same fix as ci.yml's `test` job).
+        shell: bash
+        # Keep this suite fast: the race detector stays in the ubuntu-only
+        # `verify` job above. -p 1 is a correctness setting, not a speed one —
+        # at full parallelism the load tests exhaust macOS's loopback
+        # ephemeral port range and unrelated tests fail (documented in
+        # ci.yml). -count=1 prevents a restored GOCACHE from skipping tests.
+        run: go test -p 1 -count=1 -timeout 20m ./...
+        env:
+          GOMAXPROCS: 4
+
   # ── build + publish ───────────────────────────────────────────────────────
   release:
     name: GoReleaser
-    needs: [verify]
+    needs: [verify, cross-platform-test]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     # Keep -trimpath and no cgo so the same tag produces byte-identical
