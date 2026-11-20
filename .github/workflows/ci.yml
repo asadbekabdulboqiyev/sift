@@ -28,7 +28,6 @@ env:
   # config: "the Go language version (go1.24) used to build golangci-lint is
   # lower than the targeted Go version (1.26)". v2.14.0 declares go 1.26.0.
   GOLANGCI_LINT_VERSION: "v2.14.0"
-  CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
 jobs:
   # ── gofmt / vet / lint ─────────────────────────────────────────────────────
@@ -323,17 +322,12 @@ jobs:
             exit 1
           fi
 
-      # This is a real gate now: no `continue-on-error`, and a failed upload
-      # fails the job. Fork PRs cannot read repository secrets, so they skip
-      # the upload instead of failing on a missing token; pushes and same-repo
-      # PRs (the code that can actually land) are always checked.
-      - name: Upload to Codecov
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-        uses: codecov/codecov-action@v5
-        with:
-          files: coverage.out
-          fail_ci_if_error: true
-          token: ${{ env.CODECOV_TOKEN }}
+      # Deliberately no Codecov upload step. The 70% floor above is the gate:
+      # it runs offline, is deterministic, and cannot be broken by an external
+      # service changing its tokenless-upload policy. In 2026 Codecov began
+      # rejecting tokenless uploads from public repos; with no CODECOV_TOKEN
+      # secret configured, `fail_ci_if_error: true` turned a pure reporting
+      # step into a spurious red build. Keep the floor above authoritative.
 
   # ── cross-compile smoke: ALL 6 binaries on every release target ────────────
   build:
@@ -598,7 +592,7 @@ jobs:
       - name: Positive gate — pristine evidence verifies (exit 0)
         run: |
           set -euo pipefail
-          if ! /tmp/ss verify --bundle /tmp/ev/bundle.json --samples /tmp/ev/bundle.samples.jsonl; then
+          if ! /tmp/ss verify --allow-unpinned --bundle /tmp/ev/bundle.json --samples /tmp/ev/bundle.samples.jsonl; then
             echo "::error::VERIFIABLE-EVIDENCE FAILED: a freshly sealed bundle did not verify"
             exit 1
           fi
@@ -635,7 +629,7 @@ jobs:
           # evidence that was altered after it was signed — the one thing it
           # must never do.
           set +e
-          /tmp/ss verify --bundle /tmp/ev/bundle.json --samples /tmp/ev/bundle.samples.jsonl
+          /tmp/ss verify --allow-unpinned --bundle /tmp/ev/bundle.json --samples /tmp/ev/bundle.samples.jsonl
           rc=$?
           set -e
           if [ "$rc" -eq 0 ]; then
