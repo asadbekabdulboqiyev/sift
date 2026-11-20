@@ -18,10 +18,16 @@ This document tracks test coverage status and policy for Sift.
 |---|---:|---|
 | Aggregate suite | **75.7%** | CI `Coverage gate` job, run [44087015007](https://github.com/asadbekabdulboqiyev/sift/actions/runs/44087015007) on commit `6e65195` |
 | Measurement mode | `-race -covermode=atomic -coverpkg=./...` | `test` job produces one profile per package; the gate merges them and runs `go tool cover -func` |
-| Floor enforced in CI | 45% | `.github/workflows/ci.yml` |
+| Floor enforced in CI | **70%** | `.github/workflows/ci.yml` — matches the `>=70%` target in `CONTRIBUTING.md` |
 
-The 45% CI gate is a minimum floor; measured coverage is higher (75.7% above).
-The project target is tracked in `CONTRIBUTING.md`.
+The 70% CI gate is a minimum floor; measured coverage is higher (75.7% above),
+so it is a regression alarm rather than a routine blocker. The project target
+is tracked in `CONTRIBUTING.md`.
+
+The `test` job runs with `-count=1`. Without it, `setup-go@v5` restores
+`GOCACHE` and `go test` can report `(cached)` without executing anything — the
+race detector is skipped and `coverage.out` is copied from an earlier run.
+`-count=1` makes every gate above measure the current commit.
 
 The 2026-11-05 baseline (58.7%) and this figure are not a like-for-like
 comparison of the same commit: tests were added between the two dates, and the
@@ -33,7 +39,7 @@ number quoted when the project states its coverage.
 
 ```bash
 # Full test run with race detector and aggregate coverage profile
-go test -race -timeout 20m -covermode=atomic -coverprofile=coverage.out -coverpkg=./... ./...
+go test -race -count=1 -timeout 20m -covermode=atomic -coverprofile=coverage.out -coverpkg=./... ./...
 
 # Show aggregate coverage percentage
 go tool cover -func=coverage.out | tail -1
@@ -48,9 +54,9 @@ The `coverage` job in `.github/workflows/ci.yml`:
 
 1. Collects `coverage-*.out` artifacts produced by the `test` job (`-coverpkg=./...`).
 2. Computes aggregate coverage using `go tool cover -func`.
-3. Fails if coverage is below the configured floor (**45%**).
+3. Fails if coverage is below the configured floor (**70%**).
 
-The `test` job runs `go test -race -covermode=atomic -coverpkg=./... ./...`, so coverage artifacts and aggregate checks are based on the same measurement mode.
+The `test` job runs `go test -p 1 -race -count=1 -covermode=atomic -coverprofile=coverage.out -coverpkg=./... ./...`, so coverage artifacts and aggregate checks are based on the same measurement mode and always come from the current commit.
 
 ## Follow-up goals
 

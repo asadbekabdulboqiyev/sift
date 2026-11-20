@@ -1,19 +1,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "Sift.master.serviceName" . }}
+  name: {{ include "sift.master.serviceName" . }}
   labels:
-    {{- include "Sift.commonLabels" . | nindent 4 }}
+    {{- include "sift.commonLabels" . | nindent 4 }}
     app.kubernetes.io/component: master
 spec:
   replicas: {{ .Values.master.replicaCount }}
   selector:
     matchLabels:
-      {{- include "Sift.master.selectorLabels" . | nindent 6 }}
+      {{- include "sift.master.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "Sift.commonLabels" . | nindent 8 }}
+        {{- include "sift.commonLabels" . | nindent 8 }}
         app.kubernetes.io/component: master
       {{- with .Values.podAnnotations }}
       annotations:
@@ -51,7 +51,7 @@ spec:
             - {{ . | quote }}
             {{- end }}
           env:
-            {{- include "Sift.tokenEnv" . | nindent 12 }}
+            {{- include "sift.tokenEnv" . | nindent 12 }}
           ports:
             - name: grpc
               containerPort: {{ .Values.master.grpcPort }}

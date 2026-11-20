@@ -31,6 +31,15 @@ linters:
     generated: lax
     rules:
       # Tests legitimately ignore errors and use magic numbers.
+      #
+      # errcheck was measured with this rule removed (golangci-lint v2.14.0,
+      # 2026-11-20): +295 findings, 72 of them `fmt.Fprint`, 42 `fmt.Fprintf`,
+      # 36 `io.WriteString` and the rest mostly `Close()` on test fixtures.
+      # Fixing them means editing ~70 test files, which would swamp the
+      # `only-new-issues` ratchet with noise rather than catch real bugs.
+      # Deliberate discards already use an explicit `_ = call(...)` convention
+      # (errcheck does not flag blank assignments unless check-blank is on).
+      # Revisit once the test fixtures are cleaned up, not before.
       - path: _test\.go
         linters:
           - errcheck

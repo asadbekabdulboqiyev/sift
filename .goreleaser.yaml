@@ -249,15 +249,29 @@ nfpms:
 # ── Homebrew formula + Scoop manifest, auto-updated on release ─────────────
 release:
   prerelease: auto
+  # Re-running the release job for an existing tag used to fail with GitHub's
+  # 422 `already_exists` on checksums.txt. GoReleaser then deletes just the
+  # conflicting asset and retries the upload, so a re-run cannot leave a stale
+  # checksum or a mismatched signature pair behind.
+  replace_existing_artifacts: true
   footer: |
     ## Verifying this release
 
+    Only `checksums.txt` is signed (see `signs` above). Archives and SBOMs do
+    **not** have their own `.pem`/`.sig` files; verify the signed checksum file
+    first, then check the files you downloaded against it.
+
     ```
-    sha256sum -c checksums.txt --ignore-missing
     cosign verify-blob \
-      --certificate Sift_<version>_linux_amd64.tar.gz.pem \
-      --signature     Sift_<version>_linux_amd64.tar.gz.sig \
-      Sift_<version>_linux_amd64.tar.gz
+      --certificate checksums.txt.pem \
+      --signature     checksums.txt.sig \
+      --certificate-identity 'https://github.com/asadbekabdulboqiyev/sift/.github/workflows/release.yml@{{ .Tag }}' \
+      --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+      checksums.txt
+    sha256sum -c checksums.txt
     ```
 
-    SPDX and CycloneDX SBOMs ship next to every archive.
+    Download every file listed in `checksums.txt` before the last command:
+    it fails on any missing file, by design. SPDX and CycloneDX SBOMs ship next
+    to every archive and are covered by the same checksum file; those SBOMs
+    also carry their own `<sbom>.pem`/`.sig` signatures.

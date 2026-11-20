@@ -1,19 +1,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "Sift.fullname" . }}-worker
+  name: {{ include "sift.fullname" . }}-worker
   labels:
-    {{- include "Sift.commonLabels" . | nindent 4 }}
+    {{- include "sift.commonLabels" . | nindent 4 }}
     app.kubernetes.io/component: worker
 spec:
   replicas: {{ .Values.worker.replicaCount }}
   selector:
     matchLabels:
-      {{- include "Sift.worker.selectorLabels" . | nindent 6 }}
+      {{- include "sift.worker.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "Sift.commonLabels" . | nindent 8 }}
+        {{- include "sift.commonLabels" . | nindent 8 }}
         app.kubernetes.io/component: worker
       {{- with .Values.podAnnotations }}
       annotations:
@@ -44,7 +44,7 @@ spec:
             - "-http-addr"
             - "0.0.0.0:{{ .Values.worker.httpPort }}"
             - "-master"
-            - {{ .Values.worker.masterAddress | default (printf "%s:%v" (include "Sift.master.serviceName" .) .Values.master.grpcPort) | quote }}
+            - {{ .Values.worker.masterAddress | default (printf "%s:%v" (include "sift.master.serviceName" .) .Values.master.grpcPort) | quote }}
             # The master dials the worker back, so it must advertise a routable
             # address — the pod IP, injected via the downward API below.
             - "-advertise"
@@ -61,7 +61,7 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
-            {{- include "Sift.tokenEnv" . | nindent 12 }}
+            {{- include "sift.tokenEnv" . | nindent 12 }}
           ports:
             - name: grpc
               containerPort: {{ .Values.worker.grpcPort }}

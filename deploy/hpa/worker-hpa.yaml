@@ -1,12 +1,18 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: Sift-worker
+  # Kubernetes names are RFC 1123 subdomains: uppercase was rejected outright.
+  name: sift-worker
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: Sift-worker
+    # Helm's default fullname is `<chart name>-<release name>`. The documented
+    # install is `helm upgrade --install sift ./deploy/charts/sift`, so the
+    # rendered worker Deployment is `sift-sift-worker`. Use a different value
+    # here if you install under another release name; CI checks this target
+    # against the chart rendered with release name `sift`.
+    name: sift-sift-worker
   minReplicas: 1
   maxReplicas: 20
   metrics:

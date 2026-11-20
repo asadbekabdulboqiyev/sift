@@ -19,11 +19,10 @@ permissions:
   pull-requests: read
 
 env:
-  # Patch-pinned, not "1.26": net/http has a reachable advisory that is fixed in
-  # the standard library at go1.26.11, which only a patch-level pin can pick up
-  # (govulncheck reports it as `Found in: net/http@go1.26.10` — GO-2026-6859,
-  # an HTTP/1 server crash on a MaxBytesReader header race).
-  GO_VERSION: "1.26.11"
+  # Go is patch-pinned in ONE place: the `go 1.26.11` directive in go.mod, which
+  # every setup-go step below reads via `go-version-file: go.mod`. A "1.26" pin
+  # could silently select 1.26.10, which carries GO-2026-6859 (a reachable
+  # net/http MaxBytesReader header-race crash fixed in 1.26.11).
   # Pinned tool versions so CI failures are never caused by a tool auto-update.
   # Must be built with a Go >= the module's, or the linter refuses to load the
   # config: "the Go language version (go1.24) used to build golangci-lint is
@@ -45,7 +44,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           cache: true
 
       - name: Check go.mod is tidy
@@ -80,9 +79,83 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run shellcheck on all scripts
-        uses: ludeeus/action-shellcheck@master
+        # SHA-pinned: @master is a moving supply-chain surface. This is the
+        # v2.0.0 tag commit; `scandir` is still a supported input there.
+        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38 # v2.0.0
         with:
           scandir: scripts deploy
+
+  # ── deploy manifests: lint/render locally, no cluster required ─────────────
+  # Both Helm and Docker Compose ship with ubuntu-latest. These checks run on
+  # every PR, so a broken chart or an unparsable compose file is caught here
+  # instead of on the remote host at deploy time.
+  deploy-validate:
+    name: Deploy manifests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tool versions
+        run: |
+          set -euo pipefail
+          helm version --short
+          docker compose version
+
+      - name: Lint the Helm chart
+        run: helm lint ./deploy/charts/sift
+
+      - name: Render the Helm chart (default values)
+        run: helm template sift ./deploy/charts/sift > /tmp/sift-rendered.yaml
+
+      - name: Render the Helm chart (ingress enabled)
+        run: helm template sift ./deploy/charts/sift --set ingress.enabled=true > /tmp/sift-ingress.yaml
+
+      - name: Validate docker-compose.yml
+        # -q validates interpolation/structure without contacting a registry.
+        run: docker compose -f deploy/docker-compose.yml config -q
+
+      - name: HPA target matches the rendered worker Deployment
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re
+          import sys
+
+          # Parse the scaleTargetRef block by indentation instead of assuming
+          # `name:` is the very next line: apiVersion/kind and comments may sit
+          # between the key and the target name.
+          hpa_lines = open("deploy/hpa/worker-hpa.yaml", encoding="utf-8").read().splitlines()
+          target = None
+          for i, line in enumerate(hpa_lines):
+              if line.strip() != "scaleTargetRef:":
+                  continue
+              base_indent = len(line) - len(line.lstrip())
+              for child in hpa_lines[i + 1:]:
+                  if not child.strip():
+                      continue
+                  indent = len(child) - len(child.lstrip())
+                  if indent <= base_indent:
+                      break  # left the scaleTargetRef block
+                  m = re.match(r"\s*name:\s*(\S+)", child)
+                  if m:
+                      target = m.group(1)
+                      break
+              break
+
+          if not target:
+              sys.exit("HPA has no scaleTargetRef.name")
+          names = re.findall(r"^  name:\s*(\S+)", open("/tmp/sift-rendered.yaml", encoding="utf-8").read(), re.M)
+          if target not in names:
+              sys.exit(f"HPA target {target!r} is not a rendered resource name: {names}")
+          print(f"HPA target {target} matches the Helm-rendered Deployment")
+          PY
+
+      - name: Validate the Grafana dashboard JSON
+        # F13 monitoring needs an external Prometheus/Grafana/Alertmanager
+        # stack; this repo cannot provision one. At least prove the shipped
+        # dashboard parses instead of shipping silently broken JSON.
+        run: python3 -m json.tool observability/grafana/dashboard.json > /dev/null
 
   # ── unit + integration tests, race detector, coverage ──────────────────────
   test:
@@ -102,7 +175,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           cache: true
 
       - name: Race + coverage
@@ -112,6 +185,10 @@ jobs:
         # "no required module provides package .out". bash preserves argv on
         # every runner, so one command works on ubuntu, macOS and Windows.
         shell: bash
+        # -count=1 is MANDATORY: setup-go restores GOCACHE from an earlier run,
+        # and `go test` otherwise prints `(cached)` without running a single
+        # test. That silently disabled the race detector and reused a stale
+        # coverage profile, so this command must always execute every test.
         # -p 1 is a correctness setting here, not a speed one. On a macOS host
         # with the default 49152-65535 ephemeral range (16 384 ports) and a
         # 15 s TIME_WAIT, the load/protocol packages collectively exhaust the
@@ -119,7 +196,7 @@ jobs:
         # their own loopback listeners with EADDRNOTAVAIL. Measured locally:
         # 3/60 packages failed with default -p, all passed in isolation, and
         # `go test -p 1 ./...` passed all 61 packages. Same tests, no skips.
-        run: go test -p 1 -race -timeout 20m -covermode=atomic -coverprofile=coverage.out -coverpkg=./... ./...
+        run: go test -p 1 -race -count=1 -timeout 20m -covermode=atomic -coverprofile=coverage.out -coverpkg=./... ./...
         env:
           # Keep CI workers from being starved by the engine's own load tests.
           GOMAXPROCS: 4
@@ -155,7 +232,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           cache: true
 
       - name: Fast unit tests
@@ -179,11 +256,14 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           cache: true
 
       - name: Heavy integration tests
-        run: go test -tags=integration ./... -count=1
+        # -count=1 defeats setup-go's restored GOCACHE (a cached result would
+        # never execute the tagged tests); -race makes this job catch data
+        # races in the long-lived loopback listeners, not just the unit build.
+        run: go test -race -tags=integration ./... -count=1
 
   # ── coverage gate ─────────────────────────────────────────────────────────
   # -coverpkg=./... in the test job is what makes this number meaningful; the
@@ -198,7 +278,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           cache: true
 
       # Each runner writes a coverage profile with its own "mode:" header.
@@ -233,19 +313,26 @@ jobs:
             exit 1
           fi
           echo "total coverage: ${total}%"
-          floor=45
+          # CONTRIBUTING.md targets >=70%; CI must enforce the same number.
+          # A lower floor let a real regression (e.g. a cached/stale profile)
+          # stay green. Measured aggregate is ~75.7%, so 70 leaves headroom.
+          floor=70
           ok=$(awk -v t="$total" -v f="$floor" 'BEGIN{print (t+0 >= f+0) ? "true" : "false"}')
           if [ "$ok" != "true" ]; then
             echo "::error::coverage ${total}% is below the ${floor}% floor"
             exit 1
           fi
 
+      # This is a real gate now: no `continue-on-error`, and a failed upload
+      # fails the job. Fork PRs cannot read repository secrets, so they skip
+      # the upload instead of failing on a missing token; pushes and same-repo
+      # PRs (the code that can actually land) are always checked.
       - name: Upload to Codecov
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         uses: codecov/codecov-action@v5
-        continue-on-error: true
         with:
           files: coverage.out
-          fail_ci_if_error: false
+          fail_ci_if_error: true
           token: ${{ env.CODECOV_TOKEN }}
 
   # ── cross-compile smoke: ALL 6 binaries on every release target ────────────
@@ -266,7 +353,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           cache: true
 
       - name: Verify the version package compiles on its own
@@ -329,7 +416,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           cache: true
 
       - name: Run benchmarks
@@ -377,7 +464,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           cache: true
 
       # Restore the corpus this target accumulated on earlier runs. Without it
@@ -467,7 +554,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           cache: true
 
       - name: Build the CLI
@@ -626,7 +713,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           cache: true
 
       - uses: actions/setup-node@v4

@@ -21,7 +21,9 @@ updates:
       gopacket:
         patterns: ["github.com/google/gopacket"]
 
-  # Actions are pinned to @v4/@v5/@v6 — a moving supply-chain surface.
+  # Actions are pinned to versions or commit SHAs — a moving supply-chain
+  # surface. This is the only github-actions entry (a second one duplicated
+  # alerts and conflicting schedules).
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -41,11 +43,3 @@ updates:
     labels: [dependencies, docker]
     commit-message:
       prefix: "build(docker)"
-
-  # security.yml pins gosec and trivy to @master / an exact tag respectively;
-  # keep those current.
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: monthly
-    labels: [dependencies, security]

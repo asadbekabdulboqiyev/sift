@@ -30,13 +30,15 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26.11"
+          # Single source of truth: the patch-pinned directive in go.mod.
+          go-version-file: go.mod
           cache: true
 
       - name: govulncheck ./...
         uses: golang/govulncheck-action@v1
         with:
-          go-version-input: "1.26.11"
+          # The action's own setup-go step reads the same pinned go.mod.
+          go-version-file: go.mod
           go-package: ./...
           # Symbol-level analysis, so unused-but-present vulnerable code does
           # not fail the build while reachable vulnerable code does.
@@ -52,7 +54,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26.11"
+          go-version-file: go.mod
           cache: true
 
       - name: Run gosec
