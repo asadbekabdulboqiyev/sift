@@ -1,11 +1,14 @@
 package scanner
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
 )
 
 // --- Mock Servers for Testing ------------------------------------------------
@@ -512,7 +515,7 @@ func TestCalculateRisk_MixedSeverity(t *testing.T) {
 	}
 }
 
-func TestScoreToGrade(t *testing.T) {
+func TestSeverityGrade(t *testing.T) {
 	tests := []struct {
 		score    int
 		expected string
@@ -526,12 +529,62 @@ func TestScoreToGrade(t *testing.T) {
 		{100, "F"},
 	}
 
-	det := NewCVEDetector("http://example.com")
 	for _, tt := range tests {
-		grade := det.scoreToGrade(tt.score)
+		grade := SeverityGrade(tt.score)
 		if grade != tt.expected {
-			t.Errorf("score %d: expected grade %s, got %s", tt.score, tt.expected, grade)
+			t.Errorf("CVE burden %d: expected grade %s, got %s", tt.score, tt.expected, grade)
 		}
+	}
+}
+
+// TestSeverityGradeIsSeparateFromReportLadder documents why CVEs have their own
+// grade: a 0-100 CVE burden runs high-is-worse, so borrowing the report ladder
+// would call a heavily affected target "C". A clean CVE report is A+.
+func TestSeverityGradeIsSeparateFromReportLadder(t *testing.T) {
+	if got := SeverityGrade(0); got != "A+" {
+		t.Errorf("SeverityGrade(0) = %q, want A+ for no CVEs", got)
+	}
+	if got := SeverityGrade(69); got != "F" {
+		t.Errorf("SeverityGrade(69) = %q, want F for a heavy CVE burden", got)
+	}
+	if got := SeverityGrade(100); got != "F" {
+		t.Errorf("SeverityGrade(100) = %q, want F for a saturated CVE burden", got)
+	}
+}
+
+// TestRiskScoreJSONKeysAreDistinct pins the wire contract: the scanner's
+// higher-is-better score and the CVE scanner's higher-is-worse burden must not
+// both serialize under "risk_score".
+func TestRiskScoreJSONKeysAreDistinct(t *testing.T) {
+	scanBytes, err := json.Marshal(core.ScanResult{RiskScore: 100})
+	if err != nil {
+		t.Fatalf("marshal ScanResult: %v", err)
+	}
+	cveBytes, err := json.Marshal(CVEReport{RiskScore: 69})
+	if err != nil {
+		t.Fatalf("marshal CVEReport: %v", err)
+	}
+
+	var scanObj, cveObj map[string]json.RawMessage
+	if err := json.Unmarshal(scanBytes, &scanObj); err != nil {
+		t.Fatalf("unmarshal ScanResult: %v", err)
+	}
+	if err := json.Unmarshal(cveBytes, &cveObj); err != nil {
+		t.Fatalf("unmarshal CVEReport: %v", err)
+	}
+
+	if _, ok := scanObj["risk_score"]; !ok {
+		t.Errorf("ScanResult JSON %s has no risk_score key", scanBytes)
+	}
+	burden, ok := cveObj["cve_risk_score"]
+	if !ok {
+		t.Fatalf("CVEReport JSON %s has no cve_risk_score key", cveBytes)
+	}
+	if string(burden) != "69" {
+		t.Errorf("cve_risk_score = %s, want 69", burden)
+	}
+	if _, ok := cveObj["risk_score"]; ok {
+		t.Errorf("CVEReport JSON must not shadow risk_score: %s", cveBytes)
 	}
 }
 

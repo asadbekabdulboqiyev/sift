@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	proreport "github.com/asadbekabdulboqiyev/sift/internal/report"
 )
 
 // ---------------------------------------------------------------------------
@@ -585,8 +587,15 @@ func TestVulnScanner_Grades(t *testing.T) {
 		{100, "A"},
 		{90, "A"},
 		{85, "B"},
-		{75, "C"},
+		{80, "B"},
+		{79, "C+"},
+		{75, "C+"},
+		{70, "C+"},
+		{69, "C"},
+		{65, "C"},
 		{55, "D"},
+		{50, "D"},
+		{49, "F"},
 		{30, "F"},
 	}
 
@@ -600,6 +609,27 @@ func TestVulnScanner_Grades(t *testing.T) {
 		if vs.Results.Grade != tt.grade {
 			t.Errorf("score %d: grade = %s, want %s", tt.score, vs.Results.Grade, tt.grade)
 		}
+	}
+}
+
+// TestVulnScannerGrade69MatchesSharedLadder pins the regression where this
+// scanner gave 69 a C while the OWASP paths gave it a D and the 60-69 band was
+// missing entirely. compileReport now delegates to the shared ladder.
+func TestVulnScannerGrade69MatchesSharedLadder(t *testing.T) {
+	for score := 1; score <= 100; score++ {
+		vs := NewVulnScanner("http://example.com")
+		vs.Results = &VulnReport{
+			RiskScore: score,
+			OWASP:     make(map[string][]Vulnerability),
+		}
+		vs.compileReport(vs.Results)
+		want := proreport.GradeForScore(score)
+		if got := vs.Results.Grade; got != want {
+			t.Errorf("score %d: grade = %q, shared ladder says %q", score, got, want)
+		}
+	}
+	if got := proreport.GradeForScore(69); got != "C" {
+		t.Fatalf("shared ladder gives 69 the grade %q, want C", got)
 	}
 }
 

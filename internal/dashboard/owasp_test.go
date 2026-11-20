@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/authz"
+	proreport "github.com/asadbekabdulboqiyev/sift/internal/report"
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner"
 )
 
@@ -109,11 +110,30 @@ func TestOWASPWorstStatus(t *testing.T) {
 }
 
 func TestOWASPGrade(t *testing.T) {
-	cases := map[int]string{0: "F", 59: "F", 60: "D", 70: "C", 80: "B", 90: "A", 100: "A"}
+	cases := map[int]string{
+		0: "F", 49: "F", 50: "D", 59: "D", 60: "C", 69: "C",
+		70: "C+", 79: "C+", 80: "B", 89: "B", 90: "A", 100: "A",
+	}
 	for score, want := range cases {
 		if got := owaspGrade(score); got != want {
 			t.Errorf("owaspGrade(%d) = %q, want %q", score, got, want)
 		}
+	}
+}
+
+// TestOWASPGrade69MatchesSharedLadder pins the exact drift this change fixes:
+// the OWASP view used to call 69 a D while the pentest view and the CLI called
+// it a C. Comparing every score (not just a sample) also catches a reintroduced
+// local switch at any other boundary.
+func TestOWASPGrade69MatchesSharedLadder(t *testing.T) {
+	for score := -5; score <= 105; score++ {
+		want := proreport.GradeForScore(score)
+		if got := owaspGrade(score); got != want {
+			t.Errorf("owaspGrade(%d) = %q, shared ladder says %q", score, got, want)
+		}
+	}
+	if got := owaspGrade(69); got != "C" {
+		t.Fatalf("owaspGrade(69) = %q, want C on every higher-is-better path", got)
 	}
 }
 

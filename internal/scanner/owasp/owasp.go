@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	proreport "github.com/asadbekabdulboqiyev/sift/internal/report"
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
 )
 
@@ -1409,19 +1410,11 @@ func (c *OWASPChecker) CalculateScore(report *OWASPReport) int {
 	return totalScore / tested
 }
 
+// calculateGrade is a thin wrapper over the shared ladder. A local copy used
+// to give 69 a D where the CLI gave it a C; delegating makes that drift
+// impossible. The receiver is kept so existing call sites do not change.
 func (c *OWASPChecker) calculateGrade(score int) string {
-	switch {
-	case score >= 90:
-		return "A"
-	case score >= 80:
-		return "B"
-	case score >= 70:
-		return "C"
-	case score >= 60:
-		return "D"
-	default:
-		return "F"
-	}
+	return proreport.GradeForScore(score)
 }
 
 // Render produces a formatted text report

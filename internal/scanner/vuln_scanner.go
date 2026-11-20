@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	proreport "github.com/asadbekabdulboqiyev/sift/internal/report"
 )
 
 // VulnScanner performs comprehensive vulnerability scanning
@@ -271,19 +273,9 @@ func (vs *VulnScanner) compileReport(report *VulnReport) {
 
 	report.RiskScore = score
 
-	// Grade
-	switch {
-	case score >= 90:
-		report.Grade = "A"
-	case score >= 80:
-		report.Grade = "B"
-	case score >= 70:
-		report.Grade = "C"
-	case score >= 50:
-		report.Grade = "D"
-	default:
-		report.Grade = "F"
-	}
+	// Grade — the shared ladder is the only definition of A..F in this tool.
+	// The old local switch skipped C+/C and gave 59 an F instead of a D.
+	report.Grade = proreport.GradeForScore(score)
 
 	// Sort each severity bucket
 	sortVulns(report.Critical)

@@ -39,9 +39,15 @@ func FindingPenalty(critical, high, medium, low int) int {
 
 // GradeForScore maps a 0-100 score onto the letter grade a report shows.
 //
-// There are six bands, not five: C+ exists so a result that fixed some of what
-// a previous run found can be told apart from one that fixed none of it. The
-// ladder is shared by the CLI and the dashboard, so 69 is a C in both.
+// This is the ONLY higher-is-better grade ladder in the tool. The CLI pentest
+// report, the dashboard pentest view, the dashboard OWASP view, the scanner's
+// OWASP checker and the vulnerability scanner all call this function; none of
+// them may keep a local switch. Six bands, not five: C+ exists so a result that
+// fixed some of what a previous run found can be told apart from one that fixed
+// none of it. Consequently 69 is a C on every one of those paths, and 70 is C+.
+//
+// The CVE scanner deliberately does NOT use this ladder: its number counts
+// known CVEs (higher is worse), so it uses the separate SeverityGrade scale.
 func GradeForScore(score int) string {
 	switch {
 	case score >= 90:

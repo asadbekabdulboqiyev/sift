@@ -4,15 +4,20 @@ import "time"
 
 // ScanResult is the top-level output of a complete scan.
 type ScanResult struct {
-	Target    string        `json:"target"`
-	ScanTime  time.Time     `json:"scan_time"`
-	Duration  time.Duration `json:"duration"`
-	TLS       *TLSInfo      `json:"tls"`
-	WAF       *WAFInfo      `json:"waf"`
-	HTTP      *HTTPInfo     `json:"http"`
-	Security  *SecurityInfo `json:"security"`
-	Vulns     []Vuln        `json:"vulns"`
-	RiskScore int           `json:"risk_score"` // 0-100
+	Target   string        `json:"target"`
+	ScanTime time.Time     `json:"scan_time"`
+	Duration time.Duration `json:"duration"`
+	TLS      *TLSInfo      `json:"tls"`
+	WAF      *WAFInfo      `json:"waf"`
+	HTTP     *HTTPInfo     `json:"http"`
+	Security *SecurityInfo `json:"security"`
+	Vulns    []Vuln        `json:"vulns"`
+	// RiskScore is a security score from 0 to 100 where HIGHER IS BETTER: it
+	// starts at 100 and weak TLS, missing headers and findings deduct from it
+	// (shared.CalculateRiskScore). It is serialized as risk_score. Do not confuse
+	// it with scanner.CVEReport.RiskScore, a CVE burden where higher is WORSE and
+	// which is serialized as cve_risk_score.
+	RiskScore int `json:"risk_score"`
 	// InsecureTLS is true only when this scan explicitly disabled certificate
 	// verification. It is per-result state, never a process-wide flag, so one
 	// authorized lab scan cannot produce a false warning on a later scan.

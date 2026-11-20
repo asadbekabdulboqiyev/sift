@@ -12,6 +12,7 @@ import (
 
 	"github.com/asadbekabdulboqiyev/sift/internal/adminlock"
 	"github.com/asadbekabdulboqiyev/sift/internal/authz"
+	proreport "github.com/asadbekabdulboqiyev/sift/internal/report"
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner"
 	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 )
@@ -167,20 +168,11 @@ func owaspWorstStatus(a, b string) string {
 	return shared.OWASPWorstStatus(a, b)
 }
 
-// owaspGrade maps a score to the letter grade used everywhere else in the tool.
+// owaspGrade maps a score to the same letter grade as the CLI and the rest of
+// the dashboard. It is a thin wrapper, not a second ladder: the OWASP view used
+// to award 69 a D while the pentest view awarded it a C.
 func owaspGrade(score int) string {
-	switch {
-	case score >= 90:
-		return "A"
-	case score >= 80:
-		return "B"
-	case score >= 70:
-		return "C"
-	case score >= 60:
-		return "D"
-	default:
-		return "F"
-	}
+	return proreport.GradeForScore(score)
 }
 
 // owaspSplitConfidence lifts the "confidence=<level>; <observation>" prefix

@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	proreport "github.com/asadbekabdulboqiyev/sift/internal/report"
 )
 
 // mockVulnerableServer creates a deliberately vulnerable test server
@@ -625,11 +627,15 @@ func TestOWASPGradeCalculation(t *testing.T) {
 		{90, "A"},
 		{85, "B"},
 		{80, "B"},
-		{75, "C"},
-		{70, "C"},
-		{65, "D"},
-		{60, "D"},
-		{50, "F"},
+		{79, "C+"},
+		{75, "C+"},
+		{70, "C+"},
+		{69, "C"},
+		{65, "C"},
+		{60, "C"},
+		{59, "D"},
+		{50, "D"},
+		{49, "F"},
 		{0, "F"},
 	}
 
@@ -640,6 +646,22 @@ func TestOWASPGradeCalculation(t *testing.T) {
 		if grade != tt.grade {
 			t.Errorf("Score %d: expected grade %s, got %s", tt.score, tt.grade, grade)
 		}
+	}
+}
+
+// TestOWASPGrade69MatchesSharedLadder guards the exact regression: this
+// checker used to give 69 a D while the CLI gave it a C. The wrapper now has no
+// ladder of its own, so every score must agree with internal/report.
+func TestOWASPGrade69MatchesSharedLadder(t *testing.T) {
+	checker := &OWASPChecker{}
+	for score := -5; score <= 105; score++ {
+		want := proreport.GradeForScore(score)
+		if got := checker.calculateGrade(score); got != want {
+			t.Errorf("calculateGrade(%d) = %q, shared ladder says %q", score, got, want)
+		}
+	}
+	if got := checker.calculateGrade(69); got != "C" {
+		t.Fatalf("calculateGrade(69) = %q, want C on every higher-is-better path", got)
 	}
 }
 

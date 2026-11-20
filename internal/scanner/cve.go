@@ -19,11 +19,18 @@ type CVEDetector struct {
 }
 
 type CVEReport struct {
-	Target    string     `json:"target"`
-	ScanTime  time.Time  `json:"scan_time"`
-	CVEs      []CVEMatch `json:"cves"`
-	RiskScore int        `json:"risk_score"`
-	Grade     string     `json:"grade"`
+	Target   string     `json:"target"`
+	ScanTime time.Time  `json:"scan_time"`
+	CVEs     []CVEMatch `json:"cves"`
+	// RiskScore is the CVE BURDEN: it starts at 0 and grows with every matched
+	// CVE, capped at 100. Higher is WORSE. It is deliberately serialized as
+	// cve_risk_score, never risk_score: core.ScanResult.RiskScore starts at 100
+	// and is deducted from, so higher is BETTER there. Sharing one JSON key made
+	// the same number mean opposite things depending on the endpoint.
+	// The Go identifier stays RiskScore so existing cmd/ callers keep building;
+	// only the wire name changes. See SeverityGrade for the matching scale.
+	RiskScore int    `json:"cve_risk_score"`
+	Grade     string `json:"grade"` // SeverityGrade scale, not report.GradeForScore
 }
 
 type CVEMatch struct {
@@ -106,7 +113,7 @@ func (d *CVEDetector) Scan() *CVEReport {
 		}
 	}
 	d.Results.RiskScore = d.calculateRisk()
-	d.Results.Grade = d.scoreToGrade(d.Results.RiskScore)
+	d.Results.Grade = SeverityGrade(d.Results.RiskScore)
 	sort.Slice(d.Results.CVEs, func(i, j int) bool {
 		so := map[string]int{"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 		return so[d.Results.CVEs[i].Severity] < so[d.Results.CVEs[j].Severity]
@@ -345,6 +352,9 @@ func (d *CVEDetector) generatePoC(match *CVEMatch) ExploitPoC {
 	return ExploitPoC{Type: "manual", Description: "No automated PoC available", Conditions: "Manual verification required"}
 }
 
+// calculateRisk accumulates CVE weight from zero: higher means a heavier known
+// CVE burden, i.e. worse. This is the opposite convention from
+// shared.CalculateRiskScore, which subtracts from 100.
 func (d *CVEDetector) calculateRisk() int {
 	if len(d.Results.CVEs) == 0 {
 		return 0
@@ -363,7 +373,12 @@ func (d *CVEDetector) calculateRisk() int {
 	return score
 }
 
-func (d *CVEDetector) scoreToGrade(score int) string {
+// SeverityGrade grades a CVE burden (0 = no known CVEs, 100 = saturated), so
+// its bands run in the OPPOSITE direction from report.GradeForScore: a low
+// score earns the good letter. It is named separately on purpose — it answers
+// "how much known-CVE weight is on this target?", not "how clean is this scan?".
+// Never use it to grade a 0-100 security score where higher is better.
+func SeverityGrade(score int) string {
 	switch {
 	case score == 0:
 		return "A+"

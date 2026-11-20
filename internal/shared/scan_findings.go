@@ -107,9 +107,12 @@ func CalculateVulns(r *core.ScanResult) []core.Vuln {
 	return vulns
 }
 
-// CalculateRiskScore returns the 0..100 risk score for a scan result. It starts
-// at 100 and subtracts for weak TLS, header gaps and each finding, clamped to
-// [0, 100]. The scanner and the standalone CLI both use this exact rule.
+// CalculateRiskScore returns the 0..100 security score for a scan result. It
+// starts at 100 and subtracts for weak TLS, header gaps and each finding,
+// clamped to [0, 100]. HIGHER IS BETTER: 100 means a clean scan, 0 a bad one.
+// The scanner and the standalone CLI both use this exact rule. It is the only
+// risk_score in the tool; CVE burden uses scanner.CVEReport.RiskScore instead
+// (serialized as cve_risk_score, higher is worse).
 func CalculateRiskScore(r *core.ScanResult) int {
 	if r == nil {
 		return 100
