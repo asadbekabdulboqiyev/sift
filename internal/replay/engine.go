@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 )
 
 // ReplayWorker replays a single captured packet stream at configured rate
@@ -446,36 +448,14 @@ func (re *ReplayResult) ExportJSONToFile(path string) error {
 			return err
 		}
 	}
-	f, err := os.CreateTemp(filepath.Dir(clean), filepath.Base(clean)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpName := f.Name()
-	cleanup := func() {
-		_ = f.Close()
-		_ = os.Remove(tmpName)
-	}
-	if err := f.Chmod(0o600); err != nil {
-		cleanup()
-		return err
-	}
-	enc := json.NewEncoder(f)
+	// Encode with the same indentation the inline writer used, then publish.
+	// No directory sync: the original exported JSON was file-synced only and
+	// this is an operator-facing export that can be regenerated.
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(re); err != nil {
-		cleanup()
 		return err
 	}
-	if err := f.Sync(); err != nil {
-		cleanup()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := os.Rename(tmpName, clean); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	return os.Chmod(clean, 0o600)
+	return shared.Write(clean, buf.Bytes(), 0o600)
 }

@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/authz"
+	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 )
 
 // DefaultTTL is how long one unlock lasts when the caller asks for no specific
@@ -119,28 +120,9 @@ func (s *Store) save(st State) error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(s.path)+".tmp*")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	defer os.Remove(name)
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(append(raw, '\n')); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(name, s.path)
+	// Lock state is 0600 and file-synced. Directory sync stays off to match
+	// the original writer; losing the rename would simply force a fresh code.
+	return shared.Write(s.path, append(raw, '\n'), 0o600)
 }
 
 func (s *Store) regenerate() error {

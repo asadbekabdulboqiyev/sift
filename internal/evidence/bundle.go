@@ -1,6 +1,7 @@
 package evidence
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/asadbekabdulboqiyev/sift/internal/attest"
 	"github.com/asadbekabdulboqiyev/sift/internal/honesty"
+	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 )
 
 // BundleInput is everything needed to seal one local run into an evidence
@@ -221,34 +223,16 @@ func writeSidecar(path string, recs []attest.Record) error {
 			return fmt.Errorf("evidence: create %s: %w", dir, err)
 		}
 	}
-	f, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return fmt.Errorf("evidence: create sidecar temp for %s: %w", path, err)
+	// SampleWriter takes an io.Writer, so render the canonical lines into
+	// memory first and let shared.Write own the temp file, fsync and rename.
+	// Directory sync stays off: the original sidecar writer synced the file
+	// only, and that durability level is preserved here.
+	var buf bytes.Buffer
+	if err := attest.WriteSamples(&buf, recs); err != nil {
+		return fmt.Errorf("evidence: encode sidecar %s: %w", path, err)
 	}
-	tmpName := f.Name()
-	cleanup := func() {
-		_ = f.Close()
-		_ = os.Remove(tmpName)
-	}
-	if err := f.Chmod(0o600); err != nil {
-		cleanup()
-		return fmt.Errorf("evidence: chmod sidecar temp %s: %w", path, err)
-	}
-	if err := attest.WriteSamples(f, recs); err != nil {
-		cleanup()
+	if err := shared.Write(path, buf.Bytes(), 0o600); err != nil {
 		return fmt.Errorf("evidence: write sidecar %s: %w", path, err)
 	}
-	if err := f.Sync(); err != nil {
-		cleanup()
-		return fmt.Errorf("evidence: sync sidecar %s: %w", path, err)
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("evidence: close sidecar %s: %w", path, err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("evidence: finalize sidecar %s: %w", path, err)
-	}
-	return os.Chmod(path, 0o600)
+	return nil
 }

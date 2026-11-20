@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/asadbekabdulboqiyev/sift/internal/fsutil"
+	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 )
 
 // Artifact file names.
@@ -44,41 +44,12 @@ type ArtifactPaths struct {
 	ReportPath      string             `json:"report_path"`
 }
 
+// atomicWriteFile keeps the package-local name used by the other artifact
+// writers (manifest.go). The durable write is centralized in shared.Write;
+// twin artifacts are persisted pipeline state, so the directory is synced and
+// a genuine sync failure is returned rather than silently accepted.
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	cleanup := func() {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-	}
-	if err := tmp.Chmod(perm); err != nil {
-		cleanup()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		cleanup()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		cleanup()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := fsutil.SyncDir(dir); err != nil {
-		return err
-	}
-	return os.Chmod(path, perm)
+	return shared.Write(path, data, perm, shared.WithDirSync(true))
 }
 
 // WriteModel writes only twin-model.json in dir. It normalizes/validates the

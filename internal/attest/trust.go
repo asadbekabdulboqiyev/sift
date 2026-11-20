@@ -54,7 +54,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/asadbekabdulboqiyev/sift/internal/fsutil"
+	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 )
 
 // TrustStoreFormat is the frozen format identifier of a trust store document.
@@ -340,33 +340,11 @@ func (t *TrustStore) Save(path string) error {
 			return fmt.Errorf("attest: create trust store directory: %w", err)
 		}
 	}
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp*")
-	if err != nil {
-		return fmt.Errorf("attest: create temporary trust store: %w", err)
-	}
-	tmpName := tmp.Name()
-	defer func() { _ = os.Remove(tmpName) }()
-
-	if err := tmp.Chmod(0o644); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("attest: set trust store permissions: %w", err)
-	}
-	if _, err := tmp.Write(body); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("attest: write trust store: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("attest: sync trust store: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("attest: close trust store: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
+	// Strict directory sync: a lost rename here would silently drop a trusted
+	// issuer, so a genuine sync failure must fail the save. Trust stores are
+	// public by design (0644).
+	if err := shared.Write(path, body, 0o644, shared.WithDirSync(true)); err != nil {
 		return fmt.Errorf("attest: install trust store: %w", err)
-	}
-	if err := fsutil.SyncDir(dir); err != nil {
-		return fmt.Errorf("attest: sync trust store directory: %w", err)
 	}
 	return nil
 }

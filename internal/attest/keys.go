@@ -28,6 +28,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 )
 
 // pemPrivateKeyType is the PEM block type for a PKCS#8 private key.
@@ -128,32 +130,10 @@ func SaveKeypairPEM(kp *Keypair, path string) error {
 			return fmt.Errorf("attest: create key directory: %w", err)
 		}
 	}
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp*")
-	if err != nil {
-		return fmt.Errorf("attest: create temporary key file: %w", err)
-	}
-	tmpName := tmp.Name()
-	defer func() {
-		// Best effort: the rename removes the file on the success path.
-		_ = os.Remove(tmpName)
-	}()
-
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("attest: restrict key file permissions: %w", err)
-	}
-	if _, err := tmp.Write(doc); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("attest: write key file: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("attest: sync key file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("attest: close key file: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
+	// Private keys are 0600 and file-synced, matching the previous writer.
+	// No directory sync here: the original implementation omitted it, and a
+	// missing key is detected and regenerated on the next run.
+	if err := shared.Write(path, doc, 0o600); err != nil {
 		return fmt.Errorf("attest: install key file: %w", err)
 	}
 	return nil

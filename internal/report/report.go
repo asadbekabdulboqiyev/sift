@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/config"
-	"github.com/asadbekabdulboqiyev/sift/internal/fsutil"
 	"github.com/asadbekabdulboqiyev/sift/internal/metrics"
+	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 )
 
 type StepReport struct {
@@ -346,44 +346,12 @@ func (r Report) Render(w io.Writer) {
 	fmt.Fprintln(w)
 }
 
+// atomicWriteFile keeps the package-local name used by the other report
+// writers (including pdf.go). The durable write itself is centralized in
+// shared.Write. Saved reports are archived artifacts, so the directory is
+// synced: a crash must not lose the rename and leave a half-written report.
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	cleanup := func() {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-	}
-	if err := tmp.Chmod(perm); err != nil {
-		cleanup()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		cleanup()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		cleanup()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := fsutil.SyncDir(dir); err != nil {
-		return err
-	}
-	if err := os.Chmod(path, perm); err != nil {
-		return err
-	}
-	return nil
+	return shared.Write(path, data, perm, shared.WithDirSync(true))
 }
 
 func (r Report) SaveJSON(dir string) (string, error) {

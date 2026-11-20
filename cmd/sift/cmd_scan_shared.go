@@ -7,12 +7,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner"
+	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 )
 
 // cmd_scan_shared.go holds the plumbing every standalone scanner command
@@ -275,43 +275,15 @@ func emitScanCLIErrorJSON(sf *scanFlags, err error) {
 // caller that wants auto-created parents does os.MkdirAll itself (authz,
 // xray, simulate, report), while command output paths must surface a typo
 // (".../missing/x.json") as a write error instead of silently creating a
-// directory tree.
+// directory tree. shared.Write preserves that: it only writes next to an
+// existing path.
+//
+// Durability note: the directory sync here is intentionally best-effort
+// (WithDirSync(false)). These are CLI output artifacts the operator immediately
+// reads back; a filesystem that rejects directory fsync must not fail an
+// otherwise complete write. Signed bundles and spools use strict dir sync.
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	cleanup := func() {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-	}
-	if err := tmp.Chmod(perm); err != nil {
-		cleanup()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		cleanup()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		cleanup()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if df, err := os.Open(dir); err == nil {
-		_ = df.Sync()
-		_ = df.Close()
-	}
-	return os.Chmod(path, perm)
+	return shared.Write(path, data, perm, shared.WithDirSync(false))
 }
 
 // scanDirectDialEnvelope is the JSON document a direct-dial scanner writes

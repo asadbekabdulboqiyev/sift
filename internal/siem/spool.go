@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 
-	"github.com/asadbekabdulboqiyev/sift/internal/fsutil"
+	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 )
 
 // spoolFileName is the JSON-lines file written inside Config.SpoolDir.
@@ -154,42 +154,10 @@ func (n *Notifier) ReplaySpool(ctx context.Context) (int, error) {
 		buf.Write(line)
 		buf.WriteByte('\n')
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
-	if err != nil {
+	// Strict directory sync: the spool is durable state, and an unsynced
+	// rename could resurrect already-delivered events after a crash.
+	if err := shared.Write(path, buf.Bytes(), 0o600, shared.WithDirSync(true)); err != nil {
 		return sent, fmt.Errorf("siem: rewrite spool: %w", err)
 	}
-	tmpName := tmp.Name()
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return sent, fmt.Errorf("siem: rewrite spool: %w", err)
-	}
-	if _, err := tmp.Write(buf.Bytes()); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return sent, fmt.Errorf("siem: rewrite spool: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return sent, fmt.Errorf("siem: rewrite spool: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return sent, fmt.Errorf("siem: rewrite spool: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		_ = os.Remove(tmpName)
-		return sent, fmt.Errorf("siem: rewrite spool: %w", err)
-	}
-	if err := syncDir(filepath.Dir(path)); err != nil {
-		_ = os.Chmod(path, 0o600)
-		return sent, fmt.Errorf("siem: rewrite spool: %w", err)
-	}
-	_ = os.Chmod(path, 0o600)
 	return sent, fmt.Errorf("siem: %d spooled event(s) failed to replay", len(remaining))
-}
-
-func syncDir(dir string) error {
-	return fsutil.SyncDir(dir)
 }

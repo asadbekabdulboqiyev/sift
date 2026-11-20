@@ -62,6 +62,8 @@ import (
 	"sort"
 	"time"
 	"unicode/utf8"
+
+	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 )
 
 // FormatID is the frozen format identifier carried by every bundle.
@@ -600,26 +602,12 @@ func SaveBundle(b Bundle, path string) error {
 			return fmt.Errorf("bundle: create directory: %w", err)
 		}
 	}
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp*")
-	if err != nil {
-		return fmt.Errorf("bundle: create temporary file: %w", err)
-	}
-	tmpName := tmp.Name()
-	defer func() { _ = os.Remove(tmpName) }()
-
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("bundle: write: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("bundle: sync: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("bundle: close: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		return fmt.Errorf("bundle: install: %w", err)
+	// The previous writer relied on os.CreateTemp's default 0600 and synced
+	// only the file (no directory sync); pass 0600 explicitly and keep that
+	// durability level. The doc comment above says 0644, which never matched
+	// the implementation — this does not silently change it.
+	if err := shared.Write(path, data, 0o600); err != nil {
+		return fmt.Errorf("bundle: publish: %w", err)
 	}
 	return nil
 }

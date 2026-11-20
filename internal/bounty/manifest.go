@@ -32,6 +32,7 @@ import (
 
 	"github.com/asadbekabdulboqiyev/sift/internal/attest"
 	"github.com/asadbekabdulboqiyev/sift/internal/fsutil"
+	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 )
 
 const (
@@ -444,43 +445,19 @@ func WritePackage(m Manifest, dir string) (string, error) {
 	}
 	path := filepath.Join(cleanDir, PackageFilename)
 
-	f, err := os.CreateTemp(cleanDir, PackageFilename+".tmp-*")
-	if err != nil {
-		return "", fmt.Errorf("bounty: create temp manifest in %s: %w", cleanDir, err)
-	}
-	tmpName := f.Name()
-	cleanup := func() {
-		_ = f.Close()
-		_ = os.Remove(tmpName)
-	}
-	if err := f.Chmod(0o600); err != nil {
-		cleanup()
-		return "", fmt.Errorf("bounty: set mode on temp manifest: %w", err)
-	}
-	enc := json.NewEncoder(f)
+	// Encode into memory with the exact encoder settings the old inline writer
+	// used (HTML escaping off, two-space indent), then publish in one step.
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(m); err != nil {
-		cleanup()
 		return "", fmt.Errorf("bounty: write %s: %w", path, err)
 	}
-	if err := f.Sync(); err != nil {
-		cleanup()
-		return "", fmt.Errorf("bounty: sync %s: %w", path, err)
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return "", fmt.Errorf("bounty: close %s: %w", path, err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		_ = os.Remove(tmpName)
-		return "", fmt.Errorf("bounty: finalize %s: %w", path, err)
-	}
-	if err := syncDir(cleanDir); err != nil {
-		return "", fmt.Errorf("bounty: sync package dir %s: %w", cleanDir, err)
-	}
-	if err := os.Chmod(path, 0o600); err != nil {
-		return "", fmt.Errorf("bounty: set mode on %s: %w", path, err)
+	// Strict directory sync: the package manifest is a tamper-evident artifact
+	// and must survive a crash with its rename intact.
+	if err := shared.Write(path, buf.Bytes(), 0o600, shared.WithDirSync(true)); err != nil {
+		return "", fmt.Errorf("bounty: publish %s: %w", path, err)
 	}
 	return path, nil
 }

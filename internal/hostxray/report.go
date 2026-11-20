@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/asadbekabdulboqiyev/sift/internal/fsutil"
+	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 )
 
 // maxTimelineRows caps the host timeline in a Markdown report. A 100k-sample
@@ -487,42 +487,11 @@ func writeArtifact(path string, data []byte) error {
 		}
 	}
 
-	tmp, err := os.CreateTemp(dir, filepath.Base(clean)+".tmp-*")
-	if err != nil {
-		return fmt.Errorf("host xray: create temp artifact for %s: %w", clean, err)
-	}
-	tmpName := tmp.Name()
-	cleanup := func() {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-	}
-
-	if err := tmp.Chmod(0o600); err != nil {
-		cleanup()
-		return fmt.Errorf("host xray: restrict permissions on temp artifact %s: %w", tmpName, err)
-	}
-	if _, err := tmp.Write(data); err != nil {
-		cleanup()
-		return fmt.Errorf("host xray: write temp artifact %s: %w", tmpName, err)
-	}
-	if err := tmp.Sync(); err != nil {
-		cleanup()
-		return fmt.Errorf("host xray: sync temp artifact %s: %w", tmpName, err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("host xray: close temp artifact %s: %w", tmpName, err)
-	}
-	if err := os.Rename(tmpName, clean); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("host xray: replace %s: %w", clean, err)
-	}
-	if err := fsutil.SyncDir(dir); err != nil {
-		return fmt.Errorf("host xray: sync artifact directory %s: %w", dir, err)
-	}
-	// Enforce 0600 after rename in case platform/filesystem semantics differ.
-	if err := os.Chmod(clean, 0o600); err != nil {
-		return fmt.Errorf("host xray: restrict permissions on %s: %w", clean, err)
+	// Artifacts are kept for the incident record, so the rename is made
+	// durable with a strict directory sync (shared.Write also re-applies 0600
+	// after the rename, matching the previous explicit chmod here).
+	if err := shared.Write(clean, data, 0o600, shared.WithDirSync(true)); err != nil {
+		return fmt.Errorf("host xray: write artifact %s: %w", clean, err)
 	}
 	return nil
 }

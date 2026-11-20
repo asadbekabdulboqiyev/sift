@@ -24,6 +24,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 )
 
 const (
@@ -325,35 +327,10 @@ func (n *NVDService) saveCache(key string, results []NVDCVE) {
 		return
 	}
 	path := n.cachePath(key)
-	f, err := os.CreateTemp(n.cacheDir, filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return
-	}
-	tmpName := f.Name()
-	if err := f.Chmod(0o600); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmpName)
-		return
-	}
-	if _, err := f.Write(b); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmpName)
-		return
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmpName)
-		return
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		_ = os.Remove(tmpName)
-		return
-	}
-	_ = os.Chmod(path, 0o600)
+	// Cache entries are re-fetched on a miss, so no directory sync: keep the
+	// original file-fsync-only durability. saveCache has no error return, so a
+	// failed publish is silently ignored just as before.
+	_ = shared.Write(path, b, 0o600)
 }
 
 // sanitizeNVDKey maps arbitrary search text onto a safe filename fragment:
