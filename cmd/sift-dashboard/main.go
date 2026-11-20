@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 	"github.com/asadbekabdulboqiyev/sift/internal/cliux"
 	"github.com/asadbekabdulboqiyev/sift/internal/config"
 	"github.com/asadbekabdulboqiyev/sift/internal/dashboard"
@@ -214,11 +215,18 @@ Examples:
 		os.Exit(0)
 	}()
 
+	// Explicit bounds on every phase of a request. ReadHeaderTimeout alone still
+	// lets an attacker stream an unbounded request body (slowloris), and without
+	// a WriteTimeout a handler that stalls on a backend can pin a connection
+	// indefinitely. MaxHeaderBytes caps header-driven memory amplification.
 	dashSrv := &http.Server{
 		Addr:              *listen,
 		Handler:           srv,
+		ReadTimeout:       30 * time.Second,
 		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       2 * time.Minute,
+		MaxHeaderBytes:    1 << 20, // 1 MiB
 	}
 	if err := dashSrv.ListenAndServe(); err != nil {
 		log.Fatalf("Dashboard server failed: %v", err)
@@ -266,7 +274,11 @@ func startRun(bridge *dashboard.EngineBridge, srv *dashboard.Server, selfMetrics
 		return
 	}
 
-	eng, err := engine.New(sc)
+	// Classification in the start handler is not enough: DNS may answer
+	// differently when the engine actually connects. Carry the approved class
+	// into a dial-time hook so a rebound address is refused on the socket.
+	control := authz.DialControl(dashboard.RunTargetClass(config.TargetURL))
+	eng, err := engine.NewWithControl(sc, control)
 	if err != nil {
 		fmt.Printf("  ✗ Engine setup failed: %v\n", err)
 		bridge.RunFailed(err)

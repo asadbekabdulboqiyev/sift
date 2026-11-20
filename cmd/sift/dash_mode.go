@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 	"github.com/asadbekabdulboqiyev/sift/internal/config"
 	"github.com/asadbekabdulboqiyev/sift/internal/dashboard"
 	"github.com/asadbekabdulboqiyev/sift/internal/engine"
@@ -101,7 +102,11 @@ func runWithDashboard(scenario *config.Scenario, dashListen, reportDir string, d
 			cancel = runCancel
 			mu.Unlock()
 
-			e, err := engine.New(sc)
+			// Re-apply the target's approved class at dial time: a name
+			// classified in the handler can resolve to a more restrictive
+			// address by the time the engine connects (DNS rebinding).
+			control := authz.DialControl(dashboard.RunTargetClass(cfg.TargetURL))
+			e, err := engine.NewWithControl(sc, control)
 			if err != nil {
 				bridge.RunFailed(err)
 				runCancel()
@@ -210,13 +215,20 @@ func runWithDashboard(scenario *config.Scenario, dashListen, reportDir string, d
 		exitProcess(0)
 	}()
 
-	// http.Server with explicit header/idle timeouts: a slowloris-style
-	// client must not be able to hold a handler goroutine open forever.
+	// http.Server with explicit bounds on every request phase: a slowloris-style
+	// client must not be able to hold a handler goroutine open forever, and a
+	// stalled backend must not pin a connection indefinitely. MaxHeaderBytes
+	// caps header-driven memory amplification. The 60s WriteTimeout leaves room
+	// for the 30s audit360 event stream; WebSocket connections are hijacked and
+	// therefore exempt from the server write deadline.
 	dashSrv := &http.Server{
 		Addr:              dashListen,
 		Handler:           srv,
+		ReadTimeout:       30 * time.Second,
 		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       2 * time.Minute,
+		MaxHeaderBytes:    1 << 20, // 1 MiB
 	}
 	if err := dashSrv.ListenAndServe(); err != nil {
 		fmt.Fprintf(os.Stderr, "dashboard server failed: %v\n", err)

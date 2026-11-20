@@ -16,6 +16,7 @@ package dashboard
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -156,7 +157,10 @@ func (s *Server) handleAdminUnlock(w http.ResponseWriter, r *http.Request) {
 	store, err := adminlock.Open(adminlock.DefaultPath())
 	if err != nil {
 		adminAttempts.fail(now)
-		writeAdminError(w, http.StatusInternalServerError, err.Error())
+		// The underlying error can contain host filesystem paths and store
+		// internals. Keep it in the server log; send the browser a fixed text.
+		log.Printf("dashboard: admin store open failed: %v", err)
+		writeAdminError(w, http.StatusInternalServerError, "unable to access admin state — see server log")
 		return
 	}
 	// The code is the gate. An empty code is rejected instead of falling back
@@ -172,7 +176,10 @@ func (s *Server) handleAdminUnlock(w http.ResponseWriter, r *http.Request) {
 	st, err := store.Unlock(code, time.Duration(req.Minutes)*time.Minute)
 	if err != nil {
 		adminAttempts.fail(now)
-		writeAdminError(w, http.StatusForbidden, err.Error())
+		// Do not distinguish "wrong code" from an internal store failure in the
+		// response, and never echo the error: both leak state to a remote caller.
+		log.Printf("dashboard: admin unlock rejected: %v", err)
+		writeAdminError(w, http.StatusForbidden, "invalid admin code")
 		return
 	}
 	adminAttempts.reset()
@@ -203,11 +210,13 @@ func (s *Server) handleAdminLock(w http.ResponseWriter, r *http.Request) {
 	}
 	store, err := adminlock.Open(adminlock.DefaultPath())
 	if err != nil {
-		writeAdminError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("dashboard: admin store open failed: %v", err)
+		writeAdminError(w, http.StatusInternalServerError, "unable to access admin state — see server log")
 		return
 	}
 	if _, err := store.Lock(); err != nil {
-		writeAdminError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("dashboard: admin lock failed: %v", err)
+		writeAdminError(w, http.StatusInternalServerError, "unable to close the admin bypass — see server log")
 		return
 	}
 	adminAttempts.reset()

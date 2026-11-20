@@ -487,6 +487,10 @@ func TestApplyAuthParsesRBACRoles(t *testing.T) {
 		t.Fatal("middleware was not installed")
 	}
 
+	// RBAC now guards GET as well as mutations. Bearer subjects are hash-keyed,
+	// so grant this token the built-in viewer role (tests:view) explicitly.
+	a.rbacRoles["bearer:"+shortID(HashKey("secret-token"))] = []string{"viewer"}
+
 	// No credentials on the request: refused.
 	rec := httptest.NewRecorder()
 	s.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/snapshot", nil))

@@ -83,3 +83,58 @@ func TestSplitSecurityHostGatePrecedesOpsDispatch(t *testing.T) {
 		})
 	}
 }
+
+// TestSafeCSPHost admits only syntactically valid host[:port] values that can
+// be placed verbatim in a CSP source expression. Anything that could inject a
+// directive, attribute or extra source is rejected.
+func TestSafeCSPHost(t *testing.T) {
+	for _, host := range []string{
+		"localhost:8080",
+		"127.0.0.1:8080",
+		"[::1]:8080",
+		"app.example.com",
+	} {
+		if got := safeCSPHost(host); got != host {
+			t.Errorf("safeCSPHost(%q) = %q, want unchanged", host, got)
+		}
+	}
+	for _, host := range []string{
+		"",
+		"app.example.com; script-src *",
+		"app.example.com' onload='alert(1)",
+		"app.example.com/evil",
+		"app.example.com,https://evil.example",
+		"bad_host:8080",
+		"app.example.com:notaport",
+		strings.Repeat("a", 256),
+	} {
+		if got := safeCSPHost(host); got != "" {
+			t.Errorf("safeCSPHost(%q) = %q, want empty", host, got)
+		}
+	}
+}
+
+// TestCSPCannotBeInjectedViaHost proves a malicious Host header cannot add a
+// directive to Content-Security-Policy: the explicit ws/wss sources are dropped
+// when the host fails validation.
+func TestCSPCannotBeInjectedViaHost(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "http://dashboard.local/", nil)
+	req.Host = "x; script-src *; connect-src *"
+	w := httptest.NewRecorder()
+	securityHeaders(w, req)
+	csp := w.Header().Get("Content-Security-Policy")
+	if strings.Contains(csp, "script-src *") || strings.Contains(csp, "ws://") {
+		t.Fatalf("CSP injectable via Host: %s", csp)
+	}
+	if !strings.Contains(csp, "connect-src 'self'") || !strings.Contains(csp, "script-src 'self'") {
+		t.Errorf("safe CSP directives missing: %s", csp)
+	}
+
+	valid := httptest.NewRequest(http.MethodGet, "http://dashboard.local/", nil)
+	valid.Host = "localhost:8080"
+	vw := httptest.NewRecorder()
+	securityHeaders(vw, valid)
+	if vcsp := vw.Header().Get("Content-Security-Policy"); !strings.Contains(vcsp, "ws://localhost:8080 wss://localhost:8080") {
+		t.Errorf("valid host did not get WebSocket sources: %s", vcsp)
+	}
+}

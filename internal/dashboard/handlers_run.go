@@ -138,6 +138,17 @@ func refuseRunTarget(raw string) (authz.Class, string, bool) {
 	return tgt.Class(), tgt.Host, false
 }
 
+// RunTargetClass returns the class the start-run refusal gate approved for a
+// target. Launchers hand it to authz.DialControl so the same decision is
+// re-applied to the address the socket actually connects to: classification
+// resolves a name once, but DNS may answer differently a moment later at dial
+// time (rebinding to a private address or instance metadata). Classification
+// failures return ClassPublic, which is fail-closed at the dial hook.
+func RunTargetClass(raw string) authz.Class {
+	class, _, _ := refuseRunTarget(raw)
+	return class
+}
+
 func (s *Server) handleStopRun(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)

@@ -359,3 +359,45 @@ func TestCertificateHistory(t *testing.T) {
 		t.Errorf("history = %+v, want one certificate", resp)
 	}
 }
+
+// TestCertificateIssueErrorResponsesAreGeneric pins the response text on the
+// certificate-issue error paths that are reachable without host-specific
+// failures. Internal errors are logged server-side and returned as fixed
+// messages; these bodies must never carry raw error text or filesystem paths.
+func TestCertificateIssueErrorResponsesAreGeneric(t *testing.T) {
+	t.Setenv("SIFT_HOME", t.TempDir())
+
+	cases := []struct {
+		name       string
+		body       string
+		wantStatus int
+		wantText   string
+	}{
+		{"empty body", "", http.StatusBadRequest, "empty body — drop a pentest report JSON"},
+		{"malformed json", "{not json", http.StatusBadRequest, "invalid JSON body"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var req *http.Request
+			if tc.body == "" {
+				req = httptest.NewRequest(http.MethodPost, "/api/certificate/issue", nil)
+			} else {
+				req = httptest.NewRequest(http.MethodPost, "/api/certificate/issue", strings.NewReader(tc.body))
+			}
+			w := httptest.NewRecorder()
+			(&Server{}).handleCertificateIssue(w, req)
+			if w.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d: %s", w.Code, tc.wantStatus, w.Body.String())
+			}
+			body := w.Body.String()
+			if !strings.Contains(body, tc.wantText) {
+				t.Errorf("generic message %q missing: %s", tc.wantText, body)
+			}
+			for _, marker := range []string{"/Users/", "SIFT_HOME", "certificates.jsonl"} {
+				if strings.Contains(body, marker) {
+					t.Errorf("response leaked internal detail %q: %s", marker, body)
+				}
+			}
+		})
+	}
+}

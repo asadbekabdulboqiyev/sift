@@ -62,7 +62,16 @@ func securityHeaders(w http.ResponseWriter, r *http.Request) {
 	if r.TLS != nil {
 		h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 	}
-	h.Set("Content-Security-Policy", fmt.Sprintf(
+	// The Host header is attacker-controlled in front of a proxy. Interpolating
+	// it raw into a CSP directive would let a value such as
+	// "x; script-src *" append a new directive and defeat the policy. Only a
+	// syntactically valid host[:port] is admitted; anything else drops the
+	// explicit WebSocket sources and falls back to 'self' alone.
+	connectSrc := "connect-src 'self'"
+	if host := safeCSPHost(r.Host); host != "" {
+		connectSrc += fmt.Sprintf(" ws://%s wss://%s", host, host)
+	}
+	h.Set("Content-Security-Policy",
 		"default-src 'self'; "+
 			"script-src 'self'; "+
 			"style-src 'self' 'unsafe-inline'; "+
@@ -71,7 +80,56 @@ func securityHeaders(w http.ResponseWriter, r *http.Request) {
 			"object-src 'none'; "+
 			"base-uri 'none'; "+
 			"frame-ancestors 'self'; "+
-			"connect-src 'self' ws://%s wss://%s", r.Host, r.Host))
+			connectSrc)
+}
+
+// safeCSPHost returns host unchanged only when it is a syntactically valid
+// host[:port] that can be placed verbatim inside a CSP source expression.
+// Whitespace, quotes, semicolons, commas, slashes and other directive syntax
+// are rejected. Invalid input returns "" so the caller omits the source rather
+// than trying to escape it inside a header value.
+func safeCSPHost(host string) string {
+	if host == "" || len(host) > 255 {
+		return ""
+	}
+
+	h, port, err := net.SplitHostPort(host)
+	if err != nil {
+		// No port component (or a malformed one): judge the whole value as host.
+		h, port = host, ""
+	}
+	if port != "" {
+		for _, c := range port {
+			if c < '0' || c > '9' {
+				return ""
+			}
+		}
+	}
+	if h == "" {
+		return ""
+	}
+
+	if strings.HasPrefix(h, "[") && strings.HasSuffix(h, "]") {
+		// IPv6 literal, e.g. [::1]:8888.
+		if net.ParseIP(h[1:len(h)-1]) == nil {
+			return ""
+		}
+		return host
+	}
+	if net.ParseIP(h) != nil {
+		return host // IPv4 literal
+	}
+	for _, c := range h {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '-' || c == '.' {
+			continue
+		}
+		return ""
+	}
+	if strings.HasPrefix(h, ".") || strings.HasSuffix(h, ".") || strings.Contains(h, "..") {
+		return ""
+	}
+	return host
 }
 
 // IsLoopbackAddr reports whether a listen address binds only to the

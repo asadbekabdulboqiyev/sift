@@ -39,13 +39,22 @@ import (
 const (
 	authJanitorInterval = time.Minute
 	authBucketTTL       = 10 * time.Minute
+
+	// Secure defaults used when the operator does not configure a limiter.
+	// Zero used to mean "unlimited", which left the credential-guarded control
+	// API open to credential stuffing and brute force. A dashboard polls at a
+	// few requests per second, so 20/s with a burst of 40 is generous for
+	// legitimate use while still bounding an attacker.
+	defaultAuthRPS   = 20.0
+	defaultAuthBurst = 40
 )
 
 // AuthConfig configures the middleware. An empty BearerTokens, APIKeyHashes and
 // AllowedMTLSCNs list means credential authentication always fails, which keeps
 // the "secure by default" story: a caller must explicitly enroll a credential.
-// AllowedOrigins empty disables the CSRF origin check (non-browser clients such
-// as the CLI send no Origin header).
+// AllowedOrigins empty falls back to a same-origin check for browser callers
+// (non-browser clients such as the CLI send no Origin header), so CSRF is never
+// silently disabled just because no allowlist was configured.
 type AuthConfig struct {
 	// BearerTokens are accepted verbatim as `Authorization: Bearer <token>`.
 	BearerTokens []string
@@ -65,8 +74,10 @@ type AuthConfig struct {
 	// ("app.example.com") or "*" (allow any).
 	AllowedOrigins []string
 
-	// RateLimitRPS is the token refill rate per client IP. Zero disables the
-	// limiter. RateLimitBurst is the bucket capacity (defaults to 1).
+	// RateLimitRPS is the token refill rate per client IP. Non-positive values
+	// select a safe default (defaultAuthRPS). RateLimitBurst is the bucket
+	// capacity (non-positive selects defaultAuthBurst). There is deliberately
+	// no way to disable the limiter through this config.
 	RateLimitRPS   float64
 	RateLimitBurst int
 
@@ -159,13 +170,16 @@ func NewAuth(cfg AuthConfig) *Auth {
 		stopCh:      make(chan struct{}),
 		doneCh:      make(chan struct{}),
 	}
-	if cfg.RateLimitRPS > 0 {
-		a.rateEnabled = true
-		a.rps = cfg.RateLimitRPS
-		a.burst = cfg.RateLimitBurst
-		if a.burst <= 0 {
-			a.burst = 1
-		}
+	// Always install a limiter. A zero/unset config used to disable it, which
+	// left every credential-guarded endpoint open to unbounded online guessing.
+	a.rateEnabled = true
+	a.rps = cfg.RateLimitRPS
+	if a.rps <= 0 {
+		a.rps = defaultAuthRPS
+	}
+	a.burst = cfg.RateLimitBurst
+	if a.burst <= 0 {
+		a.burst = defaultAuthBurst
 	}
 	go a.janitor()
 	return a
@@ -199,9 +213,12 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// RBAC: deny state-changing methods when the subject lacks the
-		// required permission. Read-only GET/HEAD/OPTIONS are exempt.
-		if a.rbacEnabled && !isSafeMethod(r.Method) {
+		// RBAC applies to every authenticated request, including GET. A read
+		// can still be privileged: GET /api/admin/status and GET /api/history
+		// disclose control-plane state. Exempting safe methods by verb used to
+		// let any authenticated principal reach the admin and audit surfaces
+		// without the corresponding permission.
+		if a.rbacEnabled {
 			perm := permForPath(r.URL.Path, r.Method)
 			if !a.rbacAllowed(subject, roles, perm) {
 				http.Error(w, "rbac: permission denied", http.StatusForbidden)
@@ -369,19 +386,32 @@ func (a *Auth) rbacAllowed(subject string, roles []string, perm string) bool {
 	return false
 }
 
-// permForPath maps an HTTP method + path to a coarse permission string.
+// permForPath maps a request to the permission required to authorize it.
+//
+// The path is examined FIRST, then the method. Privileged resource families
+// keep their permission for every verb: GET /api/admin/status is an admin
+// action and POST /api/audit-360 is an audit read. Deciding by method first
+// used to downgrade every GET to tests:view (and every POST to tests:run),
+// which let a viewer read the admin surface and let a runner reach audit
+// endpoints. Fail closed: an unrecognised path falls back to tests:run for
+// mutations and tests:view for reads.
 func permForPath(path, method string) string {
 	switch {
-	case method == http.MethodGet:
-		return "tests:view"
-	case strings.HasPrefix(path, "/api/run") || method == http.MethodPost:
-		return "tests:run"
-	case strings.HasPrefix(path, "/api/admin") || method == http.MethodDelete:
-		return "admin:access"
+	case strings.HasPrefix(path, "/api/admin"):
+		// Covers /api/admin/status, /unlock, /lock and the stricter
+		// /api/admin/lock/unlock surface for GET and POST alike.
+		return rbac.PermAdmin
 	case strings.HasPrefix(path, "/api/audit"):
-		return "audit:read"
+		// Covers /api/audit, /api/audit-360 and its /status, /stream and
+		// /download sub-resources regardless of method.
+		return rbac.PermAuditRead
+	case strings.HasPrefix(path, "/api/run"):
+		return rbac.PermRun
+	case method == http.MethodPost, method == http.MethodPut,
+		method == http.MethodPatch, method == http.MethodDelete:
+		return rbac.PermRun
 	default:
-		return "tests:view"
+		return rbac.PermView
 	}
 }
 
@@ -444,15 +474,21 @@ func isSafeMethod(method string) bool {
 	}
 }
 
-// originAllowed applies the AllowedOrigins CSRF policy. It returns true when no
-// allowlist is configured (non-browser clients such as curl stay usable).
+// originAllowed applies the AllowedOrigins CSRF policy. A request with no
+// Origin/Referer is a non-browser client (curl, the CLI) and stays allowed. A
+// browser request must match the explicit allowlist when one is configured;
+// otherwise it must be same-origin with the request's Host. The previous
+// behavior — no allowlist means "allow every Origin" — silently turned CSRF
+// protection off for every browser caller whenever credentials were enrolled
+// without also configuring AllowedOrigins.
 func (a *Auth) originAllowed(r *http.Request) bool {
-	if len(a.cfg.AllowedOrigins) == 0 {
-		return true
-	}
 	candidate := requestOrigin(r)
 	if candidate == "" {
-		return false
+		// An explicit allowlist is a strict opt-in: a request that cannot
+		// present an Origin or Referer cannot be checked against it, so it is
+		// refused. With no allowlist, non-browser clients (curl, the CLI) are
+		// allowed and browser callers are held to the same-origin default.
+		return len(a.cfg.AllowedOrigins) == 0
 	}
 	u, err := url.Parse(candidate)
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
@@ -460,6 +496,12 @@ func (a *Auth) originAllowed(r *http.Request) bool {
 	}
 	origin := strings.ToLower(u.Scheme + "://" + u.Host)
 	host := strings.ToLower(u.Host)
+	if len(a.cfg.AllowedOrigins) == 0 {
+		// Secure default: same-origin only. The Host comparison is
+		// case-insensitive and includes the port, matching how browsers
+		// construct the Origin header for the dashboard.
+		return host == strings.ToLower(r.Host)
+	}
 	for _, allowed := range a.cfg.AllowedOrigins {
 		switch {
 		case allowed == "*":

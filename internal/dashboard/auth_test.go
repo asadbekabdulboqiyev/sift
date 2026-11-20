@@ -366,18 +366,36 @@ func TestAuthCSRFWildcardAllowsAnyOrigin(t *testing.T) {
 	}
 }
 
-// TestAuthCSRFDisabledWhenNoAllowlist: with no allowlist, non-browser clients
-// (which send no Origin) must keep working.
-func TestAuthCSRFDisabledWhenNoAllowlist(t *testing.T) {
+// TestAuthCSRFDefaultSameOrigin: with no explicit allowlist, browser requests
+// must still be same-origin. The old "empty allowlist disables CSRF" behavior
+// let any site forge state-changing requests against an authenticated dashboard.
+func TestAuthCSRFDefaultSameOrigin(t *testing.T) {
 	a := NewAuth(AuthConfig{BearerTokens: []string{"tok"}})
 	defer a.Close()
 
-	rec := authRequest(t, a, http.MethodPost, "/", func(r *http.Request) {
-		r.Header.Set("Authorization", "Bearer tok")
-		r.Header.Set("Origin", "https://evil.example")
-	})
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200 (CSRF check disabled without an allowlist)", rec.Code)
+	cases := []struct {
+		name   string
+		origin string
+		want   int
+	}{
+		{"no origin (non-browser)", "", http.StatusOK},
+		{"same origin", "https://app.example.com", http.StatusOK},
+		{"cross origin", "https://evil.example", http.StatusForbidden},
+		{"cross origin with path", "https://evil.example/steal", http.StatusForbidden},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := authRequest(t, a, http.MethodPost, "/api/run/start", func(r *http.Request) {
+				r.Host = "app.example.com"
+				r.Header.Set("Authorization", "Bearer tok")
+				if tc.origin != "" {
+					r.Header.Set("Origin", tc.origin)
+				}
+			})
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d, want %d", rec.Code, tc.want)
+			}
+		})
 	}
 }
 
@@ -502,16 +520,38 @@ func TestAuthRateLimitTrustProxy(t *testing.T) {
 	})
 }
 
-// TestAuthRateLimitDisabled: RPS <= 0 leaves the limiter off.
-func TestAuthRateLimitDisabled(t *testing.T) {
+// TestAuthRateLimitDefaultEnabled: an unset rate-limit config no longer means
+// "unlimited". The secure defaults must be active so a credential-guarded
+// control API cannot be brute-forced just because the operator left the flags
+// at zero.
+func TestAuthRateLimitDefaultEnabled(t *testing.T) {
 	a := NewAuth(AuthConfig{BearerTokens: []string{"tok"}})
 	defer a.Close()
 
-	for i := 0; i < 50; i++ {
+	if !a.rateEnabled {
+		t.Fatal("rate limiter is disabled by default")
+	}
+	if a.rps != defaultAuthRPS {
+		t.Errorf("default rps = %v, want %v", a.rps, defaultAuthRPS)
+	}
+	if a.burst != defaultAuthBurst {
+		t.Errorf("default burst = %d, want %d", a.burst, defaultAuthBurst)
+	}
+
+	// The loop completes well inside one refill interval, so the bucket is
+	// empty exactly after `burst` requests and the next one is throttled.
+	for i := 0; i < defaultAuthBurst; i++ {
 		rec := authRequest(t, a, http.MethodGet, "/", authBearer("Bearer tok"))
 		if rec.Code != http.StatusOK {
-			t.Fatalf("request %d status = %d, want 200 with the limiter disabled", i+1, rec.Code)
+			t.Fatalf("request %d status = %d, want 200 (within default burst)", i+1, rec.Code)
 		}
+	}
+	rec := authRequest(t, a, http.MethodGet, "/", authBearer("Bearer tok"))
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("request %d status = %d, want 429 (default limiter is active)", defaultAuthBurst+1, rec.Code)
+	}
+	if got := rec.Header().Get("Retry-After"); got == "" {
+		t.Error("throttled response is missing Retry-After")
 	}
 }
 

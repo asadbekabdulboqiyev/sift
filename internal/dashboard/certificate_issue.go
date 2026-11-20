@@ -14,6 +14,7 @@ package dashboard
 import (
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -70,7 +71,8 @@ func (s *Server) handleCertificateIssue(w http.ResponseWriter, r *http.Request) 
 	r.Body = http.MaxBytesReader(w, r.Body, maxCertificateBody)
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, "read report: "+err.Error(), http.StatusBadRequest)
+		log.Printf("dashboard: read certificate issue body: %v", err)
+		http.Error(w, "unable to read report body", http.StatusBadRequest)
 		return
 	}
 	if len(strings.TrimSpace(string(raw))) == 0 {
@@ -105,12 +107,14 @@ func (s *Server) handleCertificateIssue(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := certStoreEnsure(); err != nil {
-		http.Error(w, "certificate store unavailable: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("dashboard: certificate store unavailable: %v", err)
+		http.Error(w, "certificate store unavailable", http.StatusInternalServerError)
 		return
 	}
 	kp, created, err := loadDashboardSealingKey()
 	if err != nil {
-		http.Error(w, "load sealing key: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("dashboard: load certificate sealing key: %v", err)
+		http.Error(w, "unable to load sealing key", http.StatusInternalServerError)
 		return
 	}
 
@@ -119,7 +123,8 @@ func (s *Server) handleCertificateIssue(w http.ResponseWriter, r *http.Request) 
 	// prevHash is set atomically by certStoreIssue at write time; pass empty here.
 	cert, err := certificate.Issue(kp, a, "", experimentRef)
 	if err != nil {
-		http.Error(w, "sign certificate: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("dashboard: sign certificate: %v", err)
+		http.Error(w, "unable to sign certificate", http.StatusInternalServerError)
 		return
 	}
 
@@ -127,7 +132,8 @@ func (s *Server) handleCertificateIssue(w http.ResponseWriter, r *http.Request) 
 	// Two concurrent issues cannot receive the same predecessor hash.
 	storedCert, _, err := certStoreIssue(*cert)
 	if err != nil {
-		http.Error(w, "store certificate: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("dashboard: store certificate: %v", err)
+		http.Error(w, "unable to store certificate", http.StatusInternalServerError)
 		return
 	}
 	cert = storedCert
@@ -136,7 +142,8 @@ func (s *Server) handleCertificateIssue(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("X-Certificate-Key-Created", boolString(created))
 	w.Header().Set("X-Certificate-ID", cert.CertificateID)
 	if err := json.NewEncoder(w).Encode(cert); err != nil {
-		http.Error(w, "encode certificate: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("dashboard: encode certificate response: %v", err)
+		http.Error(w, "encode certificate response failed", http.StatusInternalServerError)
 	}
 }
 
@@ -157,7 +164,8 @@ func (s *Server) handleCertificateDownload(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := certStoreEnsure(); err != nil {
-		http.Error(w, "certificate store unavailable: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("dashboard: certificate store unavailable: %v", err)
+		http.Error(w, "certificate store unavailable", http.StatusInternalServerError)
 		return
 	}
 	cert, ok := certStoreGet(id)
@@ -176,7 +184,8 @@ func (s *Server) handleCertificateDownload(w http.ResponseWriter, r *http.Reques
 	case "pdf":
 		pdf, err := certToPDF(&cert)
 		if err != nil {
-			http.Error(w, "render pdf: "+err.Error(), http.StatusInternalServerError)
+			log.Printf("dashboard: render certificate PDF: %v", err)
+			http.Error(w, "unable to render certificate PDF", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/pdf")
@@ -204,7 +213,8 @@ func (s *Server) handleCertificateVerify(w http.ResponseWriter, r *http.Request)
 	r.Body = http.MaxBytesReader(w, r.Body, maxCertificateBody)
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, "read body: "+err.Error(), http.StatusBadRequest)
+		log.Printf("dashboard: read certificate verify body: %v", err)
+		http.Error(w, "unable to read request body", http.StatusBadRequest)
 		return
 	}
 	if len(strings.TrimSpace(string(raw))) == 0 {
@@ -224,7 +234,8 @@ func (s *Server) handleCertificateVerify(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := certStoreEnsure(); err != nil {
-		http.Error(w, "certificate store unavailable: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("dashboard: certificate store unavailable: %v", err)
+		http.Error(w, "certificate store unavailable", http.StatusInternalServerError)
 		return
 	}
 	chainBreak := certStoreVerifyChain()
@@ -262,7 +273,8 @@ func (s *Server) handleCertificateHistory(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := certStoreEnsure(); err != nil {
-		http.Error(w, "certificate store unavailable: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("dashboard: certificate store unavailable: %v", err)
+		http.Error(w, "certificate store unavailable", http.StatusInternalServerError)
 		return
 	}
 	summaries := certStoreSummaries()

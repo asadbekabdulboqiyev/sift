@@ -223,3 +223,32 @@ func TestHumanSecondsDash(t *testing.T) {
 		}
 	}
 }
+
+// TestAdminUnlockErrorResponseIsGeneric proves a wrong admin code returns a
+// fixed message instead of echoing the underlying adminlock error, which
+// reveals host internals ("admin code does not match — run `Sift admin code`
+// on the host...") to a remote caller.
+func TestAdminUnlockErrorResponseIsGeneric(t *testing.T) {
+	resetAdminThrottleForTest()()
+	t.Setenv("SIFT_HOME", t.TempDir())
+
+	// Create the state so Unlock reaches the code comparison branch.
+	if _, err := adminlock.Open(adminlock.DefaultPath()); err != nil {
+		t.Fatalf("create admin state: %v", err)
+	}
+
+	w := adminStatusViaHandler(t, http.MethodPost, "/api/admin/unlock",
+		`{"code":"DEFINITELY-WRONG"}`)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "invalid admin code") {
+		t.Errorf("generic message missing: %s", body)
+	}
+	for _, marker := range []string{"does not match", "Sift admin code", "admin.json", "/Users/"} {
+		if strings.Contains(body, marker) {
+			t.Errorf("response leaked internal detail %q: %s", marker, body)
+		}
+	}
+}

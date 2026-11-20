@@ -497,3 +497,24 @@ func TestGradeColorHandlesAPlusBand(t *testing.T) {
 		t.Errorf("gradeColor is case-sensitive: %q != %q", got, want)
 	}
 }
+
+// TestPDFSeverityIsEscaped proves report-controlled severity text cannot break
+// out of the finding-card badge. Imported or generated reports may carry
+// arbitrary strings in Severity; they must be HTML-escaped like every other
+// field before being placed in the report.
+func TestPDFSeverityIsEscaped(t *testing.T) {
+	report := samplePentestReport()
+	payload := `CRITICAL"><script>alert(1)</script>`
+	report.Findings[0].Severity = payload
+
+	html := string(GenerateHTML(report))
+	if strings.Contains(html, "<script>alert(1)</script>") {
+		t.Fatalf("raw script tag from severity reached the HTML report")
+	}
+	if strings.Contains(html, `"><script>`) {
+		t.Fatalf("severity broke out of the badge attribute context")
+	}
+	if !strings.Contains(html, "&lt;script&gt;") {
+		t.Errorf("severity payload was not HTML-escaped: %s", html)
+	}
+}

@@ -3,9 +3,11 @@ package engine
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"runtime"
 	"strings"
 	"testing"
@@ -17,6 +19,7 @@ import (
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
+	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 	"github.com/asadbekabdulboqiyev/sift/internal/config"
 )
 
@@ -522,3 +525,109 @@ type customError struct {
 }
 
 func (e *customError) Error() string { return e.msg }
+
+// --- Redirect and proxy authorization ---------------------------------------
+
+// TestCheckRedirectPinsHostAndScheme: a same-host redirect that changes the
+// scheme is a credential downgrade (https -> http sends cookies in cleartext),
+// so it must be stopped exactly like a cross-host redirect.
+func TestCheckRedirectPinsHostAndScheme(t *testing.T) {
+	cases := []struct {
+		name    string
+		first   string
+		target  string
+		wantErr error
+	}{
+		{"same host and scheme", "https://example.com/a", "https://example.com/b", nil},
+		{"https downgrade", "https://example.com/a", "http://example.com/b", http.ErrUseLastResponse},
+		{"http upgrade", "http://example.com/a", "https://example.com/b", http.ErrUseLastResponse},
+		{"cross host same scheme", "https://example.com/a", "https://evil.example/b", http.ErrUseLastResponse},
+		{"scheme case is not a change", "HTTPS://example.com/a", "https://example.com/b", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			first, err := http.NewRequest(http.MethodGet, tc.first, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			next, err := http.NewRequest(http.MethodGet, tc.target, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := checkRedirect(next, []*http.Request{first})
+			if got != tc.wantErr {
+				t.Fatalf("checkRedirect(%s -> %s) = %v, want %v", tc.first, tc.target, got, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestCheckRedirectLimit(t *testing.T) {
+	first, _ := http.NewRequest(http.MethodGet, "https://example.com/", nil)
+	via := make([]*http.Request, maxRedirects)
+	for i := range via {
+		via[i] = first
+	}
+	next, _ := http.NewRequest(http.MethodGet, "https://example.com/next", nil)
+	if got := checkRedirect(next, via); got != errRedirectLimitReached {
+		t.Fatalf("checkRedirect at limit = %v, want %v", got, errRedirectLimitReached)
+	}
+}
+
+// TestProxyWithControlRechecksDestination covers the CWE-290 proxy case: the
+// socket-level hook sees the proxy, not the destination, so the destination's
+// resolved addresses must be checked before the request is sent.
+func TestProxyWithControlRechecksDestination(t *testing.T) {
+	proxy, _ := url.Parse("http://127.0.0.1:3128")
+	base := func(*http.Request) (*url.URL, error) { return proxy, nil }
+	// A public approval refuses any peer in a more restrictive class.
+	control := authz.DialControl(authz.ClassPublic)
+	wrapped := proxyWithControl(base, control)
+
+	t.Run("restricted destination is refused", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "http://10.0.0.1:8080/x", nil)
+		got, err := wrapped(req)
+		if err == nil {
+			t.Fatal("proxy request to a private destination was allowed")
+		}
+		if got != nil {
+			t.Fatalf("proxy URL = %v, want nil on refusal", got)
+		}
+	})
+
+	t.Run("public destination is allowed", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "http://8.8.8.8/x", nil)
+		got, err := wrapped(req)
+		if err != nil {
+			t.Fatalf("public destination refused: %v", err)
+		}
+		if got != proxy {
+			t.Fatalf("proxy URL = %v, want the original proxy", got)
+		}
+	})
+
+	t.Run("no proxy leaves the dial hook in charge", func(t *testing.T) {
+		none := proxyWithControl(func(*http.Request) (*url.URL, error) { return nil, nil }, control)
+		req := httptest.NewRequest(http.MethodGet, "http://10.0.0.1:8080/x", nil)
+		got, err := none(req)
+		if err != nil || got != nil {
+			t.Fatalf("no-proxy path = (%v, %v), want (nil, nil)", got, err)
+		}
+	})
+
+	t.Run("base proxy error is preserved", func(t *testing.T) {
+		want := errors.New("proxy config failed")
+		failing := proxyWithControl(func(*http.Request) (*url.URL, error) { return nil, want }, control)
+		if _, err := failing(httptest.NewRequest(http.MethodGet, "http://8.8.8.8/", nil)); !errors.Is(err, want) {
+			t.Fatalf("error = %v, want %v", err, want)
+		}
+	})
+
+	t.Run("nil control is a pass-through", func(t *testing.T) {
+		plain := proxyWithControl(base, nil)
+		got, err := plain(httptest.NewRequest(http.MethodGet, "http://10.0.0.1/", nil))
+		if err != nil || got != proxy {
+			t.Fatalf("nil control path = (%v, %v), want (proxy, nil)", got, err)
+		}
+	})
+}

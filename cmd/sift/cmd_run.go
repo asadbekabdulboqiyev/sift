@@ -254,8 +254,10 @@ func cmdRun() {
 	}
 
 	// Authorization gate: nothing is sent until every target passes the policy
-	// and the decision is appended to the audit trail.
-	enforceAuthz(authz.OpLoadTest, scenarioTargets(scenario), os.Args, authzOpts)
+	// and the decision is appended to the audit trail. Keep the decision: the
+	// approved class is re-applied at dial time so a DNS answer that changes
+	// after classification cannot send traffic to a more restrictive network.
+	authDecision := enforceAuthz(authz.OpLoadTest, scenarioTargets(scenario), os.Args, authzOpts)
 
 	// Load the baseline before the run, not after it. A mistyped --compare path
 	// used to surface only once the load had already been generated, so a typo
@@ -306,7 +308,10 @@ func cmdRun() {
 		scenario.Profile.Http2 = &off
 	}
 
-	eng, err := engine.New(scenario)
+	// The socket-level hook re-checks the approved class after name resolution.
+	// Without it the gate is only an admission check: a name approved as public
+	// could rebind to link-local/metadata before the engine connects.
+	eng, err := engine.NewWithControl(scenario, authz.DialControl(authDecision.ClassValue))
 	if err != nil {
 		fatal(err)
 	}

@@ -436,7 +436,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxyge
 func writeFindingCard(b *strings.Builder, f *PentestFinding) {
 	clr := severityColor(f.Severity)
 	fmt.Fprintf(b, `<div class="finding-card"><div class="finding-header">`)
-	fmt.Fprintf(b, `<span class="severity-badge" style="background:%s">%s</span>`, clr, strings.ToUpper(f.Severity))
+	// Severity is report data, not trusted markup. It is usually a fixed label
+	// ("Critical", "High", ...) but reports can come from imported or generated
+	// JSON, so escape it like every other field before placing it in HTML.
+	fmt.Fprintf(b, `<span class="severity-badge" style="background:%s">%s</span>`, clr, esc(strings.ToUpper(f.Severity)))
 	fmt.Fprintf(b, `<span class="finding-title">%s</span>`, esc(f.Title))
 	fmt.Fprintf(b, `<span class="cvss-tag">CVSS %.1f</span>`, f.CVSS)
 	b.WriteString(`</div><div class="finding-body">`)

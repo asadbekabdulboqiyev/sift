@@ -5,11 +5,14 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"syscall"
 	"time"
 
 	utls "github.com/refraction-networking/utls"
 
+	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 	"github.com/asadbekabdulboqiyev/sift/internal/fingerprint"
 )
 
@@ -17,13 +20,21 @@ const maxRedirects = 10
 
 var errRedirectLimitReached = errors.New("stopped after 10 redirects")
 
-// checkRedirect caps redirect chains and refuses to leave the original host.
+// checkRedirect caps redirect chains and refuses to leave the original host or
+// scheme. A same-host https -> http downgrade would send cookies and auth
+// headers in cleartext on the next hop, so the scheme is pinned as well.
 var checkRedirect = func(req *http.Request, via []*http.Request) error {
 	if len(via) >= maxRedirects {
 		return errRedirectLimitReached
 	}
-	if len(via) > 0 && req.URL.Host != via[0].URL.Host {
-		return http.ErrUseLastResponse
+	if len(via) > 0 {
+		first := via[0].URL
+		if req.URL.Host != first.Host {
+			return http.ErrUseLastResponse
+		}
+		if !strings.EqualFold(req.URL.Scheme, first.Scheme) {
+			return http.ErrUseLastResponse
+		}
 	}
 	return nil
 }
@@ -43,7 +54,7 @@ func baseTransport(keepAlive bool, tlsFP fingerprint.Profile) *http.Transport {
 // DNS resolution.
 func baseTransportWithControl(keepAlive bool, tlsFP fingerprint.Profile, control func(network, address string, c syscall.RawConn) error) *http.Transport {
 	tr := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
+		Proxy: proxyWithControl(http.ProxyFromEnvironment, control),
 		DialContext: (&net.Dialer{
 			Timeout:   10 * time.Second,
 			KeepAlive: 30 * time.Second,
@@ -86,6 +97,40 @@ func baseTransportWithControl(keepAlive bool, tlsFP fingerprint.Profile, control
 		})
 	}
 	return tr
+}
+
+// proxyWithControl re-applies the authorization decision to the destination
+// when an HTTP proxy carries the request. A Dialer.Control hook sees the proxy
+// address in that case, never the target: a name that resolved to an approved
+// IP at gate time could rebind to instance metadata or RFC1918 space without
+// the socket-level check noticing (CWE-290). When a proxy applies, the target
+// host is resolved and passed through the same hook before the request proceeds.
+//
+// A nil control leaves the base proxy selector untouched.
+func proxyWithControl(base func(*http.Request) (*url.URL, error), control func(network, address string, c syscall.RawConn) error) func(*http.Request) (*url.URL, error) {
+	if control == nil || base == nil {
+		return base
+	}
+	return func(req *http.Request) (*url.URL, error) {
+		proxyURL, err := base(req)
+		if err != nil || proxyURL == nil {
+			return proxyURL, err // no proxy for this request; the dial hook sees the real target
+		}
+		host := req.URL.Hostname()
+		port := req.URL.Port()
+		if port == "" {
+			port = "80"
+			if strings.EqualFold(req.URL.Scheme, "https") || strings.EqualFold(req.URL.Scheme, "wss") {
+				port = "443"
+			}
+		}
+		if err := authz.CheckDialTarget(req.Context(), host, port, control); err != nil {
+			// Returning an error from Proxy aborts the request before any socket
+			// to the proxy is opened.
+			return nil, err
+		}
+		return proxyURL, nil
+	}
 }
 
 // maxConnsPerHostCap bounds the per-host connection limit. Go's transport

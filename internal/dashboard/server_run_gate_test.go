@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 )
 
 // TestStartRunRefusesMetadataAndLinkLocal proves the dashboard load-test
@@ -112,5 +114,28 @@ func TestLoadDashboardAssetDefaultsToEmbedded(t *testing.T) {
 	t.Setenv("SIFT_DASHBOARD_DEV_ASSETS", "1")
 	if got := loadDashboardAsset("index.html", fallback); string(got) != string(planted) {
 		t.Errorf("loadDashboardAsset with dev assets = %q, want the on-disk asset", got)
+	}
+}
+
+// TestRunTargetClass proves the start-run refusal decision can be handed to the
+// dial hook. Metadata keeps its class, loopback stays loopback, and a
+// classification failure falls back to ClassPublic, which is fail-closed at the
+// dial control.
+func TestRunTargetClass(t *testing.T) {
+	cases := []struct {
+		name   string
+		target string
+		want   authz.Class
+	}{
+		{"loopback literal", "http://127.0.0.1:8080/", authz.ClassLoopback},
+		{"metadata literal", "http://169.254.169.254/", authz.ClassMetadata},
+		{"malformed target", "://not a url", authz.ClassPublic},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := RunTargetClass(tc.target); got != tc.want {
+				t.Fatalf("RunTargetClass(%q) = %v, want %v", tc.target, got, tc.want)
+			}
+		})
 	}
 }
