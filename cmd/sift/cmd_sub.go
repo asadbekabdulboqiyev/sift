@@ -6,11 +6,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // subBinaryName renders the on-disk name of a sibling sub-binary. Windows
-// resolves executables by extension, so a bare "Sift-scan" never
-// matches "Sift-scan.exe": without this the Windows build would always
+// resolves executables by extension, so a bare "sift-scan" never
+// matches "sift-scan.exe": without this the Windows build would always
 // miss the shipped sibling and fall through to `go run`, which a distributed
 // binary cannot do.
 func subBinaryName(name string) string {
@@ -20,9 +21,26 @@ func subBinaryName(name string) string {
 	return name
 }
 
-// runSubCommand locates and executes a sub-binary by name.
-// It first tries the sibling binary next to the current executable,
-// then falls back to `go run` from the project root.
+// subBinaryCandidates lists the on-disk names a subcommand may be shipped as.
+// Release archives use capitalized names (Sift-replay), while local installs
+// also create lowercase aliases (sift-replay). Linux is case-sensitive, so
+// both must be tried before falling back to the Go toolchain.
+func subBinaryCandidates(name string) []string {
+	short := subCommandBase(name)
+	return []string{"sift-" + short, "Sift-" + short}
+}
+
+// subCommandBase strips an optional "sift-" prefix so callers may pass either
+// a short name ("replay") or a full binary name ("Sift-replay"). Without this
+// a full name would become "sift-sift-replay" and never resolve.
+func subCommandBase(name string) string {
+	short := strings.ToLower(name)
+	return strings.TrimPrefix(short, "sift-")
+}
+
+// runSubCommand locates and executes a sub-binary by short name ("replay",
+// "scan", ...). It first tries the sibling binary next to the current
+// executable, then falls back to `go run` from the project root.
 func runSubCommand(name string, args []string) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -31,9 +49,12 @@ func runSubCommand(name string, args []string) {
 	}
 	exe = filepath.Clean(exe)
 	binDir := filepath.Dir(exe)
-	bin := filepath.Join(binDir, subBinaryName(name))
 
-	if _, err := os.Stat(bin); err == nil {
+	for _, candidate := range subBinaryCandidates(name) {
+		bin := filepath.Join(binDir, subBinaryName(candidate))
+		if _, err := os.Stat(bin); err != nil {
+			continue
+		}
 		// Found standalone binary — run it directly
 		cmd := exec.Command(bin, args...) // #nosec G204 G702 -- subcommand name comes from trusted internal dispatch and bin is a sibling executable path.
 		cmd.Stdin = os.Stdin
@@ -45,15 +66,18 @@ func runSubCommand(name string, args []string) {
 		return
 	}
 
-	// Fallback: run via `go run`
-	goArgs := append([]string{"run", "./cmd/" + name}, args...)
+	// Fallback: run via `go run`. Package directories are lowercase on disk
+	// (cmd/sift-replay), even though the shipped binaries are capitalized.
+	short := subCommandBase(name)
+	pkg := "./cmd/sift-" + short
+	goArgs := append([]string{"run", pkg}, args...)
 	cmd := exec.Command("go", goArgs...) // #nosec G204 G702 -- subcommand name comes from trusted internal dispatch; args are forwarded CLI arguments.
 	cmd.Dir = findProjectRoot()
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		hint := fmt.Sprintf("Error: %s command failed. Build with: go build -o bin/%s ./cmd/%s\n", name, name, name)
+		hint := fmt.Sprintf("Error: %s command failed. Build with: go build -o bin/sift-%s ./cmd/sift-%s\n", name, short, short)
 		exitFromChild(name, "", hint, err)
 	}
 }
@@ -88,11 +112,11 @@ func exitFromChild(name, bin, hint string, err error) {
 	exitProcess(exitErr.ExitCode())
 }
 
-func cmdReplay()    { runSubCommand("Sift-replay", os.Args[2:]) }
-func cmdScan()      { runSubCommand("Sift-scan", os.Args[2:]) }
-func cmdDashboard() { runSubCommand("Sift-dashboard", os.Args[2:]) }
-func cmdMaster()    { runSubCommand("Sift-master", os.Args[2:]) }
-func cmdWorker()    { runSubCommand("Sift-worker", os.Args[2:]) }
+func cmdReplay()    { runSubCommand("replay", os.Args[2:]) }
+func cmdScan()      { runSubCommand("scan", os.Args[2:]) }
+func cmdDashboard() { runSubCommand("dashboard", os.Args[2:]) }
+func cmdMaster()    { runSubCommand("master", os.Args[2:]) }
+func cmdWorker()    { runSubCommand("worker", os.Args[2:]) }
 
 func findProjectRoot() string {
 	dir, err := os.Getwd()

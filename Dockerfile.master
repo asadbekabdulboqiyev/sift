@@ -3,12 +3,12 @@
 # Sift master/coordinator. Distroless static + nonroot.
 #
 # Build:
-#   docker build -f Dockerfile.master -t ghcr.io/asadbekabdulboqiyev/sift-master:0.14.3 .
+#   docker build -f Dockerfile.master -t ghcr.io/asadbekabdulboqiyev/sift-master:0.18.0 .
 #
 # Run (auto-discovery fleet; workers self-register):
 #   docker run --rm --network strike -p 50051:50051 \
 #     -e SS_TOKEN="$TOKEN" \
-#     ghcr.io/asadbekabdulboqiyev/sift-master:0.14.3
+#     ghcr.io/asadbekabdulboqiyev/sift-master:0.18.0
 
 FROM golang:1.26 AS builder
 

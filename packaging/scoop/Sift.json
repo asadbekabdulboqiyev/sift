@@ -1,5 +1,5 @@
 {
-    "version": "0.16.6",
+    "version": "0.18.0",
     "description": "Distributed load testing and network simulator written in Go",
     "homepage": "https://github.com/asadbekabdulboqiyev/Sift",
     "license": "Apache-2.0",
@@ -19,8 +19,8 @@
         "Sift.exe"
     ],
     "url": {
-        "x64": "https://github.com/asadbekabdulboqiyev/Sift/releases/download/v0.16.6/Sift_0.16.6_windows_amd64.zip",
-        "arm64": "https://github.com/asadbekabdulboqiyev/Sift/releases/download/v0.16.6/Sift_0.16.6_windows_arm64.zip"
+        "x64": "https://github.com/asadbekabdulboqiyev/Sift/releases/download/v0.18.0/Sift_0.18.0_windows_amd64.zip",
+        "arm64": "https://github.com/asadbekabdulboqiyev/Sift/releases/download/v0.18.0/Sift_0.18.0_windows_arm64.zip"
     },
     "hash": {
         "x64": "3e61bd735426eda116591d69dcbae28b0ba9f841f06c0a60c82d2c21c7a9a2b7",

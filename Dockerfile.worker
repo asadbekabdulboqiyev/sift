@@ -3,18 +3,18 @@
 # Sift distributed worker. Distroless static + nonroot.
 #
 # Build:
-#   docker build -f Dockerfile.worker -t ghcr.io/asadbekabdulboqiyev/sift-worker:0.14.3 .
+#   docker build -f Dockerfile.worker -t ghcr.io/asadbekabdulboqiyev/sift-worker:0.18.0 .
 #
 # Run (static fleet):
 #   docker run --rm -p 50061:50061 \
 #     --ulimit nofile=1048576:1048576 \
-#     ghcr.io/asadbekabdulboqiyev/sift-worker:0.14.3 \
+#     ghcr.io/asadbekabdulboqiyev/sift-worker:0.18.0 \
 #     -listen 0.0.0.0:50061 -id docker-1 -max-users 200000
 #
 # Run (auto-discovery, reachable as docker-1:50061 on a shared network):
 #   docker run --rm --network strike -p 50061:50061 \
 #     --ulimit nofile=1048576:1048576 \
-#     ghcr.io/asadbekabdulboqiyev/sift-worker:0.14.3 \
+#     ghcr.io/asadbekabdulboqiyev/sift-worker:0.18.0 \
 #     -listen 0.0.0.0:50061 -advertise docker-1:50061 \
 #     -master master:50051 -id docker-1 -token "$TOKEN"
 #

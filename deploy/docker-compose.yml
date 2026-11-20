@@ -26,23 +26,10 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile.master
-    command:
-      - /usr/local/bin/Sift-master
-      - -listen
-      - 0.0.0.0:50051
-      # HTTP ops server: /healthz, /readyz, /metrics
-      - -http-addr
-      - 0.0.0.0:9090
-      - -url
-      - ${SIFT_URL:-http://example.com}
-      - -users
-      - "20"
-      - -duration
-      - "30"
-      - -wait-workers
-      - "2"
-      - -wait-timeout
-      - "60"
+    # String form (not a YAML list) is required so that SIFT_ARGS, which holds
+    # several space-separated flags, is split into individual arguments by
+    # Compose. A list item would be passed to Sift-master as one broken flag.
+    command: /usr/local/bin/Sift-master -listen 0.0.0.0:50051 -http-addr 0.0.0.0:9090 -url ${SIFT_URL:-http://example.com} -users 20 -duration 30 -wait-workers 2 -wait-timeout 60 ${SIFT_ARGS:-}
     environment:
       - SIFT_TOKEN=${SIFT_TOKEN:-}
     ports:

@@ -41,7 +41,7 @@ if [ ! -x "$BIN" ]; then
 fi
 if [ -z "$BIN" ] || [ ! -x "$BIN" ]; then
   echo "[sla] building ./bin/Sift ..."
-  ./scripts/build-all.sh 0.14.0 >/dev/null
+  ./scripts/build-all.sh 0.18.0 >/dev/null
   BIN="bin/Sift"
 fi
 echo "[sla] using Sift: $BIN"

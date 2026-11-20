@@ -240,7 +240,7 @@ func (e *Engine) runWithRetries(ctx context.Context, step config.Step, slot int,
 // stop_on_status, on_error continue/stop and think_time.
 func (e *Engine) finishControlStep(ctx context.Context, step config.Step, vars map[string]string, res stepResult, state *flowState) (abort bool) {
 	// Expose per-step outcomes as variables for branching below, e.g.
-	// "${login_status} == 200", "${login_error} == ''", "${login_latency_ms} > 500".
+	// "${login_status} == 200", "${login_error} == ''", "${login_latency_ms} =~ ^[5-9][0-9]{2}".
 	if res.status > 0 {
 		vars[step.Name+"_status"] = strconv.Itoa(res.status)
 	}

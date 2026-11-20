@@ -2,7 +2,7 @@
 
 ## Helm chart
 ```
-helm upgrade --install ss ./deploy/charts/sift
+helm upgrade --install sift ./deploy/charts/sift
 ```
 
 ## CRDs

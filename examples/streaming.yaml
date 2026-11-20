@@ -24,6 +24,8 @@ steps:
   # type: grpc-stream is an alias for type: grpc + grpc_stream: true.
   - name: ingest
     type: grpc-stream
+    # base_url is not inherited by steps, so every step declares its own URL.
+    url: grpc://localhost:50051
     grpc_method: /ingest.Service/IngestEvents
     headers:
       authorization: "Bearer {{token}}"

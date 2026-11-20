@@ -39,7 +39,7 @@ log() { printf '[bench-compare] %s\n' "$*"; }
 # ---------------------------------------------------------------------------
 log "building Sift binary ..."
 if [ ! -x "$BIN" ]; then
-  ./scripts/build-all.sh 0.14.0 >/dev/null 2>&1 || go build -o "$BIN" ./cmd/sift
+  ./scripts/build-all.sh 0.18.0 >/dev/null 2>&1 || go build -o "$BIN" ./cmd/sift
 fi
 
 # Build demo server if needed.

@@ -16,7 +16,7 @@
 ## Start here
 
 Sift runs load and security checks against systems you own, then seals the results into an offline-verifiable evidence bundle.
-Install in about 10 seconds: `go install github.com/asadbekabdulboqiyev/sift/cmd/sift@latest` (other options in [Installation](#installation)).
+Install all six binaries from a checkout: `./scripts/install-local.sh` (or `make install`). A single `go install .../cmd/sift@latest` installs only `run`; `replay`, `scan`, `dashboard`, `master` and `worker` are separate executables (other options in [Installation](#installation)).
 Try the local demos: `make demo-verified` (seal, verify, tamper, restore) and `make demo-sla` (SLA gate on/off).
 New here? The [Documentation map](#documentation-map) gives one line per document.
 
@@ -100,7 +100,7 @@ Sift unifies multiple testing, assessment, and evidence workflows in one toolcha
 ### Sift 360° — 1-Click Security & Capacity Audit
 Unified 1-click full diagnostic for **any `http(s)` target** with mode selection:
 - **Passive** — non-intrusive checks only (no active load/breaking-point test); capacity is reported as skipped/not measured.
-- **Standard** — requires explicit authorization confirmation and may run an active load/breaking-point test (linear ramp from 50 VUs, stops at error rate >5% or p99 >2000ms).
+- **Standard** — requires explicit authorization confirmation and may run an active load/breaking-point test (linear ramp starting at 1 VU, stops at error rate >5% or p99 >2000ms).
 
 Pipeline stages: **1. Scanning Security** (headers/TLS/OWASP) → **2. Testing Load Limit** (skipped in Passive) → **3. Calculating Resilience** (0–100, risk level/remediation) → **4. Sealing VPMP Certificate** (Ed25519 attestation over canonical report digest).
 
@@ -175,7 +175,7 @@ The dashboard includes quick actions for local demos: **Use VoltStore demo** (`h
 - **Independent verifier:** `verify/standalone/sift_verify.py` checks a bundle with the Python standard library only, and `internal/attest/golden_test.go` pins the canonical digest so the Go and Python implementations cannot drift silently.
 - **Blank-PDF regression:** the PDF writer assigns object numbers deterministically and refuses to emit a cross-reference table with a gap; the tests resolve every reference instead of asserting the bytes are non-empty.
 
-**Included from 0.16.6**
+**Included from 0.16.6** (historical release note)
 
 **100-point demo target, visual guide, and dashboard audit flow**
 
@@ -267,10 +267,13 @@ This builds all binaries, installs them to `$(go env GOBIN)` (or `$SIFT_INSTALL_
 
 #### Option B: Go install
 ```bash
-go install github.com/asadbekabdulboqiyev/sift/cmd/sift@latest
+for pkg in sift sift-replay sift-scan sift-dashboard sift-master sift-worker; do
+  go install "github.com/asadbekabdulboqiyev/sift/cmd/${pkg}@latest"
+done
 export PATH="$PATH:$(go env GOPATH)/bin"
 sift version
 ```
+`replay`, `scan`, `dashboard`, `master` and `worker` are separate binaries; install all six.
 
 #### Option C: Release installer script (review before running)
 ```bash
@@ -302,9 +305,12 @@ cd sift
 
 #### Option B: Go install
 ```bash
-go install github.com/asadbekabdulboqiyev/sift/cmd/sift@latest
+for pkg in sift sift-replay sift-scan sift-dashboard sift-master sift-worker; do
+  go install "github.com/asadbekabdulboqiyev/sift/cmd/${pkg}@latest"
+done
 export PATH="$PATH:$(go env GOPATH)/bin"
 ```
+All six binaries are required for the `replay`, `scan`, `dashboard`, `master` and `worker` commands.
 
 #### Option C: Release installer script
 ```bash
@@ -322,10 +328,13 @@ less install.sh
 
 #### Option A: Go install
 ```powershell
-go install github.com/asadbekabdulboqiyev/sift/cmd/sift@latest
+foreach ($pkg in @('sift','sift-replay','sift-scan','sift-dashboard','sift-master','sift-worker')) {
+  go install "github.com/asadbekabdulboqiyev/sift/cmd/$pkg@latest"
+}
 # Ensure %GOPATH%\bin or Go bin path is in PATH
 sift version
 ```
+Install all six binaries: `replay`, `scan`, `dashboard`, `master` and `worker` are separate executables.
 
 #### Option B: Release archives (manual)
 1. Download the Windows archive for your architecture from [GitHub Releases](https://github.com/asadbekabdulboqiyev/sift/releases).
@@ -361,10 +370,13 @@ Produced binaries (local build): `Sift`, `Sift-dashboard`, `Sift-master`, `Sift-
 ### Install with Go
 
 ```bash
-go install github.com/asadbekabdulboqiyev/sift/cmd/sift@latest
+for pkg in sift sift-replay sift-scan sift-dashboard sift-master sift-worker; do
+  go install "github.com/asadbekabdulboqiyev/sift/cmd/${pkg}@latest"
+done
+export PATH="$PATH:$(go env GOPATH)/bin"
 ```
 
-This installs the main CLI package via the Go toolchain/module proxy. For multi-binary local workflows (dashboard/master/worker/replay/scan as separate executables), prefer source builds or release archives.
+Alternatively, `./scripts/install.sh --go` installs the same six binaries from the module proxy. `go install .../cmd/sift@latest` alone is not enough: `replay`, `scan`, `dashboard`, `master` and `worker` are separate executables dispatched as siblings of `sift`.
 
 ### Release Binaries and Verification
 
@@ -402,10 +414,10 @@ docker build -f Dockerfile.worker -t sift-worker:0.18.0 .
 #### Run examples
 ```bash
 # CLI help
-docker run --rm sift:0.18.0 sift --help
+docker run --rm sift:0.18.0 --help
 
 # Dashboard (bind to localhost on host)
-docker run --rm -p 127.0.0.1:8888:8888 sift:0.18.0 sift dashboard -listen 0.0.0.0:8888 --insecure
+docker run --rm -p 127.0.0.1:8888:8888 sift:0.18.0 dashboard -listen 0.0.0.0:8888 --insecure
 ```
 
 > Container defaults, entrypoints, and exposed ports may differ by image. Review the corresponding `Dockerfile`/compose configuration before production use.
@@ -671,7 +683,7 @@ sift run --url https://api.example.com --users 50 --duration 60 --mode dashboard
 
 - **Target/config:** `--url`, `--config`, `--name`
 - **Load shape:** `--users`, `--duration`, `--ramp-up`, `--profile`, `--target-rps`, `--spike-users`, `--spike-warmup`, `--spike-hold`, `--wave-period`
-- **Request:** `--method`, `--data`, `--header "Key: Value"` (repeatable), `--timeout`, `--keep-alive`
+- **Request:** `--method`, `--data`, `--header "Key=Value"` (repeatable), `--timeout`, `--keep-alive`
 - **Accuracy/quality:** `--coordinated-omission`
 - **Gates:** `--expect-p99-ms`, `--expect-error-rate`, `--expect-min-rps`, `--compare`, `--regress-pct`
 - **Output:** `--report-dir`, `--timeline`, `--quiet`
@@ -751,7 +763,7 @@ Replay captured traffic (PCAP/HAR) to reproduce realistic request patterns.
 sift replay -input traffic.har -rate 10x
 
 # Replay PCAP with higher concurrency and method filter
-sift replay -input capture.pcap -rate 50x -concurrency 50 -filter-methods GET
+sift replay -input capture.pcap -rate 50x -concurrency 50 -methods GET
 
 # Replay against a different target with validation
 sift replay -input traffic.har -base-url https://staging.example.com -validate -assert-status 200

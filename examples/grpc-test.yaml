@@ -6,7 +6,7 @@
 # throughput and latency under concurrent load.
 
 name: grpc-test
-base_url: http://localhost:8080
+base_url: grpc://localhost:50051
 
 load_profile:
   type: linear-ramp
@@ -23,7 +23,7 @@ steps:
   - name: say-hello
     type: grpc
     method: POST
-    url: http://localhost:50051
+    url: grpc://localhost:50051
     grpc_method: /greeter.Greeter/SayHello
     body: '{"name": "load-test-user"}'
     assertions:
@@ -37,7 +37,7 @@ steps:
   - name: get-user
     type: grpc
     method: POST
-    url: http://localhost:50051
+    url: grpc://localhost:50051
     grpc_method: /user.UserService/GetUser
     body: '{"user_id": "usr_12345"}'
     extract:
@@ -55,7 +55,7 @@ steps:
   - name: create-order
     type: grpc
     method: POST
-    url: http://localhost:50051
+    url: grpc://localhost:50051
     grpc_method: /order.OrderService/CreateOrder
     body: |
       {
@@ -81,7 +81,7 @@ steps:
   - name: grpc-health-check
     type: grpc
     method: POST
-    url: http://localhost:50051
+    url: grpc://localhost:50051
     grpc_method: /grpc.health.v1.Health/Check
     body: '{}'
     assertions:

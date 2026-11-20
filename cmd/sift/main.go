@@ -333,7 +333,7 @@ Sift %s — Ultra-Fast Load Testing & Security Suite
    --ramp-up int            Ramp-up time in seconds (default: 0)
    --method string          HTTP method: GET, POST, PUT, DELETE, PATCH
    --data string            Request body (JSON)
-   --header string          Header: -header "Key: Value" (repeatable)
+   --header string          Header: --header "Key=Value" (repeatable)
    --timeout int            Request timeout in seconds (default: 10)
    --keep-alive             Reuse TCP connections (default: true)
    --name string            Report name (default: "stress-test")
@@ -376,7 +376,7 @@ Sift %s — Ultra-Fast Load Testing & Security Suite
  REPLAY FLAGS — Traffic Replay
 ═══════════════════════════════════════════════════════════════════════
    -input string            PCAP or HAR capture file (required)
-   -rate float              Speed multiplier: 1.0=realtime, 10.0=10x (default: 1.0)
+   -rate string             Replay speed (e.g. 1x, 10x) (default: 1x)
    -concurrency int         Parallel workers (default: 5)
    -tls-key string          TLS private key for HTTPS decryption
    -base-url string         Override target URL
@@ -387,10 +387,9 @@ Sift %s — Ultra-Fast Load Testing & Security Suite
    -report-dir string       Report output directory
 
    Filters:
-   -filter-methods string   Comma-separated HTTP methods to include
-   -filter-urls string      URL pattern (regex)
-   -filter-min-status int   Min status code
-   -filter-max-status int   Max status code
+   -methods string          Comma-separated HTTP methods to include (e.g. GET,POST)
+   -url-pattern string      URL pattern (glob)
+   -status string           Response status codes to include (e.g. 200,404)
 
 ═══════════════════════════════════════════════════════════════════════
  SCAN FLAGS — Security Scanner

@@ -131,6 +131,7 @@ SIFT_URL=https://target.example.com SIFT_TOKEN=secret \
 SIFT_ARGS="-tls-fingerprint firefox -duration 120" \
 docker compose -f deploy/docker-compose.yml up
 ```
+`SIFT_ARGS` is appended verbatim to the master command as extra flags; leave it unset to use the defaults in the compose file.
 Tune `users`/`duration` inside `deploy/docker-compose.yml`. For very high
 connection counts use `network_mode: host` on the workers (bridge NAT
 throttles ephemeral sockets).
