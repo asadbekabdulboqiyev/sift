@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -16,10 +14,8 @@ import (
 	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 	"github.com/asadbekabdulboqiyev/sift/internal/cliux"
 	"github.com/asadbekabdulboqiyev/sift/internal/config"
-	"github.com/asadbekabdulboqiyev/sift/internal/dashboard"
 	"github.com/asadbekabdulboqiyev/sift/internal/engine"
 	"github.com/asadbekabdulboqiyev/sift/internal/evidence"
-	"github.com/asadbekabdulboqiyev/sift/internal/fingerprint"
 	"github.com/asadbekabdulboqiyev/sift/internal/report"
 )
 
@@ -44,277 +40,29 @@ func (s *stringListFlags) Set(v string) error {
 	return nil
 }
 
+// cmdRun is the orchestrator: parse, authorize, build, execute, render. Each
+// stage owns one concern and keeps the authorization decision visible until
+// the dial-time control is installed in buildRunGate.
 func cmdRun() {
-	var (
-		configPath           string
-		url                  string
-		method               string
-		data                 string
-		headers              = headerFlags{}
-		name                 string
-		profile              string
-		users                int
-		duration             int
-		rampUp               int
-		spikeUsers           int
-		spikeWarmup          int
-		spikeHold            int
-		wavePeriod           int
-		rps                  int
-		timeout              int
-		keepAlive            bool
-		quiet                bool
-		reportDir            string
-		showVersion          bool
-		expectP99            float64
-		expectAvg            float64
-		expectErrRate        float64
-		expectMinRPS         float64
-		comparePath          string
-		regressPct           float64
-		timelineCSV          bool
-		preWarm              bool
-		preWarmConns         int
-		targetRPS            int
-		mode                 string
-		dashListen           string
-		tlsFP                string
-		noHTTP2              bool
-		coordOmission        bool
-		emitBundle           string
-		bundleKey            string
-		bundleWorker         string
-		resourceEvidenceFile string
-		authzOpts            gateOptions
-
-		dashAuthTokens    stringListFlags
-		dashAuthAPIKeys   stringListFlags
-		dashAuthOrigins   stringListFlags
-		dashAuthRateLimit float64
-		dashAuthBurst     int
-		dashAuthProxy     bool
-		dashAuthInsecure  bool
-	)
-
-	fs := flag.NewFlagSet("run", flag.ContinueOnError)
-	fs.SetOutput(io.Discard) // suppress raw Go flag noise; we render our own
-	fs.Usage = func() {}     // usage dumps are handled explicitly below
-	fs.StringVar(&configPath, "config", "", "YAML/JSON scenario file")
-	fs.StringVar(&configPath, "c", "", "shorthand for --config")
-	fs.StringVar(&url, "url", "", "target URL (quick mode)")
-	fs.StringVar(&method, "method", "GET", "HTTP method (quick mode)")
-	fs.StringVar(&data, "data", "", "request body (quick mode)")
-	fs.Var(headers, "header", "request header in Key=Value form (repeatable)")
-	fs.StringVar(&name, "name", "quick-test", "report/test name")
-	fs.StringVar(&profile, "profile", "steady", "load profile: steady, soak, linear-ramp, spike, wave, constant-rps, burst")
-	fs.IntVar(&users, "users", 10, "concurrent virtual users")
-	fs.IntVar(&duration, "duration", 30, "test duration in seconds")
-	fs.IntVar(&rampUp, "ramp-up", 0, "ramp-up duration in seconds")
-	fs.IntVar(&spikeUsers, "spike-users", 0, "target users for spike burst")
-	fs.IntVar(&spikeWarmup, "spike-warmup", 5, "baseline warmup seconds before spike")
-	fs.IntVar(&spikeHold, "spike-hold", 10, "spike burst duration in seconds")
-	fs.IntVar(&wavePeriod, "wave-period", 0, "oscillation period in seconds (wave)")
-	fs.IntVar(&rps, "rps", 0, "global pacing cap (requests per second)")
-	fs.IntVar(&targetRPS, "target-rps", 0, "target requests per second (constant-rps mode)")
-	fs.IntVar(&timeout, "timeout", 5, "per-request timeout in seconds")
-	fs.BoolVar(&keepAlive, "keep-alive", true, "reuse TCP connections")
-	fs.StringVar(&tlsFP, "tls-fingerprint", "", "TLS ClientHello fingerprint (chrome, firefox, safari, edge, ios, android_okhttp, randomized, golang, ...)")
-	fs.BoolVar(&noHTTP2, "no-http2", false, "disable HTTP/2 negotiation (force HTTP/1.1)")
-	fs.BoolVar(&coordOmission, "coordinated-omission", false, "apply coordinated-omission correction to paced runs (constant-rps / --rps)")
-	fs.StringVar(&emitBundle, "emit-bundle", "", "write a verifiable vpmp/v1 evidence bundle (plus its .samples.jsonl sidecar) to this path")
-	fs.StringVar(&bundleKey, "bundle-key", "", "Ed25519 keypair PEM that seals the bundle (generated ephemerally when omitted)")
-	fs.StringVar(&bundleWorker, "bundle-worker", "", "worker identity recorded in the bundle (default: hostname, sanitised)")
-	fs.StringVar(&resourceEvidenceFile, "resource-evidence-file", "", "optional JSON file with resource monitoring evidence (e.g. from 'sift xray report --evidence-out'); attached to report as explicit, non-fabricated evidence")
-	fs.StringVar(&authzOpts.authorized, "authorized", "", "authorization ticket id recorded by an approver")
-	fs.BoolVar(&authzOpts.allowPrivate, "allow-private", false, "allow private/link-local targets explicitly")
-	fs.StringVar(&authzOpts.policyPath, "policy", "", "authorization policy file (default ~/.Sift/authz.json)")
-	fs.StringVar(&authzOpts.auditPath, "audit-log", "", "audit log file (default ~/.Sift/audit.jsonl)")
-	fs.StringVar(&authzOpts.webhook, "notify-webhook", "", "webhook URL for audit notifications")
-	fs.Float64Var(&expectP99, "expect-p99-ms", 0, "SLA: max p99 latency (ms)")
-	fs.Float64Var(&expectAvg, "expect-avg-ms", 0, "SLA: max avg latency (ms)")
-	fs.Float64Var(&expectErrRate, "expect-error-rate", 0, "SLA: max error rate (%%)")
-	fs.Float64Var(&expectMinRPS, "expect-min-rps", 0, "SLA: min throughput")
-	fs.StringVar(&comparePath, "compare", "", "baseline report for comparison")
-	fs.Float64Var(&regressPct, "regress-pct", 20, "regression threshold %%")
-	fs.BoolVar(&timelineCSV, "timeline", false, "write per-second CSV timeline")
-	fs.BoolVar(&preWarm, "pre-warm", false, "pre-establish TCP connections before test start")
-	fs.IntVar(&preWarmConns, "pre-warm-conns", 0, "number of pre-warmed connections (default: users count)")
-	fs.BoolVar(&quiet, "quiet", false, "disable live progress")
-	fs.StringVar(&reportDir, "report-dir", "./reports", "report output directory")
-	fs.BoolVar(&showVersion, "version", false, "print version")
-	fs.StringVar(&mode, "mode", "cli", "output mode: cli (terminal report) | dashboard (real-time web dashboard)")
-	fs.StringVar(&dashListen, "listen", "127.0.0.1:8888", "dashboard listen address (with --mode dashboard)")
-	fs.Var(&dashAuthTokens, "dashboard-auth-token", "bearer token required for the dashboard control API (repeatable)")
-	fs.Var(&dashAuthAPIKeys, "dashboard-auth-api-key", "SHA-256 hex of an accepted dashboard API key (repeatable)")
-	fs.Var(&dashAuthOrigins, "dashboard-auth-origin", "allowed origin for state-changing requests (repeatable; CSRF)")
-	fs.Float64Var(&dashAuthRateLimit, "dashboard-auth-rate-limit", 0, "per-client-IP request rate limit (0 = disabled)")
-	fs.IntVar(&dashAuthBurst, "dashboard-auth-rate-burst", 0, "rate limiter bucket capacity (default 1)")
-	fs.BoolVar(&dashAuthProxy, "dashboard-auth-trust-proxy", false, "honor X-Forwarded-For / X-Real-IP for the limiter (only behind a trusted proxy)")
-	fs.BoolVar(&dashAuthInsecure, "dashboard-insecure", false, "acknowledge running the unauthenticated dashboard control API on a non-loopback address (demo only)")
-
-	// Parse args: os.Args = ["run", "--url", ...] after slicing in main.go.
-	// Friendly flag errors, consistent help, exit 2 on usage errors.
-	cliux.Parse(fs, os.Args[1:], func() { printRunHelp(fs) }, cliux.Options{
-		Command: "run",
-		FlagSet: fs,
-		Examples: []string{
-			"Sift run --url https://api.example.com --users 10 --duration 10",
-		},
-	})
-
-	if showVersion {
-		fmt.Printf("Sift v%s\n", buildVersion)
+	opts := parseRunOptions()
+	if opts.showVersion {
 		return
 	}
 
-	nameSet := false
-	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "name" {
-			nameSet = true
-		}
-	})
-
-	durationSet := false
-	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "duration" {
-			durationSet = true
-		}
-	})
-	// burst: a short, maximum-speed volley — every user from t=0, no RPS cap.
-	// Defaults to a 3-second window unless --duration is given explicitly.
-	if profile == "burst" && !durationSet {
-		duration = 3
-	}
-
-	var scenario *config.Scenario
-	if configPath != "" {
-		sc, err := config.Load(configPath)
-		if err != nil {
-			fatal(err)
-		}
-		if nameSet {
-			sc.Name = name
-		}
-		scenario = sc
-	} else {
-		if url == "" {
-			fatal(fmt.Errorf("either --config or --url is required\n\nExample: Sift run --url https://api.example.com --users 10 --duration 10"))
-		}
-		// When --target-rps is set, automatically use constant-rps profile.
-		if targetRPS > 0 && profile == "steady" {
-			profile = "constant-rps"
-		}
-		sc, err := quickScenario(name, url, method, data, headers, profile, users, duration, rampUp, spikeUsers, spikeWarmup, spikeHold, wavePeriod, rps, targetRPS, timeout, keepAlive)
-		if err != nil {
-			fatal(err)
-		}
-		scenario = sc
-	}
-
-	if tlsFP != "" {
-		if !fingerprint.Profile(tlsFP).Valid() {
-			fatal(fmt.Errorf("unknown -tls-fingerprint %q (valid values: %s)", tlsFP, strings.Join(fingerprint.Names(), ", ")))
-		}
-		scenario.Profile.TLSFingerprint = tlsFP
-	}
-
-	// Coordinated-omission correction is only meaningful for paced runs: with
-	// no arrival schedule (no limiter) there is nothing to fall behind.
-	if coordOmission {
-		scenario.Profile.CoordinatedOmission = true
-		if scenario.Profile.RPS <= 0 && !scenario.Profile.IsConstantRPS() {
-			fmt.Fprintln(os.Stderr, "WARNING: --coordinated-omission has no effect without pacing; add --target-rps or --rps")
-		}
-	}
-
-	sla := scenario.SLA
-	if sla == nil {
-		sla = &config.SLA{}
-	}
-	if expectP99 > 0 {
-		sla.MaxP99Ms = expectP99
-	}
-	if expectAvg > 0 {
-		sla.MaxAvgMs = expectAvg
-	}
-	if expectErrRate > 0 {
-		sla.MaxErrorRatePct = expectErrRate
-	}
-	if expectMinRPS > 0 {
-		sla.MinRPS = expectMinRPS
-	}
-	if !sla.Empty() {
-		scenario.SLA = sla
-	}
-
-	// Validate mode
-	mode = strings.ToLower(strings.TrimSpace(mode))
-	if mode != "cli" && mode != "dashboard" {
-		fatal(fmt.Errorf("invalid --mode %q: must be 'cli' or 'dashboard'", mode))
-	}
-
-	// Authorization gate: nothing is sent until every target passes the policy
-	// and the decision is appended to the audit trail. Keep the decision: the
-	// approved class is re-applied at dial time so a DNS answer that changes
-	// after classification cannot send traffic to a more restrictive network.
-	authDecision := enforceAuthz(authz.OpLoadTest, scenarioTargets(scenario), os.Args, authzOpts)
-
-	// Load the baseline before the run, not after it. A mistyped --compare path
-	// used to surface only once the load had already been generated, so a typo
-	// cost a full run and — worse — the report was printed and the verdict
-	// announced before the error appeared. Fail first, run second.
-	var baseline *report.Report
-	if comparePath != "" {
-		var err error
-		baseline, err = report.LoadReport(comparePath)
-		if err != nil {
-			fatal(err)
-		}
-	}
+	decision := authorizeRun(opts.scenario, opts)
+	baseline := loadRunBaseline(opts)
 
 	// Dashboard mode: open the real-time WebSocket dashboard and drive the
 	// real load engine from the browser. No terminal report is printed.
-	if mode == "dashboard" {
-		dashAuth := dashboard.AuthOptions{
-			Tokens:         dashAuthTokens,
-			APIKeyHashes:   dashAuthAPIKeys,
-			AllowedOrigins: dashAuthOrigins,
-			RateLimitRPS:   dashAuthRateLimit,
-			RateLimitBurst: dashAuthBurst,
-			TrustProxy:     dashAuthProxy,
-			AllowAnonymous: dashAuthInsecure,
-		}
-		runWithDashboard(scenario, dashListen, reportDir, dashAuth)
+	if opts.mode == "dashboard" {
+		runWithDashboard(opts.scenario, opts.dashListen, opts.reportDir, dashboardAuthOptions(opts))
 		return
 	}
 
-	if preWarm {
-		scenario.PreWarm = true
-		if preWarmConns > 0 {
-			scenario.PreWarmConnections = preWarmConns
-		}
-	}
-
-	fmt.Fprintln(os.Stderr, "WARNING: Sift is a load testing tool. Only run it against systems you own or")
-	fmt.Fprintln(os.Stderr, "have explicit written permission to test. Unauthorized load floods are illegal (DDoS).")
-	if scenario.Profile.TLSFingerprint != "" {
-		fmt.Fprintf(os.Stderr, "TLS fingerprint: masking ClientHello as %q (JA3-mitigation bypass)\n", scenario.Profile.TLSFingerprint)
-	}
-
-	// --no-http2 maps onto the profile (nil = enabled, true by default).
-	// The transport wiring itself lives in internal/engine/client.go.
-	if noHTTP2 {
-		off := false
-		scenario.Profile.Http2 = &off
-	}
-
-	// The socket-level hook re-checks the approved class after name resolution.
-	// Without it the gate is only an admission check: a name approved as public
-	// could rebind to link-local/metadata before the engine connects.
-	eng, err := engine.NewWithControl(scenario, authz.DialControl(authDecision.ClassValue))
-	if err != nil {
-		fatal(err)
-	}
+	applyRunPreWarm(opts)
+	printRunWarnings(opts)
+	applyRunTransportOptions(opts)
+	eng := buildRunGate(opts.scenario, decision)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -326,107 +74,28 @@ func cmdRun() {
 		exitProcess(130)
 	}()
 
-	fmt.Fprintf(os.Stderr, "Sift v%s | target: %s | profile: %s | duration: %ds\n",
-		buildVersion, targetDisplay(scenario), scenario.Profile.Type, scenario.Profile.TotalDuration())
+	r, collector := executeRun(ctx, opts, eng)
+	renderRunReport(opts, r, collector, baseline)
+}
 
-	var progress *engine.ProgressTracker
-	if !quiet {
-		dur := time.Duration(scenario.Profile.TotalDuration()) * time.Second
-		progress = engine.NewProgressTracker(dur, scenario.Profile.Users)
-	}
+// authorizeRun is the admission gate for a load test. The decision is kept by
+// cmdRun and re-applied at dial time in buildRunGate: a DNS answer that changes
+// after classification must not send traffic to a more restrictive network.
+func authorizeRun(scenario *config.Scenario, o *runOptions) authzOutcome {
+	authDecision := enforceAuthz(authz.OpLoadTest, scenarioTargets(scenario), os.Args, o.authzOpts)
+	return authDecision
+}
 
-	// Sift: when a bundle is requested, every measured request is fed to a
-	// collector as well, so the evidence pack is built from the same
-	// measurements the report is — not from a summary of them.
-	var collector *evidence.Collector
-	runOpts := engine.RunOptions{Out: os.Stderr, Quiet: quiet, Progress: progress}
-	if strings.TrimSpace(emitBundle) != "" {
-		worker := strings.TrimSpace(bundleWorker)
-		if worker == "" {
-			worker = defaultWorkerID()
-		}
-		collector, err = evidence.NewCollector(worker)
-		if err != nil {
-			fatal(err)
-		}
-		runOpts.Samples = collector
-	}
-
-	telemetry, err := eng.Run(ctx, runOpts)
+// buildRunGate creates the engine with the socket-level hook. Without it the
+// gate is only an admission check: a name approved as public could rebind to
+// link-local/metadata before the engine connects. The approved class from the
+// authorization decision is installed as the dial control.
+func buildRunGate(scenario *config.Scenario, authDecision authzOutcome) *engine.Engine {
+	eng, err := engine.NewWithControl(scenario, authz.DialControl(authDecision.ClassValue))
 	if err != nil {
 		fatal(err)
 	}
-	if progress != nil {
-		progress.Finish()
-	}
-
-	r := report.Build(telemetry, scenario)
-	if strings.TrimSpace(resourceEvidenceFile) != "" {
-		b, readErr := os.ReadFile(resourceEvidenceFile)
-		if readErr != nil {
-			fatal(fmt.Errorf("resource evidence: read %s: %w", resourceEvidenceFile, readErr))
-		}
-		if !json.Valid(b) {
-			fatal(fmt.Errorf("resource evidence: %s is not valid JSON", resourceEvidenceFile))
-		}
-		r.ResourceEvidence = json.RawMessage(b)
-	}
-	fmt.Fprintln(os.Stderr)
-	r.Render(os.Stdout)
-
-	// Reports are written before any gate can exit, so a run that trips a gate
-	// still leaves the evidence behind. A CI job that fails without the report
-	// that explains the failure is a debugging dead end.
-	jsonPath, err := r.SaveJSON(reportDir)
-	if err != nil {
-		fatal(err)
-	}
-	txtPath, err := r.SaveTXT(reportDir)
-	if err != nil {
-		fatal(err)
-	}
-	fmt.Fprintf(os.Stderr, "\nReports written:\n  %s\n  %s\n", jsonPath, txtPath)
-
-	if timelineCSV {
-		csvPath, err := r.SaveCSV(reportDir)
-		if err != nil {
-			fatal(err)
-		}
-		if csvPath != "" {
-			fmt.Fprintf(os.Stderr, "  %s\n", csvPath)
-		}
-	}
-
-	// The evidence is written even when the SLA gate fails: a bundle that
-	// proves the target missed its budget is exactly the bundle you want.
-	if collector != nil {
-		if err := emitEvidenceBundle(emitBundle, bundleKey, collector, scenario, &r); err != nil {
-			fatal(err)
-		}
-	}
-
-	if baseline != nil {
-		result := report.Compare(&r, baseline)
-		fmt.Print(result.Render())
-		if result.Regression && result.RegressionPct > regressPct {
-			fmt.Fprintf(os.Stderr, "REGRESSION DETECTED vs %s (threshold %.0f%%, actual %.1f%%)\n",
-				comparePath, regressPct, result.RegressionPct)
-			exitProcess(2)
-		}
-	}
-
-	if len(r.SLA) > 0 && !report.SLAPassed(r.SLA) {
-		fmt.Fprintln(os.Stderr, "SLA gate FAILED — exiting with code 2")
-		exitProcess(2)
-	}
-
-	// Safety net: a run that failed on 100% of requests (e.g. dead port,
-	// DNS failure, unreachable host) should not look like a success.
-	if r.TotalRequests > 0 && r.TotalErrors == r.TotalRequests {
-		fmt.Fprintln(os.Stderr, "FATAL: 100% of requests failed — target unreachable or refusing connections")
-		fmt.Fprintln(os.Stderr, "  Check the target URL, network, and that the server is up.")
-		exitProcess(1)
-	}
+	return eng
 }
 
 func quickScenario(name, url, method, data string, headers headerFlags, profile string, users, duration, rampUp, spikeUsers, spikeWarmup, spikeHold, wavePeriod, rps, targetRPS, timeout int, keepAlive bool) (*config.Scenario, error) {

@@ -36,11 +36,49 @@ func cleanCmdSource(t *testing.T, name string) string {
 	return b.String()
 }
 
+// cleanCmdSources works like cleanCmdSource but parses every non-test file
+// matching the pattern. A security invariant must stay pinned when a function
+// is split across files; matching only the original file would silently drop
+// the assertion during a refactor.
+func cleanCmdSources(t *testing.T, pattern string) string {
+	t.Helper()
+	_, here, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	matches, err := filepath.Glob(filepath.Join(filepath.Dir(here), pattern))
+	if err != nil {
+		t.Fatalf("glob %s: %v", pattern, err)
+	}
+	if len(matches) == 0 {
+		t.Fatalf("no files match %s", pattern)
+	}
+	var b strings.Builder
+	for _, path := range matches {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, path, src, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", path, err)
+		}
+		if err := printer.Fprint(&b, fset, file); err != nil {
+			t.Fatalf("print %s: %v", path, err)
+		}
+	}
+	return b.String()
+}
+
 // TestRunUsesAuthzClassAsDialControl pins the CLI run path: the class decided
 // by the authorization gate must be installed on every engine socket, otherwise
 // a DNS answer that changes after classification can bypass the gate.
 func TestRunUsesAuthzClassAsDialControl(t *testing.T) {
-	src := cleanCmdSource(t, "cmd_run.go")
+	src := cleanCmdSources(t, "cmd_run*.go")
 	if !strings.Contains(src, "authDecision := enforceAuthz(") {
 		t.Fatal("enforceAuthz return value is discarded; no approved class to re-apply")
 	}
