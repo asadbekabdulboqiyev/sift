@@ -49,14 +49,18 @@ func mapErr(op string, err error) error {
 	if err == nil {
 		return nil
 	}
+	// Both the sentinel and the original driver error are wrapped with %w.
+	// Go 1.20+ supports multiple %w operands, so errors.Is still recognises
+	// the sentinel while errors.As can still recover *pgconn.PgError details
+	// (SQLSTATE, constraint name, table) as the ErrConflict doc promises.
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		return fmt.Errorf("postgres: %s: %w", op, ErrNotFound)
+		return fmt.Errorf("postgres: %s: %w: %w", op, ErrNotFound, err)
 	case isPgCode(err, sqlStateUniqueViolation):
-		return fmt.Errorf("postgres: %s: %w", op, ErrConflict)
+		return fmt.Errorf("postgres: %s: %w: %w", op, ErrConflict, err)
 	case isPgCode(err, sqlStateForeignKeyViolation):
 		// The referenced parent row (tenant/user) does not exist.
-		return fmt.Errorf("postgres: %s: %w", op, ErrNotFound)
+		return fmt.Errorf("postgres: %s: %w: %w", op, ErrNotFound, err)
 	default:
 		return fmt.Errorf("postgres: %s: %w", op, err)
 	}
