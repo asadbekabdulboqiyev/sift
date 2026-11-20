@@ -203,13 +203,6 @@ func aggregateWindow(events []sampleEvent) windowStat {
 	return stat
 }
 
-func (s windowStat) meanCPU() float64 {
-	if s.cpuCount == 0 {
-		return 0
-	}
-	return s.cpuSum / float64(s.cpuCount)
-}
-
 func (s windowStat) meanGCPauseMs() float64 {
 	if s.gcCount == 0 {
 		return 0

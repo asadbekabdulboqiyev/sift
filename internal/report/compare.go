@@ -274,10 +274,3 @@ func pctChange(current, baseline float64) float64 {
 	}
 	return (current - baseline) / baseline * 100
 }
-
-func max1(a, b float64) float64 {
-	if a > b {
-		return a
-	}
-	return b
-}

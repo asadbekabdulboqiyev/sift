@@ -863,16 +863,6 @@ func interactiveTools(r *bufio.Reader) {
 	}
 }
 
-func targetPrompt(r *bufio.Reader) string {
-	fmt.Print("Target URL or host: ")
-	target := readLine(r, "")
-	if target == "" {
-		fmt.Println("error: target is required.")
-		exitProcess(1)
-	}
-	return target
-}
-
 func runNamed(name string, args ...string) {
 	os.Args = append([]string{"Sift", name}, args...)
 	switch name {
@@ -909,18 +899,6 @@ func runNamed(name string, args ...string) {
 	default:
 		fmt.Printf("no interactive handler for %q\n", name)
 	}
-}
-
-func interactivePentest(r *bufio.Reader) {
-	target := targetPrompt(r)
-	fmt.Println("Pentest requires an authorization ticket (Sift authorize add ...).")
-	fmt.Println("Running pentest against", target)
-	runNamed("pentest", "--target", target, "--depth", "1", "--timeout", "10", "--format", "json")
-}
-
-func interactiveScan(r *bufio.Reader) {
-	target := targetPrompt(r)
-	runNamed("scan", "--target", target)
 }
 
 func interactiveVerify(r *bufio.Reader) {
@@ -977,30 +955,6 @@ func interactiveAuthorize(r *bufio.Reader) {
 
 func interactiveAudit(r *bufio.Reader) {
 	runNamed("audit")
-}
-
-func interactiveFuzz(r *bufio.Reader) {
-	target := targetPrompt(r)
-	runNamed("fuzz", "--target", target)
-}
-
-func interactiveDirBust(r *bufio.Reader) {
-	target := targetPrompt(r)
-	runNamed("dirbust", "--target", target)
-}
-
-func interactiveExtra(r *bufio.Reader) {
-	fmt.Println()
-	fmt.Println("Extra scanners (each needs a target):")
-	fmt.Println("  jwt | graphql | websocket | crawl | subdomain | portscan | sslscan")
-	fmt.Print("Choose: ")
-	name := readLine(r, "")
-	if strings.TrimSpace(name) == "" {
-		fmt.Println("error: scanner name is required.")
-		exitProcess(1)
-	}
-	target := targetPrompt(r)
-	runNamed(name, "--target", target)
 }
 
 // interactiveDashboard starts the real-time Web Server dashboard. It builds a

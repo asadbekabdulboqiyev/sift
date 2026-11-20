@@ -79,13 +79,6 @@ func severityColor(sev string) string {
 	}
 }
 
-func severityTextColor(sev string) string {
-	if strings.ToLower(sev) == "medium" {
-		return "#212529"
-	}
-	return "#ffffff"
-}
-
 // gradeColor maps a grade to its band colour.
 //
 // The "+" is stripped for the lookup: C+ is the upper half of the C band, and
@@ -122,10 +115,6 @@ func riskGaugeColor(rating string) string {
 	default:
 		return "#6c757d"
 	}
-}
-
-func gaugePercentage(score int) float64 {
-	return float64(score) * 2.7
 }
 
 // owaspOrder returns the ten OWASP 2021 categories in order. The names come

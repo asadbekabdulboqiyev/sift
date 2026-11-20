@@ -74,7 +74,7 @@ func cmdCertificate() {
 			printCertificateGuide(false)
 			return
 		}
-		fatal(fmt.Errorf("certificate: %v", err))
+		fatal(fmt.Errorf("certificate: %w", err))
 	}
 
 	positional := fs.Arg(0)
@@ -89,7 +89,7 @@ func cmdCertificate() {
 				printCertificateGuide(false)
 				return
 			}
-			fatal(fmt.Errorf("certificate: %v", err))
+			fatal(fmt.Errorf("certificate: %w", err))
 		}
 	}
 
@@ -225,7 +225,9 @@ func verifyCertificateFile(path string, quiet bool, trustPath string, requireAnc
 	c, check, err := certificate.VerifyBytesWithTrust(data, store, requireAnchor)
 	if err != nil {
 		if asJSON {
-			emitCertificateVerifyJSON(path, nil, check, err)
+			if emitErr := emitCertificateVerifyJSON(path, nil, check, err); emitErr != nil {
+				fmt.Fprintln(os.Stderr, emitErr)
+			}
 			exitProcess(1)
 		}
 		fmt.Fprintln(os.Stderr, "INVALID —", err)
@@ -285,7 +287,9 @@ func verifyCertificatePDFFile(path string, data []byte, store *attest.TrustStore
 	res, err := certificate.VerifyPDF(data, store, requireAnchor)
 	if err != nil {
 		if asJSON {
-			emitCertificatePDFVerifyJSON(path, res, err)
+			if emitErr := emitCertificatePDFVerifyJSON(path, res, err); emitErr != nil {
+				fmt.Fprintln(os.Stderr, emitErr)
+			}
 			exitProcess(1)
 		}
 		fmt.Fprintln(os.Stderr, "INVALID —", err)
@@ -692,18 +696,4 @@ func displayOrDash(s string) string {
 		return "-"
 	}
 	return s
-}
-
-func displayList(items []string) string {
-	if len(items) == 0 {
-		return "-"
-	}
-	return strings.Join(items, ", ")
-}
-
-func signedAssessment(cert *certificate.Certificate) certificate.Assessment {
-	if cert == nil {
-		return certificate.Assessment{}
-	}
-	return cert.Assessment
 }

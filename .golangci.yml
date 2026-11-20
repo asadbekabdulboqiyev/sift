@@ -69,5 +69,12 @@ formatters:
         - github.com/asadbekabdulboqiyev/sift
 
 issues:
+  # The CI ratchet (`only-new-issues: true` in .github/workflows/ci.yml) is
+  # deliberately kept. A full `golangci-lint run ./...` at HEAD 605dc57 with
+  # golangci-lint v2.14.0 reported 755 issues (368 errcheck, 172 revive, 119
+  # staticcheck, 40 unused, 32 gocritic, 8 goimports, 7 gosec, 6 ineffassign,
+  # 3 unconvert). Removing the ratchet would turn CI red on 755 pre-existing
+  # findings unrelated to any given change; the ratchet still fails every new
+  # one. That legacy backlog is tracked debt, not part of this cleanup.
   max-issues-per-linter: 0
   max-same-issues: 0

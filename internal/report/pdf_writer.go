@@ -37,17 +37,6 @@ func (f pdfFont) ref() string {
 	}
 }
 
-func (f pdfFont) baseName() string {
-	switch f {
-	case fontBold:
-		return "Helvetica-Bold"
-	case fontMono:
-		return "Courier"
-	default:
-		return "Helvetica"
-	}
-}
-
 // Standard AFM widths (per 1000 units) for ASCII 32..126.
 var pdfWidthsHelv = [95]int{
 	278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278,

@@ -79,9 +79,11 @@ jobs:
         # Policy: a NEW error-level finding outside the G204/G304 allowlist fails
         # the build. The findings that predate the ratchet are frozen in
         # .gosec-baseline.json as debt — recorded, not accepted — so new code
-        # cannot add one unnoticed, and this change does not block on 116
-        # pre-existing findings. Identity is (ruleId, file, normalised source
-        # line): line numbers move, so they are deliberately not part of it.
+        # cannot add one unnoticed, and this change does not block on the 149
+        # pre-existing baseline findings (79 G115, 55 G101, 6 G301, 2 G114,
+        # 2 G124, 2 G702, 1 each G118/G402/G404). Identity is (ruleId, file,
+        # normalised source line): line numbers move, so they are deliberately
+        # not part of it.
         #
         # G204/G304 (subprocess, file inclusion) are allowlisted because this
         # tool reads user-supplied pcap/report paths by design and never spawns
