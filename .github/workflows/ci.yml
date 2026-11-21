@@ -264,6 +264,41 @@ jobs:
         # races in the long-lived loopback listeners, not just the unit build.
         run: go test -race -tags=integration ./... -count=1
 
+  # ── focused integration regressions ───────────────────────────────────────
+  # The broad job above runs every tagged test. This job pins the smaller set of
+  # packages that carry the cross-component integration regressions: distributed
+  # timing integrity, engine protocol runs, evidence bundling, OWASP edge cases
+  # and in-process CLI flows. A failure here is therefore easy to attribute to a
+  # specific subsystem instead of being lost in the full matrix. -short skips
+  # only the tests that explicitly opt out; every other tagged test in these
+  # packages still runs.
+  test-integration-focused:
+    name: Integration regressions (focused)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOFLAGS: -p=1
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Focused integration regressions
+        # -count=1 defeats setup-go's restored GOCACHE; -race keeps the
+        # long-lived loopback listeners honest. The package list is explicit so
+        # adding an unrelated integration package cannot silently change this
+        # gate.
+        run: |
+          go test -race -tags=integration -short -count=1 -timeout 10m \
+            ./cmd/sift \
+            ./internal/dist/coordinator \
+            ./internal/engine \
+            ./internal/evidence \
+            ./internal/scanner/owasp
+
   # ── coverage gate ─────────────────────────────────────────────────────────
   # -coverpkg=./... in the test job is what makes this number meaningful; the
   # old workflow ran plain `go test` so per-package coverage flattered itself.

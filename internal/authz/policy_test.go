@@ -3,6 +3,10 @@ package authz
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -286,4 +290,141 @@ func TestPolicyJSONWritesNamesAndOmitsZeroExpiry(t *testing.T) {
 	if !strings.Contains(string(raw), `"until": "2026-12-01T00:00:00Z"`) {
 		t.Errorf("expiry missing:\n%s", raw)
 	}
+}
+
+// policyFixtureFile writes body into a throwaway file and returns its path.
+func policyFixtureFile(t *testing.T, name, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write policy fixture: %v", err)
+	}
+	return path
+}
+
+// strictPolicyBody is deliberately different from DefaultPolicy on every
+// observable field, so a silent fall-back to defaults cannot pass unnoticed.
+const strictPolicyBody = `{
+  "mode": "strict",
+  "allow_private": true,
+  "rules": [
+    {"pattern": "internal.example.com", "approver": "ciso@corp", "ticket": "SEC-42", "reason": "approved change"}
+  ]
+}`
+
+func assertStrictPolicyLoaded(t *testing.T, p Policy) {
+	t.Helper()
+	if p.Mode != ModeStrict {
+		t.Errorf("mode = %v, want strict (a permissive default would silently open access)", p.Mode)
+	}
+	if !p.AllowPrivate {
+		t.Error("allow_private = false, want true from the file")
+	}
+	if len(p.Rules) != 1 {
+		t.Fatalf("rules = %+v, want exactly one", p.Rules)
+	}
+	want := Rule{Pattern: "internal.example.com", Approver: "ciso@corp", Ticket: "SEC-42", Reason: "approved change"}
+	if p.Rules[0] != want {
+		t.Errorf("rule = %+v, want %+v", p.Rules[0], want)
+	}
+}
+
+func TestLoadPolicy(t *testing.T) {
+	t.Run("valid file loads the written policy", func(t *testing.T) {
+		// Arrange
+		path := policyFixtureFile(t, "policy.json", strictPolicyBody)
+
+		// Act
+		p, err := LoadPolicy(path)
+
+		// Assert
+		if err != nil {
+			t.Fatalf("LoadPolicy: %v", err)
+		}
+		assertStrictPolicyLoaded(t, p)
+	})
+
+	t.Run("missing file is an error with no policy", func(t *testing.T) {
+		// Arrange: no file is created at this path.
+		path := filepath.Join(t.TempDir(), "absent.json")
+
+		// Act
+		p, err := LoadPolicy(path)
+
+		// Assert
+		if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("LoadPolicy missing file error = %v, want os.ErrNotExist", err)
+		}
+		if !reflect.DeepEqual(p, Policy{}) {
+			t.Errorf("policy on error = %+v, want zero value (no silent default)", p)
+		}
+	})
+
+	t.Run("malformed file is an error, never the default", func(t *testing.T) {
+		// Arrange
+		path := policyFixtureFile(t, "broken.json", `{"mode":`)
+
+		// Act
+		p, err := LoadPolicy(path)
+
+		// Assert
+		if err == nil {
+			t.Fatalf("LoadPolicy accepted a malformed file: %+v", p)
+		}
+		if !strings.Contains(err.Error(), "parse policy") {
+			t.Errorf("error = %q, want a parse-policy message", err)
+		}
+		if !reflect.DeepEqual(p, Policy{}) {
+			t.Errorf("policy on parse error = %+v, want zero value (no silent fail-open)", p)
+		}
+	})
+}
+
+func TestLoadPolicyOrDefault(t *testing.T) {
+	t.Run("missing file falls back to the built-in default", func(t *testing.T) {
+		// Arrange
+		path := filepath.Join(t.TempDir(), "absent.json")
+
+		// Act
+		p, err := LoadPolicyOrDefault(path)
+
+		// Assert
+		if err != nil {
+			t.Fatalf("LoadPolicyOrDefault missing file: %v", err)
+		}
+		if !reflect.DeepEqual(p, DefaultPolicy()) {
+			t.Errorf("policy = %+v, want %+v", p, DefaultPolicy())
+		}
+	})
+
+	t.Run("valid file is loaded instead of the default", func(t *testing.T) {
+		// Arrange
+		path := policyFixtureFile(t, "policy.json", strictPolicyBody)
+
+		// Act
+		p, err := LoadPolicyOrDefault(path)
+
+		// Assert
+		if err != nil {
+			t.Fatalf("LoadPolicyOrDefault: %v", err)
+		}
+		assertStrictPolicyLoaded(t, p)
+	})
+
+	t.Run("malformed file is an error, never a silent default", func(t *testing.T) {
+		// Arrange: a broken policy must NOT turn into the permissive default;
+		// doing so would silently drop every rule an approver wrote down.
+		path := policyFixtureFile(t, "broken.json", `{"mode":"yolo"}`)
+
+		// Act
+		p, err := LoadPolicyOrDefault(path)
+
+		// Assert
+		if err == nil {
+			t.Fatalf("LoadPolicyOrDefault silently defaulted on a malformed file: %+v", p)
+		}
+		if !reflect.DeepEqual(p, Policy{}) {
+			t.Errorf("policy on parse error = %+v, want zero value (no silent fail-open)", p)
+		}
+	})
 }

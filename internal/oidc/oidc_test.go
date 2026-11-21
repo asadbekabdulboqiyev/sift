@@ -835,3 +835,281 @@ func TestContextCancellationOnDiscovery(t *testing.T) {
 		t.Fatal("New must fail when the context is already cancelled")
 	}
 }
+
+// --- VerifyIDToken: the middleware entry point --------------------------------
+//
+// Exchange tests above reach verification through the code-flow path. These
+// tests call VerifyIDToken (and its nonce-bearing sibling) directly, because
+// internal/authz.go uses VerifyIDToken with an empty nonce on every request.
+// Every token here is signed by the provider's real key unless the case is
+// explicitly about the signature, so a failure isolates the claim at fault.
+
+func TestVerifyIDTokenRS256Success(t *testing.T) {
+	p := newFakeProvider(t, fakeProviderConfig{})
+	c := p.newClient(t)
+
+	// Arrange: a valid token from the configured issuer for the configured client.
+	claims := baseClaims(p.server.URL, "client-1")
+	raw := signRS256(t, p.rsaKey, p.rsaKid, claims)
+
+	// Act
+	got, err := c.VerifyIDToken(raw)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("VerifyIDToken(RS256): %v", err)
+	}
+	if got == nil {
+		t.Fatal("VerifyIDToken returned nil claims for a valid token")
+	}
+	for key, want := range map[string]any{
+		"iss": p.server.URL,
+		"aud": "client-1",
+		"sub": "user-123",
+	} {
+		if got[key] != want {
+			t.Errorf("claim %s = %v, want %v", key, got[key], want)
+		}
+	}
+	if _, ok := got["exp"]; !ok {
+		t.Error("exp claim was dropped from the returned claims")
+	}
+}
+
+func TestVerifyIDTokenES256Success(t *testing.T) {
+	p := newFakeProvider(t, fakeProviderConfig{})
+	c := p.newClient(t)
+
+	// Arrange
+	raw := signES256(t, p.ecKey, p.ecKid, baseClaims(p.server.URL, "client-1"))
+
+	// Act
+	got, err := c.VerifyIDToken(raw)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("VerifyIDToken(ES256): %v", err)
+	}
+	if got["sub"] != "user-123" {
+		t.Errorf("sub = %v, want user-123", got["sub"])
+	}
+}
+
+func TestVerifyIDTokenRejectsInvalidClaims(t *testing.T) {
+	p := newFakeProvider(t, fakeProviderConfig{})
+	c := p.newClient(t)
+
+	cases := []struct {
+		name    string
+		mutate  func(map[string]any)
+		wantErr string
+	}{
+		{
+			name:    "expired",
+			mutate:  func(cl map[string]any) { cl["exp"] = time.Now().Add(-time.Hour).Unix() },
+			wantErr: "expired",
+		},
+		{
+			name:    "missing exp",
+			mutate:  func(cl map[string]any) { delete(cl, "exp") },
+			wantErr: "missing the exp claim",
+		},
+		{
+			name:    "wrong issuer",
+			mutate:  func(cl map[string]any) { cl["iss"] = "https://attacker.example" },
+			wantErr: "issuer",
+		},
+		{
+			name:    "missing issuer",
+			mutate:  func(cl map[string]any) { delete(cl, "iss") },
+			wantErr: "missing the iss claim",
+		},
+		{
+			name:    "wrong audience",
+			mutate:  func(cl map[string]any) { cl["aud"] = "another-client" },
+			wantErr: "audience",
+		},
+		{
+			name:    "audience array without this client",
+			mutate:  func(cl map[string]any) { cl["aud"] = []string{"someone-else"} },
+			wantErr: "audience",
+		},
+		{
+			name:    "not yet valid",
+			mutate:  func(cl map[string]any) { cl["nbf"] = time.Now().Add(time.Hour).Unix() },
+			wantErr: "not yet valid",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange: valid signature, one bad claim.
+			claims := baseClaims(p.server.URL, "client-1")
+			tc.mutate(claims)
+			raw := signRS256(t, p.rsaKey, p.rsaKid, claims)
+
+			// Act
+			got, err := c.VerifyIDToken(raw)
+
+			// Assert
+			if err == nil {
+				t.Fatalf("VerifyIDToken accepted a token with %s: %+v", tc.name, got)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("error = %q, want it to mention %q", err, tc.wantErr)
+			}
+			if got != nil {
+				t.Errorf("claims = %+v, want nil when verification fails", got)
+			}
+		})
+	}
+}
+
+func TestVerifyIDTokenRejectsForgedSignature(t *testing.T) {
+	p := newFakeProvider(t, fakeProviderConfig{})
+	c := p.newClient(t)
+
+	// Arrange: the claims are perfect, but the signer is not the provider's key.
+	attacker := genRSAKey(t)
+	raw := signRS256(t, attacker, p.rsaKid, baseClaims(p.server.URL, "client-1"))
+
+	// Act
+	got, err := c.VerifyIDToken(raw)
+
+	// Assert
+	if err == nil {
+		t.Fatalf("VerifyIDToken accepted a forged signature: %+v", got)
+	}
+	if !strings.Contains(err.Error(), "signature") {
+		t.Errorf("error = %q, want a signature failure", err)
+	}
+	if got != nil {
+		t.Errorf("claims = %+v, want nil when the signature fails", got)
+	}
+}
+
+func TestVerifyIDTokenRejectsTamperedClaims(t *testing.T) {
+	p := newFakeProvider(t, fakeProviderConfig{})
+	c := p.newClient(t)
+
+	// Arrange: sign a valid token, then edit only the claims segment while
+	// keeping the original signature. The digest must no longer match.
+	raw := signRS256(t, p.rsaKey, p.rsaKid, baseClaims(p.server.URL, "client-1"))
+	parts := strings.Split(raw, ".")
+	if len(parts) != 3 {
+		t.Fatalf("signed token has %d segments, want 3", len(parts))
+	}
+	tampered := baseClaims(p.server.URL, "client-1")
+	tampered["sub"] = "attacker"
+	encoded, err := json.Marshal(tampered)
+	if err != nil {
+		t.Fatalf("marshal tampered claims: %v", err)
+	}
+	parts[1] = b64URL(encoded)
+
+	// Act
+	got, err := c.VerifyIDToken(strings.Join(parts, "."))
+
+	// Assert
+	if err == nil {
+		t.Fatalf("VerifyIDToken accepted edited claims under the old signature: %+v", got)
+	}
+	if got != nil {
+		t.Errorf("claims = %+v, want nil for a tampered token", got)
+	}
+}
+
+// TestVerifyIDTokenNonce exercises the nonce branch, which VerifyIDToken itself
+// intentionally leaves off (authz.go calls it as a middleware check). The
+// code-flow helper verifyIDToken is the entry point that enforces a nonce.
+func TestVerifyIDTokenNonce(t *testing.T) {
+	p := newFakeProvider(t, fakeProviderConfig{})
+	c := p.newClient(t)
+
+	withNonce := baseClaims(p.server.URL, "client-1")
+	withNonce["nonce"] = "nonce-123"
+	signed := signRS256(t, p.rsaKey, p.rsaKid, withNonce)
+
+	t.Run("matching nonce is accepted", func(t *testing.T) {
+		got, err := c.verifyIDToken(t.Context(), signed, "nonce-123")
+		if err != nil {
+			t.Fatalf("verifyIDToken with matching nonce: %v", err)
+		}
+		if got["nonce"] != "nonce-123" {
+			t.Errorf("nonce = %v, want nonce-123", got["nonce"])
+		}
+	})
+
+	t.Run("mismatched nonce is rejected", func(t *testing.T) {
+		got, err := c.verifyIDToken(t.Context(), signed, "different-nonce")
+		if err == nil {
+			t.Fatalf("verifyIDToken accepted a nonce mismatch: %+v", got)
+		}
+		if !strings.Contains(err.Error(), "nonce mismatch") {
+			t.Errorf("error = %q, want a nonce mismatch", err)
+		}
+	})
+
+	t.Run("missing nonce is rejected when one is required", func(t *testing.T) {
+		noNonce := signRS256(t, p.rsaKey, p.rsaKid, baseClaims(p.server.URL, "client-1"))
+		got, err := c.verifyIDToken(t.Context(), noNonce, "nonce-123")
+		if err == nil {
+			t.Fatalf("verifyIDToken accepted a token without the requested nonce: %+v", got)
+		}
+		if !strings.Contains(err.Error(), "nonce mismatch") {
+			t.Errorf("error = %q, want a nonce mismatch", err)
+		}
+	})
+
+	t.Run("VerifyIDToken skips the nonce check", func(t *testing.T) {
+		// Contract for the authz middleware: no authorization-code flow, so a
+		// token carrying a nonce must still verify when no nonce is requested.
+		got, err := c.VerifyIDToken(signed)
+		if err != nil {
+			t.Fatalf("VerifyIDToken with an empty nonce: %v", err)
+		}
+		if got["sub"] != "user-123" {
+			t.Errorf("sub = %v, want user-123", got["sub"])
+		}
+	})
+}
+
+func TestVerifyIDTokenRejectsInvalidJWT(t *testing.T) {
+	p := newFakeProvider(t, fakeProviderConfig{})
+	c := p.newClient(t)
+	claims := baseClaims(p.server.URL, "client-1")
+
+	cases := []struct {
+		name    string
+		raw     string
+		wantErr string
+	}{
+		{
+			name:    "not a JWT",
+			raw:     "not-a-jwt",
+			wantErr: "not a well-formed JWT",
+		},
+		{
+			name:    "alg none",
+			raw:     signJWT(t, map[string]any{"alg": "none", "typ": "JWT"}, claims, func(string) []byte { return nil }),
+			wantErr: "unsupported",
+		},
+		{
+			name:    "unknown kid",
+			raw:     signRS256(t, p.rsaKey, "ghost-kid", claims),
+			wantErr: "no verification key",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := c.VerifyIDToken(tc.raw)
+			if err == nil {
+				t.Fatalf("VerifyIDToken accepted %s: %+v", tc.name, got)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("error = %q, want it to mention %q", err, tc.wantErr)
+			}
+		})
+	}
+}

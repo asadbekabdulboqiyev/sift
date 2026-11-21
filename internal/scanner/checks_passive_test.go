@@ -1316,6 +1316,16 @@ func TestPassiveRichSiteFindingsAreWellFormed(t *testing.T) {
 		t.Fatalf("the rich fixture should produce a substantial report, got %d findings", len(findings))
 	}
 
+	// Independent oracle: literal CVSS scores pinned to the documented severity
+	// scale, not derived from passiveCVSSFor (comparing the function to itself
+	// would be a tautology and could not catch a wrong score table).
+	wantCVSS := map[string]float64{
+		"info":   0.0,
+		"low":    2.6,
+		"medium": 5.3,
+		"high":   7.5,
+	}
+
 	seen := map[string]bool{}
 	ids := map[string]bool{}
 	for _, v := range findings {
@@ -1335,8 +1345,10 @@ func TestPassiveRichSiteFindingsAreWellFormed(t *testing.T) {
 		default:
 			t.Errorf("%s has an unknown severity %q", v.ID, v.Severity)
 		}
-		if v.CVSS != passiveCVSSFor(v.Severity) {
-			t.Errorf("%s severity %q carries CVSS %v, want %v", v.ID, v.Severity, v.CVSS, passiveCVSSFor(v.Severity))
+		if want, ok := wantCVSS[v.Severity]; !ok {
+			t.Errorf("%s has no expected CVSS for severity %q", v.ID, v.Severity)
+		} else if v.CVSS != want {
+			t.Errorf("%s severity %q carries CVSS %v, want %v", v.ID, v.Severity, v.CVSS, want)
 		}
 		if !strings.HasPrefix(v.Evidence, "confidence=") {
 			t.Fatalf("%s evidence does not lead with a confidence level: %q", v.ID, v.Evidence)

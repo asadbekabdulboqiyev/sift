@@ -96,8 +96,14 @@ func TestDistributedRunPartialTimingOnWorkerDisconnect(t *testing.T) {
 	if len(master.FailedWorkers()) == 0 {
 		t.Fatal("expected at least one failed/disconnected worker")
 	}
-	if _, ok := master.reports[addr]; !ok {
-		// Partial report for disconnected worker should be preserved (merged may aggregate; direct map check best-effort).
+	// The disconnected worker must leave a preserved partial report behind. A
+	// missing entry would mean its measured evidence was silently dropped when
+	// the stream closed, which is exactly what this test guards against.
+	master.mu.Lock()
+	partial, ok := master.reports[addr]
+	master.mu.Unlock()
+	if !ok || partial == nil {
+		t.Fatalf("partial report for disconnected worker %s was not preserved", addr)
 	}
 	rep := master.FinalReport()
 	if rep == nil || rep.TotalRequests == 0 {
