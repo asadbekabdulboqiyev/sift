@@ -175,7 +175,8 @@ func TestOIDCRoleMapJSONConfig(t *testing.T) {
 		t.Fatalf("AuthOptions.OIDCRoleMap = %q", opt.OIDCRoleMap)
 	}
 
-	// ApplyAuth must forward the map into the middleware untouched.
+	// ApplyAuth forwards the normalized allowlist: the admin mapping is
+	// dropped during normalization and must not reach the middleware.
 	srv := NewServer()
 	a := srv.ApplyAuth(AuthOptions{
 		Tokens:      []string{"tok"},

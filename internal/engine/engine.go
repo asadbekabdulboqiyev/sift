@@ -412,6 +412,16 @@ func (e *Engine) Run(ctx context.Context, opts RunOptions) (*metrics.Telemetry, 
 	e.samples = opts.Samples
 	e.sampleSeq.Store(0)
 
+	// Per-step statistics are run-scoped. New() created the initial slice for
+	// the non-Run callers, but AddStep installs its aggregate pointer only
+	// once per StepStats. Reusing those objects would wire every later run's
+	// samples to the first run's Telemetry, leaving the current run at zero
+	// and contaminating the earlier report. Recreate them with the telemetry.
+	e.stepStats = make([]*metrics.StepStats, len(e.scenario.Steps))
+	for i, step := range e.scenario.Steps {
+		e.stepStats[i] = metrics.NewStepStats(step.Name)
+	}
+
 	e.teleMu.Lock()
 	e.telemetry = metrics.NewTelemetry()
 	e.teleMu.Unlock()

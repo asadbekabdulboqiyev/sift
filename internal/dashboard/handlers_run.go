@@ -70,31 +70,16 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "users, duration_seconds, or rate_limit exceeds allowed maximum", http.StatusBadRequest)
 		return
 	}
-	// The browser is not a back door around the CLI's authorization layer. Use
-	// the same policy gate every scan endpoint uses, with OpLoadTest so the
-	// default policy denies private, loopback, CGNAT, multicast and reserved
-	// targets - not just metadata/link-local. An operator can still authorize a
-	// specific target with a named ticket, exactly like the CLI. A load run
-	// sends arbitrary-method/header/body traffic, so a weaker gate here would
-	// turn an authenticated tests:run caller into an internal-network prober.
-	decision, err := owaspGate(authz.OpLoadTest, runCfg.TargetURL, runCfg.Authorized)
+	// The browser is not a back door around the CLI's authorization layer. The
+	// shared gate applies the full OpLoadTest policy and audit trail here and on
+	// the WebSocket command path, so neither entry point can pick a weaker
+	// check. The default policy denies private, loopback, CGNAT, multicast and
+	// reserved targets - not just metadata/link-local. An operator can still
+	// authorize a specific target with a named ticket, exactly like the CLI.
+	decision, err := authorizeRunTarget(runCfg.TargetURL, runCfg.Authorized, "POST /api/run/start")
 	if err != nil {
-		http.Error(w, "authorization check failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if auditErr := owaspAudit(authz.Entry{
-		Action:  authz.OpLoadTest.String(),
-		Targets: []string{runCfg.TargetURL},
-		IPs:     decision.IPs,
-		Class:   decision.Class,
-		Allowed: decision.Allowed,
-		Rule:    decision.Rule,
-		Reason:  decision.Reason,
-		Argv:    []string{"Sift dashboard", "POST /api/run/start"},
-	}); auditErr != nil {
-		// A broken audit trail must never turn a denied decision into an
-		// approved run, so fail closed and surface the incomplete trail.
-		http.Error(w, "authorization audit unavailable: "+auditErr.Error(), http.StatusInternalServerError)
+		// A failed check or an incomplete audit trail fails closed.
+		http.Error(w, "authorization check failed or audit unavailable: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	if !decision.Allowed {

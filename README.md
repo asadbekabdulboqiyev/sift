@@ -943,6 +943,19 @@ values are ignored; and mapping any claim value to the built-in `admin` role is
 rejected. Subject-to-role assignments via `--dashboard-auth-rbac` remain the
 operator-controlled way to grant a specific user a role.
 
+Migration note for existing OIDC deployments: before this change a signed
+claim such as `{"role":"admin"}` was used directly as a role name. Raw claim
+values are now ignored. Operators who relied on that behavior must add an
+explicit claim-to-role map (`oidc_role_map` in the JSON config, or the flags
+above) or their OIDC users will lose those roles. A role name other than
+`admin` can be mapped; mapping to `admin` is refused by design.
+
+VeriGate pass cookies are now `Secure` by default. Plain-HTTP deployments
+(including local demos) must opt out explicitly with `SecureCookies: &false`.
+The standalone demo does this already. Deployments behind a TLS-terminating
+proxy should leave the default intact: the old code keyed `Secure` off
+`r.TLS`, which silently dropped the attribute even on HTTPS client traffic.
+
 ### Security Notes
 - Binding beyond loopback requires explicit credentials: `-auth-token` / `-auth-api-key` on `sift dashboard`, or `--dashboard-auth-token` / `--dashboard-auth-api-key` on `sift run --mode dashboard`. To acknowledge an unauthenticated non-loopback bind (demo only), pass `--insecure` to `sift dashboard` or `--dashboard-insecure` to `sift run --mode dashboard`.
 - Review `sift dashboard --help` and deployment settings before exposing the dashboard on a network.

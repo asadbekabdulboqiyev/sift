@@ -40,6 +40,12 @@ const (
 	// wsPingInterval keeps quiet connections alive (browsers answer pings
 	// with pongs at the WebSocket protocol level).
 	wsPingInterval = 30 * time.Second
+
+	// wsWriteTimeout bounds a single data-frame write. A peer that stops
+	// reading eventually fills its socket buffer; without a deadline the
+	// writer would block forever and stall the read loop (or a broadcast).
+	// It matches the ping control write timeout in ws.go.
+	wsWriteTimeout = 10 * time.Second
 )
 
 // --- Dashboard Server -------------------------------------------------------

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -43,6 +44,49 @@ func BenchmarkDirBustCancelledManyPaths(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = DirBust(ctx, "http://example.com", paths, req)
+	}
+}
+
+// dirBustCountingRequester makes the dispatch count observable, so a
+// regression to eager goroutine creation fails a test instead of only a
+// benchmark allocation number.
+type dirBustCountingRequester struct {
+	checks atomic.Int64
+	sends  atomic.Int64
+}
+
+func (r *dirBustCountingRequester) Check(context.Context, string, string, bool) error {
+	r.checks.Add(1)
+	return errors.New("cancelled run must not reach policy checks")
+}
+
+func (r *dirBustCountingRequester) Do(*http.Request) (*http.Response, error) {
+	r.sends.Add(1)
+	return nil, errors.New("cancelled run must not send requests")
+}
+
+func TestDirBustCancelledStopsDispatch(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	paths := make([]string, 4096)
+	for i := range paths {
+		paths[i] = "/path-" + strconv.Itoa(i)
+	}
+
+	const base = "http://example.com"
+	req := &dirBustCountingRequester{}
+	res := DirBust(ctx, base, paths, req)
+
+	if res.Target != base || res.Found != 0 || len(res.Entries) != 0 {
+		t.Errorf("cancelled result = target %q, found %d, entries %d; want clean empty result", res.Target, res.Found, len(res.Entries))
+	}
+	// The semaphore admits at most 40 slots before ctx.Done wins. The old
+	// per-path goroutine dispatch would have reached all 4096 checks.
+	if got := req.checks.Load(); got > 40 {
+		t.Errorf("policy checks = %d, want at most 40 for a cancelled run", got)
+	}
+	if got := req.sends.Load(); got != 0 {
+		t.Errorf("HTTP sends = %d, want 0 for a cancelled run", got)
 	}
 }
 

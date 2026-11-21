@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/config"
+	"github.com/asadbekabdulboqiyev/sift/internal/metrics"
 )
 
 // TestEngineReuseWithGate runs the same Engine twice with Profile.Gate on.
@@ -39,10 +40,11 @@ func TestEngineReuseWithGate(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
+	var firstTel *metrics.Telemetry
 	for run := 1; run <= 2; run++ {
 		before := hits.Load()
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		_, runErr := eng.Run(ctx, RunOptions{Quiet: true})
+		tel, runErr := eng.Run(ctx, RunOptions{Quiet: true})
 		cancel()
 		if runErr != nil {
 			t.Fatalf("run %d: %v", run, runErr)
@@ -50,6 +52,18 @@ func TestEngineReuseWithGate(t *testing.T) {
 		if got := hits.Load() - before; got != 2 {
 			t.Fatalf("run %d hits = %d, want 2 (one burst per user)", run, got)
 		}
+		// Each run owns fresh step statistics and aggregate counters. The
+		// StepStats pointer installed by AddStep is only wired once, so
+		// reusing the New()-time slice used to send run 2 samples to run 1.
+		if got := tel.TotalRequests(); got != 2 {
+			t.Errorf("run %d telemetry requests = %d, want 2", run, got)
+		}
+		if run == 1 {
+			firstTel = tel
+		}
+	}
+	if firstTel != nil && firstTel.TotalRequests() != 2 {
+		t.Errorf("run 1 telemetry requests after run 2 = %d, want 2", firstTel.TotalRequests())
 	}
 
 	// The close(startGate) goroutine sleeps before firing; give it time so a

@@ -111,10 +111,15 @@ func TestProgressUpdateDuringFinishIsSafe(t *testing.T) {
 
 	var wg sync.WaitGroup
 	stop := make(chan struct{})
+	updated := make(chan struct{}, 8)
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
+			// Record at least one update before Finish so the snapCount
+			// assertion cannot fail on goroutine scheduling.
+			pt.Update(uint64(id+1), uint64(id%2), time.Duration(id)*time.Millisecond)
+			updated <- struct{}{}
 			for {
 				select {
 				case <-stop:
@@ -126,6 +131,9 @@ func TestProgressUpdateDuringFinishIsSafe(t *testing.T) {
 		}(i)
 	}
 
+	for i := 0; i < 8; i++ {
+		<-updated
+	}
 	pt.Finish()
 	close(stop)
 	wg.Wait()
@@ -149,21 +157,43 @@ func TestNewProgressTrackerFields(t *testing.T) {
 	pt.Finish()
 }
 
+// waitCaptured mirrors broadcast.wait and reports the instant it captured the
+// current channel. The signal is sent while the broadcast mutex is held, so
+// once the caller has received one signal per waiter, all waiters hold the
+// same channel and a single notify is guaranteed to release them. This keeps
+// the test deterministic without adding a test-only seam to production code.
+func waitCaptured(b *broadcast, ctx context.Context, captured chan<- struct{}) error {
+	b.mu.Lock()
+	ch := b.ch
+	captured <- struct{}{}
+	b.mu.Unlock()
+	select {
+	case <-ch:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func TestBroadcastNotifyWakesAllWaiters(t *testing.T) {
 	b := newBroadcast()
 	const waiters = 32
 
 	done := make(chan error, waiters)
+	captured := make(chan struct{}, waiters)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	for i := 0; i < waiters; i++ {
 		go func() {
-			done <- b.wait(ctx)
+			done <- waitCaptured(b, ctx, captured)
 		}()
 	}
 
-	// Give every waiter time to capture the current channel, then notify once.
-	time.Sleep(50 * time.Millisecond)
+	// One notify releases every waiter only if all of them captured the
+	// channel it closes; the handshake above guarantees that ordering.
+	for i := 0; i < waiters; i++ {
+		<-captured
+	}
 	b.notify()
 
 	received := 0
@@ -199,12 +229,14 @@ func TestBroadcastWaitTimesOutUntilNextNotify(t *testing.T) {
 		t.Fatalf("wait before notify = %v, want context.DeadlineExceeded", err)
 	}
 
-	// Start the waiter first so it captures the open channel, then notify.
+	// Wait until the waiter has captured the open channel before notifying;
+	// a fixed sleep made this depend on host scheduling.
 	wctx, wcancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer wcancel()
+	captured := make(chan struct{}, 1)
 	done := make(chan error, 1)
-	go func() { done <- b.wait(wctx) }()
-	time.Sleep(20 * time.Millisecond)
+	go func() { done <- waitCaptured(b, wctx, captured) }()
+	<-captured
 	b.notify()
 
 	select {

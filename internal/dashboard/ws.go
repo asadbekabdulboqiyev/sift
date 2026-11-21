@@ -71,6 +71,12 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	s.mu.RUnlock()
 	_ = s.writeWS(conn, initMsg)
 
+	// The upgrade passed the normal auth middleware, so the request context
+	// carries the principal and roles for this socket. Capture it once: the
+	// command loop below authorizes start/stop against the same tests:run
+	// permission the HTTP start endpoint requires.
+	cmdCtx := r.Context()
+
 	// Listen for commands
 	for {
 		// A stalled peer (partial frame, no pongs) is dropped after the
@@ -85,6 +91,19 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			Args map[string]interface{} `json:"args,omitempty"`
 		}
 		if err := json.Unmarshal(msg, &cmd); err != nil {
+			continue
+		}
+		// A WebSocket start is the same privileged operation as POST
+		// /api/run/start, but the upgrade only required tests:view. Gate every
+		// command before dispatch so a viewer cannot drive the engine against
+		// internal or metadata targets, and so no audit decision is skipped.
+		if err := s.authorizeRunCommand(cmdCtx, cmd.Type, cmd.Args); err != nil {
+			frame, _ := json.Marshal(map[string]interface{}{
+				"type":    "command_error",
+				"command": cmd.Type,
+				"error":   err.Error(),
+			})
+			_ = s.writeWS(conn, frame)
 			continue
 		}
 		if s.onCommand != nil {
@@ -119,6 +138,15 @@ func (s *Server) writeWS(c *websocket.Conn, msg []byte) error {
 	mu := s.wsWriteLock(c)
 	mu.Lock()
 	defer mu.Unlock()
+	// Bound every data write, including command_error frames sent after a
+	// denied start. Without this a client that never reads could fill its
+	// send buffer and wedge the read loop on the next denial, turning the
+	// authorization feedback path into a new denial-of-service vector.
+	// A timeout is treated like any other write error: broadcast drops the
+	// client, and the command loop returns on its next read.
+	if err := c.SetWriteDeadline(time.Now().Add(wsWriteTimeout)); err != nil {
+		return err
+	}
 	return c.WriteMessage(websocket.TextMessage, msg)
 }
 

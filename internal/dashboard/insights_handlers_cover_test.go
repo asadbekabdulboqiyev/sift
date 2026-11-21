@@ -428,8 +428,41 @@ func TestInsightsBountyVerifyUploadHandlerGuardsAndMissingArtifact(t *testing.T)
 		// No artifact files are uploaded, so the verifier cannot find the
 		// manifest-declared report.md and scope.txt paths.
 		status, body := postInsightsVerifyUpload(t, map[string]string{"manifest": string(manifestJSON)}, nil)
-		if status != http.StatusBadRequest && status != http.StatusConflict {
-			t.Fatalf("status = %d, want 400 or 409; body=%s", status, body)
+		if status != http.StatusConflict {
+			t.Fatalf("status = %d, want 409 (verdict failed); body=%s", status, body)
+		}
+		// The contract is a structured failed verdict, not a generic bad
+		// request: the manifest parsed, so the missing artifacts must surface
+		// as check failures with reasons. Accepting 400 here would hide a
+		// regression that collapses this into a malformed-form error.
+		var out struct {
+			OK      bool   `json:"ok"`
+			Verdict string `json:"verdict"`
+			Report  struct {
+				Reasons []string `json:"reasons"`
+				Checks  []struct {
+					Name   string `json:"name"`
+					Status string `json:"status"`
+				} `json:"checks"`
+			} `json:"report"`
+		}
+		if err := json.Unmarshal([]byte(body), &out); err != nil {
+			t.Fatalf("decode 409 body: %v; body=%s", err, body)
+		}
+		if out.OK || out.Verdict != "failed" {
+			t.Errorf("verdict = %q, ok = %v; want failed/false", out.Verdict, out.OK)
+		}
+		failed := map[string]bool{}
+		for _, check := range out.Report.Checks {
+			if check.Status == "fail" {
+				failed[check.Name] = true
+			}
+		}
+		if !failed["artifact:report"] || !failed["artifact:scope"] {
+			t.Errorf("missing artifact checks: %v; body=%s", failed, body)
+		}
+		if len(out.Report.Reasons) < 2 {
+			t.Errorf("report.reasons = %d entries, want at least 2; body=%s", len(out.Report.Reasons), body)
 		}
 	})
 }

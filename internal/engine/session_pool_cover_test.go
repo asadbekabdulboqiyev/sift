@@ -73,11 +73,13 @@ func TestWSPoolLifecycle(t *testing.T) {
 	if c, ok := e.takeWSConn(1, wsURL); c != nil || ok {
 		t.Fatalf("takeWSConn after drop = (%v, %v), want (nil, false)", c, ok)
 	}
-	// dropWSConn only evicts; it does not close the socket. This is an
-	// observation, not an assertion that the behavior is desirable.
+	// Helper contract: dropWSConn only evicts; the caller keeps socket
+	// ownership and closes it (closeWS before dropWSConn in wsPooled). Assert
+	// that ownership boundary so a silent change is caught.
 	if err := conn2.WriteMessage(websocket.TextMessage, []byte("still-open")); err != nil {
-		t.Logf("observation: dropped WebSocket was closed by dropWSConn: %v", err)
+		t.Fatalf("dropWSConn closed a caller-owned socket: %v", err)
 	}
+	_ = conn2.Close()
 }
 
 func TestTCPPoolLifecycle(t *testing.T) {
@@ -99,7 +101,8 @@ func TestTCPPoolLifecycle(t *testing.T) {
 	if c := e.takeTCPConn(0); c != nil {
 		t.Fatalf("takeTCPConn after drop = %v, want nil", c)
 	}
-	// Drop evicts but does not close: the peer is still writable. net.Pipe is
+	// Helper contract: dropTCPConn only evicts; callers close the socket
+	// (rawClientForUser closes it right after dropTCPConn). net.Pipe is
 	// synchronous, so drain the local end while writing from the peer.
 	readDone := make(chan struct{})
 	go func() {
@@ -108,7 +111,7 @@ func TestTCPPoolLifecycle(t *testing.T) {
 		close(readDone)
 	}()
 	if _, err := server.Write([]byte("x")); err != nil {
-		t.Logf("observation: dropped TCP conn was closed by dropTCPConn: %v", err)
+		t.Fatalf("dropTCPConn closed a caller-owned socket: %v", err)
 	}
 	<-readDone
 	_ = client.Close()
@@ -151,16 +154,18 @@ func TestSessionPoolKeepsOneConnectionPerUser(t *testing.T) {
 	if currentTCP != tcp2 {
 		t.Fatal("second put did not become the current TCP session")
 	}
-	// A displaced net.Pipe connection is still usable; drain it while writing
-	// so the synchronous pipe does not block the test.
+	// Helper contract: putTCPConn replaces an entry without closing it.
+	// Production only puts after takeTCPConn returned nil, so no live socket
+	// is displaced in normal operation; this pins the helper behavior. Drain
+	// the pipe while writing so the synchronous pipe does not block the test.
 	readDone := make(chan struct{})
 	go func() {
 		buf := make([]byte, 1)
 		_, _ = tcp1.Read(buf)
 		close(readDone)
 	}()
-	if _, err := srv1.Write([]byte("x")); err == nil {
-		t.Log("observation: displaced TCP session was not closed on double put")
+	if _, err := srv1.Write([]byte("x")); err != nil {
+		t.Fatalf("putTCPConn closed a displaced socket: %v", err)
 	}
 	<-readDone
 }
@@ -212,6 +217,12 @@ func TestCloseSessionsDrainsAllPools(t *testing.T) {
 	if err := ws.WriteMessage(websocket.TextMessage, []byte("x")); err == nil {
 		t.Fatal("closeSessions left a WebSocket session open")
 	}
+	// net.Pipe writes block without a reader. A deadline turns a regression
+	// here into a clear assertion instead of a test timeout. When the peer is
+	// already closed, SetWriteDeadline itself reports the closed pipe; the
+	// write below still returns promptly with an error, which is the outcome
+	// this test asserts.
+	_ = tcpServer.SetWriteDeadline(time.Now().Add(2 * time.Second))
 	if _, err := tcpServer.Write([]byte("x")); err == nil {
 		t.Fatal("closeSessions left a TCP session open")
 	}

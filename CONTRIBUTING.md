@@ -159,6 +159,24 @@ it is public and may be redistributed with a record of the sign-off.
 Pull requests containing commits without a `Signed-off-by` line are not merged.
 See `LICENSING.md` section 4 for how the sign-off is used.
 
+## Required CI checks
+
+CI defines three named aggregate gates: `ci-ok` (`.github/workflows/ci.yml`),
+`security-ok` (`security.yml`) and `codeql-ok` (`codeql.yml`). Each fails when
+any required job in its workflow fails. Configure branch protection in the
+GitHub repository settings to require all three checks before merge. A single
+workflow's aggregate cannot cover jobs from another workflow, so requiring all
+three names is intentional. Do not lower the coverage floor (currently 75%)
+to hide a regression.
+
+Two jobs are deliberately skipped in some configurations. `analyze` in
+`codeql.yml` is skipped on private repositories because SARIF upload needs a
+paid add-on, and `dependency-review` in `security.yml` runs only on public pull
+requests. The aggregates treat those specific skips as no-runs rather than
+failures. A green `codeql-ok` on a private repository therefore means no CodeQL
+analysis ran, not that the analysis passed. `govulncheck`, `gosec`, `gitleaks`
+and both Trivy jobs run on every push regardless of repository visibility.
+
 ## Dashboard scope
 
 The web dashboard is a **local-first operator console**: it is designed to run

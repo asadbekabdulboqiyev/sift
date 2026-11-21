@@ -205,6 +205,16 @@ func TestBridgeRunLifecycle(t *testing.T) {
 	if err := json.Unmarshal(raw, &bundle); err != nil {
 		t.Fatalf("bundle is not JSON: %v", err)
 	}
+	if got, ok := bundle["format"].(string); !ok || got == "" {
+		t.Errorf("bundle format = %v, want a non-empty string", bundle["format"])
+	}
+	runObj, ok := bundle["run"].(map[string]any)
+	if !ok {
+		t.Fatalf("bundle has no run object: %v", bundle["run"])
+	}
+	if got := runObj["target"]; got != cfg.TargetURL {
+		t.Errorf("bundle run.target = %v, want %q", got, cfg.TargetURL)
+	}
 	if _, err := os.Stat(info.SamplesPath); err != nil {
 		t.Errorf("samples sidecar missing: %v", err)
 	}
@@ -342,8 +352,11 @@ func TestBridgeAttestationSkipsAndFailures(t *testing.T) {
 	if info.Exists {
 		t.Errorf("attestation info set despite a broken data dir: %+v", info)
 	}
-	if len(serverHistory(srv)) != 1 {
-		t.Log("history may still be recorded; attestation failure must not break the run")
+	if got := len(serverHistory(srv)); got != 1 {
+		t.Errorf("history entries after attestation failure = %d, want 1", got)
+	}
+	if state := serverState(srv); state.Status != "completed" {
+		t.Errorf("final state after attestation failure = %q, want completed", state.Status)
 	}
 }
 

@@ -136,20 +136,16 @@ func TestScanTLSWithControlTimeoutErrorReturnsQuickly(t *testing.T) {
 func TestScanTLSWithControlAllowsApprovedClass(t *testing.T) {
 	host, port := controlTestTarget(t)
 
-	// ScanTLSWithControl uses the process default, which verifies certificates.
-	// The httptest server is self-signed, so temporarily select the authorized
-	// lab default; no other test in this package runs in parallel and the value
-	// is restored at cleanup.
-	oldDefault := Default
-	Default = Options{TLSVerify: false}
-	t.Cleanup(func() { Default = oldDefault })
-
+	// The httptest server is self-signed, so pass TLS verification off
+	// explicitly. ScanTLSWithOptions is the single implementation behind
+	// ScanTLSWithControl; using it directly avoids mutating the package-level
+	// Default, which would make this test unsafe to run in parallel.
 	var calls atomic.Int64
 	control := func(network, address string, c syscall.RawConn) error {
 		calls.Add(1)
 		return authz.DialControl(authz.ClassLoopback)(network, address, c)
 	}
-	info, err := ScanTLSWithControl(host, port, control)
+	info, err := ScanTLSWithOptions(host, port, control, Options{TLSVerify: false})
 	if err != nil {
 		t.Fatalf("ScanTLSWithControl: %v", err)
 	}

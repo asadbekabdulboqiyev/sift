@@ -247,10 +247,19 @@ func TestServeAppStaticAssets(t *testing.T) {
 
 func dialDashboardWS(t *testing.T, srv *httptest.Server) *websocket.Conn {
 	t.Helper()
+	return dialDashboardWSWithHeaders(t, srv, nil)
+}
+
+func dialDashboardWSWithHeaders(t *testing.T, srv *httptest.Server, header http.Header) *websocket.Conn {
+	t.Helper()
 	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	conn, resp, err := websocket.DefaultDialer.Dial(url, header)
 	if err != nil {
-		t.Fatalf("dial websocket: %v", err)
+		status := "<no response>"
+		if resp != nil {
+			status = resp.Status
+		}
+		t.Fatalf("dial websocket: %v (status %s, header %v)", err, status, header)
 	}
 	return conn
 }
@@ -268,6 +277,12 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 }
 
 func TestHandleWebSocketLifecycle(t *testing.T) {
+	// The WebSocket start command goes through the same policy gate as the HTTP
+	// endpoint. Isolate from any operator policy and audit log on the test host.
+	t.Setenv("SIFT_POLICY", filepath.Join(t.TempDir(), "no-policy.json"))
+	t.Setenv("SIFT_ALLOW", "")
+	t.Setenv("SIFT_AUDIT_LOG", filepath.Join(t.TempDir(), "audit.jsonl"))
+
 	s := NewServer()
 	s.SetRunState(&RunState{Status: "running"})
 
@@ -305,10 +320,14 @@ func TestHandleWebSocketLifecycle(t *testing.T) {
 		t.Errorf("init state = %+v, want the live run state", init.State)
 	}
 
-	// Commands from the browser reach the handler verbatim.
+	// An authorized start command reaches the handler verbatim. The nested
+	// config.target_url is the shape both binaries read, and a public literal
+	// address passes the default policy without needing DNS.
 	if err := conn.WriteJSON(map[string]any{
 		"type": "start",
-		"args": map[string]any{"target": "https://example.test"},
+		"args": map[string]any{"config": map[string]any{
+			"target_url": "http://93.184.216.34/",
+		}},
 	}); err != nil {
 		t.Fatalf("write command: %v", err)
 	}
