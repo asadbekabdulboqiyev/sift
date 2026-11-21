@@ -15,23 +15,6 @@ type Adapter struct{}
 
 // ToEvent converts an authz entry to a control-plane audit event.
 func (a Adapter) ToEvent(e authz.Entry, tenantID, actorID string, remoteIP, userAgent string) store.AuditEvent {
-	details := struct {
-		Rule    string   `json:"rule"`
-		Reason  string   `json:"reason"`
-		IPs     []string `json:"ips"`
-		Class   string   `json:"class"`
-		Version string   `json:"version"`
-		Argv    []string `json:"argv"`
-	}{
-		Rule:    e.Rule,
-		Reason:  e.Reason,
-		IPs:     e.IPs,
-		Class:   e.Class,
-		Version: e.Version,
-		Argv:    e.Argv,
-	}
-	// JSON details kept minimal; callers can serialize.
-	_ = details
 	return store.AuditEvent{
 		TenantID:  tenantID,
 		ActorID:   actorID,

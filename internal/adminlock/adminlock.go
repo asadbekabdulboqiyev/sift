@@ -6,7 +6,7 @@
 //   - it is gated by a code that exists only on this machine (0600 state file),
 //   - it expires (15 minutes by default) unless it is extended,
 //   - it never unlocks cloud instance-metadata addresses (the credential-theft
-//     path) — callers must still refuse those,
+//     path) -- callers must still refuse those,
 //   - every unlock and lock is an audit event the CLI and dashboard both write
 //     to the same hash-chained trail.
 //
@@ -194,19 +194,31 @@ func statusOf(st State, now time.Time) Status {
 	return out
 }
 
+// codeMatches compares a presented code with the stored code in constant time.
+// Both sides are normalized so separators and case never affect the result.
+// Empty values never match.
+func codeMatches(presented, stored string) bool {
+	want := normalize(stored)
+	got := normalize(presented)
+	if want == "" || got == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(want), []byte(got)) == 1
+}
+
 // Verify reports whether code matches the stored code.
 func (s *Store) Verify(code string) (bool, error) {
 	st, err := s.load()
 	if err != nil {
 		return false, err
 	}
-	want := normalize(st.Code)
-	got := normalize(code)
-	if want == "" || got == "" {
-		return false, nil
-	}
-	return subtle.ConstantTimeCompare([]byte(want), []byte(got)) == 1, nil
+	return codeMatches(code, st.Code), nil
 }
+
+// afterVerifyHook is a test seam invoked after the initial code check in Unlock
+// and before the state is reloaded. Production leaves it nil. It lets a test
+// deterministically simulate a concurrent Rotate between the two reads.
+var afterVerifyHook func()
 
 // Unlock verifies code and opens a bypass window. ttl is clamped to (0, MaxTTL];
 // zero means DefaultTTL. The audit trail is the caller's job (it knows whether
@@ -217,7 +229,10 @@ func (s *Store) Unlock(code string, ttl time.Duration) (Status, error) {
 		return Status{}, err
 	}
 	if !ok {
-		return Status{}, errors.New("admin code does not match — run `Sift admin code` on the host to read the current code")
+		return Status{}, errors.New("admin code does not match -- run `Sift admin code` on the host to read the current code")
+	}
+	if afterVerifyHook != nil {
+		afterVerifyHook()
 	}
 	if ttl <= 0 {
 		ttl = DefaultTTL
@@ -225,9 +240,17 @@ func (s *Store) Unlock(code string, ttl time.Duration) (Status, error) {
 	if ttl > MaxTTL {
 		ttl = MaxTTL
 	}
+	// Reload the state that will actually be mutated and saved, and verify the
+	// presented code against it again. Without this, a concurrent Rotate landing
+	// between Verify above and this read would let the old code open a window on
+	// the rotated state, defeating the one recovery step. The re-check makes a
+	// rotation detected here fail closed instead.
 	st, err := s.load()
 	if err != nil {
 		return Status{}, err
+	}
+	if !codeMatches(code, st.Code) {
+		return Status{}, errors.New("admin code changed during unlock; retry with the current code")
 	}
 	now := time.Now().UTC()
 	st.UnlockedAt = now

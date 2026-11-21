@@ -4,6 +4,7 @@ package attest
 
 import (
 	"bytes"
+	"math"
 	"strings"
 	"testing"
 )
@@ -56,6 +57,120 @@ func TestCanonicalNeverUsesExponents(t *testing.T) {
 	}
 	if got != "1000000000000000" {
 		t.Fatalf("encoding = %s", got)
+	}
+}
+
+func assertCanonicalMulDivError(t *testing.T, err error, want string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("error = nil, want %q", want)
+	}
+	if got := err.Error(); got != want {
+		t.Fatalf("error = %q, want %q", got, want)
+	}
+}
+
+// TestCanonicalMulDivBoundaries locks the shared arithmetic contract at the
+// 64-bit edges: overflow and a zero divisor are errors, never wrapped values.
+func TestCanonicalMulDivBoundaries(t *testing.T) {
+	cases := []struct {
+		name    string
+		floor   bool
+		a, b, d uint64
+		want    uint64
+		wantErr string
+	}{
+		{
+			name:    "floor max uint64 times two over one overflows",
+			floor:   true,
+			a:       math.MaxUint64,
+			b:       2,
+			d:       1,
+			wantErr: "muldiv: 18446744073709551615*2/1 overflows 64 bits",
+		},
+		{
+			name:  "floor max uint64 squared over max uint64 is max uint64",
+			floor: true,
+			a:     math.MaxUint64,
+			b:     math.MaxUint64,
+			d:     math.MaxUint64,
+			want:  math.MaxUint64,
+		},
+		{
+			name:    "floor zero divisor",
+			floor:   true,
+			a:       1,
+			b:       1,
+			d:       0,
+			wantErr: "muldiv: division by zero",
+		},
+		{
+			name:    "floor zero divisor takes precedence over overflow",
+			floor:   true,
+			a:       math.MaxUint64,
+			b:       math.MaxUint64,
+			d:       0,
+			wantErr: "muldiv: division by zero",
+		},
+		{
+			name:    "round max uint64 times two over one overflows",
+			a:       math.MaxUint64,
+			b:       2,
+			d:       1,
+			wantErr: "muldiv: 18446744073709551615*2/1 overflows 64 bits",
+		},
+		{
+			name:    "round half max times two over one overflows",
+			a:       1 << 63,
+			b:       2,
+			d:       1,
+			wantErr: "muldiv: 9223372036854775808*2/1 overflows 64 bits",
+		},
+		{
+			name: "round half up at the int64 boundary",
+			a:    math.MaxUint64,
+			b:    1,
+			d:    2,
+			want: 1 << 63,
+		},
+		{
+			name: "round max uint64 squared over max uint64 is max uint64",
+			a:    math.MaxUint64,
+			b:    math.MaxUint64,
+			d:    math.MaxUint64,
+			want: math.MaxUint64,
+		},
+		{
+			name:    "round zero divisor",
+			a:       1,
+			b:       1,
+			d:       0,
+			wantErr: "muldiv: division by zero",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got uint64
+			var err error
+			if tc.floor {
+				got, err = MulDivFloor(tc.a, tc.b, tc.d)
+			} else {
+				got, err = MulDivRound(tc.a, tc.b, tc.d)
+			}
+			if tc.wantErr != "" {
+				assertCanonicalMulDivError(t, err, tc.wantErr)
+				if got != 0 {
+					t.Fatalf("result = %d, want 0 on error", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("result = %d, want %d", got, tc.want)
+			}
+		})
 	}
 }
 

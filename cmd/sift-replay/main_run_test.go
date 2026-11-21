@@ -204,6 +204,24 @@ func TestReplayMainFullRun(t *testing.T) {
 			t.Errorf("%s not written: %v", name, err)
 		}
 	}
+
+	// Regression: the CSV export is published atomically with an explicit
+	// 0600 mode (previously os.Create left it at 0666 & ~umask, typically 0644).
+	csvPath := filepath.Join(dir, "latency.csv")
+	info, err := os.Stat(csvPath)
+	if err != nil {
+		t.Fatalf("stat latency.csv: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("latency.csv mode = %04o, want 0600", perm)
+	}
+	csvBytes, err := os.ReadFile(csvPath)
+	if err != nil {
+		t.Fatalf("read latency.csv: %v", err)
+	}
+	if !strings.HasPrefix(string(csvBytes), "index,latency_ms,status\n") {
+		t.Errorf("latency.csv lost its header: %q", csvBytes)
+	}
 }
 
 func TestReplayMainFilterDropsEverything(t *testing.T) {

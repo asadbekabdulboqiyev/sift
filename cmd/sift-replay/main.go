@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
 	"flag"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/asadbekabdulboqiyev/sift/internal/cliux"
 	"github.com/asadbekabdulboqiyev/sift/internal/replay"
+	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 	"github.com/asadbekabdulboqiyev/sift/internal/version"
 )
 
@@ -326,22 +328,17 @@ Examples:
 		if !strings.Contains(csvPath, "/") {
 			csvPath = filepath.Join(*reportDir, csvPath)
 		}
-		f, err := os.Create(filepath.Clean(csvPath)) // #nosec G304 -- path is an operator-selected output file
-		if err != nil {
-			fatalf("Failed to create CSV: %v", err)
-		}
-		if _, err := f.WriteString("index,latency_ms,status\n"); err != nil {
-			_ = f.Close()
-			fatalf("Failed to write CSV header: %v", err)
-		}
+		// Build the report in memory, then publish it atomically with an
+		// explicit 0600 mode (matching the report directory's 0750 policy).
+		// shared.Write no longer exposes a variable path to os.Create, so the
+		// former #nosec G304 annotation is unnecessary here.
+		var buf bytes.Buffer
+		_, _ = buf.WriteString("index,latency_ms,status\n")
 		for i, lat := range result.Latencies {
-			if _, err := fmt.Fprintf(f, "%d,%.2f,ok\n", i+1, float64(lat.Microseconds())/1000.0); err != nil {
-				_ = f.Close()
-				fatalf("Failed to write CSV row: %v", err)
-			}
+			_, _ = fmt.Fprintf(&buf, "%d,%.2f,ok\n", i+1, float64(lat.Microseconds())/1000.0)
 		}
-		if err := f.Close(); err != nil {
-			fatalf("Failed to close CSV: %v", err)
+		if err := shared.Write(csvPath, buf.Bytes(), 0o600); err != nil {
+			fatalf("Failed to write CSV: %v", err)
 		}
 		fmt.Printf("  CSV report: %s\n", csvPath)
 	}

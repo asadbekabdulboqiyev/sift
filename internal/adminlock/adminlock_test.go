@@ -220,6 +220,48 @@ func TestRotateReplacesCodeAndClosesWindow(t *testing.T) {
 	}
 }
 
+func TestUnlockFailsClosedIfCodeRotatedMidUnlock(t *testing.T) {
+	dir := t.TempDir()
+	s := newStore(t, dir, "admin.json")
+	oldCode, err := s.Code()
+	if err != nil {
+		t.Fatalf("Code: %v", err)
+	}
+
+	// Simulate a concurrent Rotate landing after Verify but before Unlock's
+	// reload: the new code replaces the old one and any window is closed.
+	var rotated string
+	afterVerifyHook = func() {
+		var rotErr error
+		rotated, rotErr = s.Rotate()
+		if rotErr != nil {
+			t.Errorf("hook Rotate: %v", rotErr)
+		}
+	}
+	t.Cleanup(func() { afterVerifyHook = nil })
+
+	if _, err := s.Unlock(oldCode, 30*time.Minute); err == nil {
+		t.Fatal("Unlock with rotated code should fail closed, but succeeded")
+	}
+	if rotated == "" || rotated == oldCode {
+		t.Fatalf("hook did not rotate to a new code (rotated=%q old=%q)", rotated, oldCode)
+	}
+
+	st, err := s.Status()
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if st.Active {
+		t.Error("window opened even though the code was rotated mid-unlock")
+	}
+	if ok, err := s.Verify(oldCode); err != nil || ok {
+		t.Errorf("old code still verifies after rotation: %v, %v", ok, err)
+	}
+	if ok, err := s.Verify(rotated); err != nil || !ok {
+		t.Errorf("rotated code no longer verifies: %v, %v", ok, err)
+	}
+}
+
 func TestStatusWithoutUnlockIsInactive(t *testing.T) {
 	dir := t.TempDir()
 	s := newStore(t, dir, "admin.json")
