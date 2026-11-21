@@ -76,7 +76,8 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	// check. The default policy denies private, loopback, CGNAT, multicast and
 	// reserved targets - not just metadata/link-local. An operator can still
 	// authorize a specific target with a named ticket, exactly like the CLI.
-	decision, err := authorizeRunTarget(runCfg.TargetURL, runCfg.Authorized, "POST /api/run/start")
+	actor, _, _ := PrincipalAndRolesFromContext(r.Context())
+	decision, err := authorizeRunTarget(runCfg.TargetURL, runCfg.Authorized, "POST /api/run/start", actor)
 	if err != nil {
 		// A failed check or an incomplete audit trail fails closed.
 		http.Error(w, "authorization check failed or audit unavailable: "+err.Error(), http.StatusInternalServerError)

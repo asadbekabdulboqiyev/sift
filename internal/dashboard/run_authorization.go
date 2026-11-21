@@ -30,21 +30,34 @@ type RunAuthorization struct {
 // audit trail, exactly as the HTTP start endpoint does. Both entry points call
 // this one function so a browser client cannot pick a weaker gate. An audit
 // write failure fails closed: an incomplete trail must never approve a run.
-func authorizeRunTarget(target, ticket, source string) (RunAuthorization, error) {
-	decision, err := owaspGate(authz.OpLoadTest, target, ticket)
-	if err != nil {
-		return RunAuthorization{}, err
-	}
-	if auditErr := owaspAudit(authz.Entry{
+func authorizeRunTarget(target, ticket, source, actor string) (RunAuthorization, error) {
+	// Build the audit entry once so both a completed decision and a failed
+	// policy lookup leave the same attributable trail. When actor is empty
+	// (no auth enrolled) authz falls back to the process user.
+	entry := authz.Entry{
 		Action:  authz.OpLoadTest.String(),
 		Targets: []string{target},
-		IPs:     decision.IPs,
-		Class:   decision.Class,
-		Allowed: decision.Allowed,
-		Rule:    decision.Rule,
-		Reason:  decision.Reason,
+		Actor:   actor,
 		Argv:    []string{"Sift dashboard", source},
-	}); auditErr != nil {
+	}
+	decision, err := owaspGate(authz.OpLoadTest, target, ticket)
+	if err != nil {
+		// A failed gate check is still an attempt: record it as denied
+		// rather than dropping the event on the floor. Fail closed in all
+		// cases, and report both failures if the audit write fails too.
+		entry.Allowed = false
+		entry.Reason = "policy check failed: " + err.Error()
+		if auditErr := owaspAudit(entry); auditErr != nil {
+			return RunAuthorization{}, fmt.Errorf("policy check failed (%v); audit unavailable (%w)", err, auditErr)
+		}
+		return RunAuthorization{}, err
+	}
+	entry.IPs = decision.IPs
+	entry.Class = decision.Class
+	entry.Allowed = decision.Allowed
+	entry.Rule = decision.Rule
+	entry.Reason = decision.Reason
+	if auditErr := owaspAudit(entry); auditErr != nil {
 		return RunAuthorization{}, auditErr
 	}
 	return RunAuthorization{
@@ -78,7 +91,16 @@ func runTargetFromArgs(args map[string]interface{}) (target, ticket string) {
 // choice and the check is a no-op, matching rbacAllowed's disabled behavior.
 func (s *Server) authorizeRunPermission(ctx context.Context) error {
 	if s.auth == nil {
-		return nil
+		// No auth at all means the operator deliberately exposed an open
+		// dashboard (loopback bind), so keep the historical no-op behavior.
+		// A custom middleware, however, cannot be evaluated by rbacAllowed:
+		// it may authenticate but never populate *Auth. Fail closed rather
+		// than silently skipping tests:run on the WS path, matching the
+		// admin-bypass precedent in audit360.go.
+		if s.authMiddleware == nil {
+			return nil
+		}
+		return fmt.Errorf("%w: run authorization unavailable for custom auth middleware", ErrRunCommandDenied)
 	}
 	subject, roles, ok := PrincipalAndRolesFromContext(ctx)
 	if !ok {
@@ -111,7 +133,8 @@ func (s *Server) authorizeRunCommand(ctx context.Context, command string, args m
 	if u, err := url.Parse(target); err != nil || (u.Scheme != "http" && u.Scheme != "https") {
 		return fmt.Errorf("%w: config.target_url must be an http(s) URL", ErrRunCommandDenied)
 	}
-	result, err := authorizeRunTarget(target, ticket, "WS start")
+	actor, _, _ := PrincipalAndRolesFromContext(ctx)
+	result, err := authorizeRunTarget(target, ticket, "WS start", actor)
 	if err != nil {
 		return fmt.Errorf("%w: authorization check failed: %v", ErrRunCommandDenied, err)
 	}

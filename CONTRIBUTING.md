@@ -187,6 +187,21 @@ as a multi-tenant service exposed to the public internet. See
 `docs/DEPLOYMENT-HARDENING.md` before exposing any dashboard endpoint beyond
 localhost.
 
+## Audit trail locking
+
+Every decision, including a denied load-test start, is appended to one
+hash-chained JSON-lines trail. `authz.Log.Append` holds a path-keyed process
+mutex across `tail()` and `Write`, then takes an exclusive advisory file lock,
+so fresh `Log` handles in dashboard goroutines and a concurrently running CLI
+cannot duplicate `Seq` or break `PrevHash`. The mutex is keyed by path (not a
+cached file handle) so tests that swap `SIFT_AUDIT_LOG` stay isolated.
+
+On Windows the advisory file lock is a no-op: writers inside one process are
+still serialized, but concurrent CLI processes on Windows retain a residual
+chain-corruption risk. The dashboard is a local-first console; run one writer
+at a time there. Load-test audit entries record the authenticated subject as
+`actor`; other scan endpoints still fall back to the process user.
+
 ## Questions
 
 If you have questions, open a GitHub issue or contact the maintainers. Thank you for contributing.

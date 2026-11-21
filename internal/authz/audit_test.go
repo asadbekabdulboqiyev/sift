@@ -1,12 +1,83 @@
 package authz
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 )
+
+// TestAuditConcurrentAppendKeepsChain pins the hash-chain fix: callers open a
+// fresh Log per entry, so the per-instance mutex alone cannot serialize
+// tail()+Write. Without the path-keyed lock, concurrent appends duplicate Seq
+// and break PrevHash, which Verify must then reject.
+func TestAuditConcurrentAppendKeepsChain(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	const handles = 8
+	const perHandle = 10
+
+	logs := make([]*Log, 0, handles)
+	for range handles {
+		l, err := Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		logs = append(logs, l)
+		defer func(l *Log) { _ = l.Close() }(l)
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, handles*perHandle)
+	for i, l := range logs {
+		wg.Add(1)
+		go func(i int, l *Log) {
+			defer wg.Done()
+			for j := 0; j < perHandle; j++ {
+				if _, err := l.Append(Entry{
+					Action:  "run",
+					Targets: []string{fmt.Sprintf("https://h%d.example", i)},
+					Allowed: true,
+				}); err != nil {
+					errs <- err
+				}
+			}
+		}(i, l)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Errorf("concurrent append: %v", err)
+	}
+
+	want := handles * perHandle
+	n, err := Verify(path)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if n != want {
+		t.Fatalf("verified %d entries, want %d", n, want)
+	}
+	entries, err := ReadAll(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := make(map[int64]bool, want)
+	for i, e := range entries {
+		if seen[e.Seq] {
+			t.Errorf("duplicate seq %d", e.Seq)
+		}
+		seen[e.Seq] = true
+		if e.Seq != int64(i+1) {
+			t.Errorf("entry %d seq = %d, want %d", i, e.Seq, i+1)
+		}
+		if i > 0 && e.PrevHash != entries[i-1].Hash {
+			t.Errorf("entry %d has a broken PrevHash link", i)
+		}
+	}
+}
 
 func TestAuditChainAppendAndVerify(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.jsonl")

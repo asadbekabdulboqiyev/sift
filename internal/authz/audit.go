@@ -46,6 +46,34 @@ func (e Entry) digest() string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// pathLocks serializes Append across every Log handle targeting the same file.
+// The mutex inside Log guards only one instance, but callers open a fresh Log
+// per entry (dashboard scans, WS/HTTP runs, the admin switch and the CLI).
+// O_APPEND prevents byte interleaving, yet tail()+Write is not atomic across
+// instances: concurrent writers otherwise emit duplicate Seq values and break
+// the PrevHash chain. Keys are paths, not open files, so t.Setenv-based tests
+// that swap the audit path stay isolated.
+var pathLocks struct {
+	sync.Mutex
+	m map[string]*sync.Mutex
+}
+
+func lockForPath(path string) func() {
+	key := filepath.Clean(path)
+	pathLocks.Lock()
+	if pathLocks.m == nil {
+		pathLocks.m = make(map[string]*sync.Mutex)
+	}
+	mu := pathLocks.m[key]
+	if mu == nil {
+		mu = &sync.Mutex{}
+		pathLocks.m[key] = mu
+	}
+	pathLocks.Unlock()
+	mu.Lock()
+	return mu.Unlock
+}
+
 // Log is an append-only, hash-chained audit log stored as JSON lines.
 type Log struct {
 	path string
@@ -90,11 +118,20 @@ func (l *Log) Close() error {
 // Append chains and writes entry, filling in Seq, Time, PrevHash, and Hash.
 // The returned entry is the stored record.
 func (l *Log) Append(e Entry) (Entry, error) {
+	// Acquire the path lock first: it spans every handle writing this trail,
+	// including ones created after this call started. Then take the instance
+	// lock (Close uses only that), then the cross-process advisory lock.
+	unlockPath := lockForPath(l.path)
+	defer unlockPath()
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.f == nil {
 		return Entry{}, fmt.Errorf("append audit entry: log is closed")
 	}
+	if err := lockFile(l.f); err != nil {
+		return Entry{}, fmt.Errorf("lock audit log: %w", err)
+	}
+	defer func() { _ = unlockFile(l.f) }()
 
 	prev, seq, err := l.tail()
 	if err != nil {

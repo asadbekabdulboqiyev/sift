@@ -8,6 +8,7 @@ package dashboard
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 	"github.com/asadbekabdulboqiyev/sift/internal/rbac"
 )
 
@@ -256,5 +258,190 @@ func TestWSRunCommandRequiresPermRun(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), "WS start") {
 		t.Errorf("audit log has no WS start entry: %s", raw)
+	}
+	// The decision must be attributable to the authenticated bearer subject,
+	// not the process user. Without an explicit Actor the audit falls back to
+	// the OS user and a WS start cannot be tied to its caller.
+	if !strings.Contains(string(raw), `"actor":"`+runnerSubject+`"`) {
+		t.Errorf("audit log has no actor %q for the runner: %s", runnerSubject, raw)
+	}
+}
+
+// TestRunStartAuditConcurrentHTTPAndWS fires HTTP and WS starts at once and
+// verifies the shared trail stays a valid chain. Each entry point opens a
+// fresh authz.Log, so this is the real path that exposed the tail()/Write
+// race; a broken chain here would mean a tampered-trail false positive.
+func TestRunStartAuditConcurrentHTTPAndWS(t *testing.T) {
+	audit := isolateWSGateEnv(t)
+
+	const starts = 8
+	s := NewServer()
+	// onCommand runs only after the gate wrote its audit entry, so one signal
+	// per start is a deterministic barrier for "this audit write completed".
+	dispatched := make(chan struct{}, starts*2)
+	s.SetCommandHandler(func(cmd string, args map[string]interface{}) {
+		dispatched <- struct{}{}
+	})
+
+	srv := httptest.NewServer(s)
+	defer srv.Close()
+
+	var wg sync.WaitGroup
+	errs := make(chan error, starts*2)
+
+	for i := 0; i < starts; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			body := `{"target_url":"http://93.184.216.34/","users":1,"duration_seconds":1}`
+			resp, err := http.Post(srv.URL+"/api/run/start", "application/json", strings.NewReader(body))
+			if err != nil {
+				errs <- err
+				return
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				errs <- fmt.Errorf("HTTP start status = %d, want 200", resp.StatusCode)
+				return
+			}
+			select {
+			case <-dispatched:
+			case <-time.After(5 * time.Second):
+				errs <- fmt.Errorf("HTTP start did not reach the handler")
+			}
+		}()
+	}
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
+	for i := 0; i < starts; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+			if err != nil {
+				errs <- err
+				return
+			}
+			defer conn.Close()
+			_ = readWSCommandFrame(t, conn) // init
+			wsStartJSON(t, conn, "http://93.184.216.34/")
+			// The handler sends no reply frame, so wait on the dispatch
+			// barrier instead of a second read.
+			select {
+			case <-dispatched:
+			case <-time.After(5 * time.Second):
+				errs <- fmt.Errorf("WS start did not reach the handler")
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Errorf("concurrent run start: %v", err)
+	}
+
+	n, err := authz.Verify(audit)
+	if err != nil {
+		t.Fatalf("concurrent audit chain is invalid: %v", err)
+	}
+	if n != starts*2 {
+		t.Fatalf("verified %d audit entries, want %d", n, starts*2)
+	}
+}
+
+// TestWSRunDeniedWithCustomAuthMiddleware covers the embedder footgun: a
+// custom auth middleware can authenticate and inject roles into the request
+// context without populating Server.auth. rbacAllowed cannot evaluate that
+// setup, so start/stop must fail closed instead of skipping the tests:run
+// check. The intentionally-open dashboard (no middleware) keeps working.
+func TestWSRunDeniedWithCustomAuthMiddleware(t *testing.T) {
+	isolateWSGateEnv(t)
+
+	s := NewServer()
+	s.SetAuthMiddleware(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			next.ServeHTTP(w, r.WithContext(WithPrincipalAndRoles(
+				r.Context(), "custom-engineer", []string{rbac.RoleEngineer})))
+		})
+	})
+
+	var mu sync.Mutex
+	var commands []string
+	s.SetCommandHandler(func(cmd string, args map[string]interface{}) {
+		mu.Lock()
+		defer mu.Unlock()
+		commands = append(commands, cmd)
+	})
+
+	srv := httptest.NewServer(s)
+	defer srv.Close()
+	conn := dialDashboardWS(t, srv)
+	defer conn.Close()
+	_ = readWSCommandFrame(t, conn) // init
+
+	wsStartJSON(t, conn, "http://93.184.216.34/")
+	assertCommandError(t, readWSCommandFrame(t, conn), "start")
+	if err := conn.WriteJSON(map[string]any{"type": "stop"}); err != nil {
+		t.Fatalf("write stop: %v", err)
+	}
+	assertCommandError(t, readWSCommandFrame(t, conn), "stop")
+
+	mu.Lock()
+	got := append([]string(nil), commands...)
+	mu.Unlock()
+	if len(got) != 0 {
+		t.Fatalf("custom middleware dispatched commands = %v, want none", got)
+	}
+}
+
+// TestAuthorizeRunTargetAuditsGateError pins the fail-closed audit path: a
+// broken policy makes owaspGate fail before it can return a decision. The run
+// is still refused, but the attempt must be recorded as a denied entry with
+// the caller's actor and a reason, not silently dropped.
+func TestAuthorizeRunTargetAuditsGateError(t *testing.T) {
+	dir := t.TempDir()
+	badPolicy := filepath.Join(dir, "invalid-policy.json")
+	if err := os.WriteFile(badPolicy, []byte("{not-json"), 0o600); err != nil {
+		t.Fatalf("write invalid policy: %v", err)
+	}
+	t.Setenv("SIFT_POLICY", badPolicy)
+	t.Setenv("SIFT_ALLOW", "")
+	audit := filepath.Join(dir, "audit.jsonl")
+	t.Setenv("SIFT_AUDIT_LOG", audit)
+
+	if _, err := authorizeRunTarget("http://93.184.216.34/", "", "WS start", "runner-subject"); err == nil {
+		t.Fatal("authorizeRunTarget with an invalid policy succeeded, want fail-closed error")
+	}
+
+	raw, err := os.ReadFile(audit)
+	if err != nil {
+		t.Fatalf("read audit log: %v", err)
+	}
+	line := strings.TrimSpace(string(raw))
+	if line == "" {
+		t.Fatal("audit log is empty: the failed gate check was not recorded")
+	}
+	var entry struct {
+		Actor   string   `json:"actor"`
+		Action  string   `json:"action"`
+		Allowed bool     `json:"allowed"`
+		Reason  string   `json:"reason"`
+		Argv    []string `json:"argv"`
+	}
+	if err := json.Unmarshal([]byte(line), &entry); err != nil {
+		t.Fatalf("decode audit entry: %v\n%s", err, line)
+	}
+	if entry.Actor != "runner-subject" {
+		t.Errorf("audit actor = %q, want %q", entry.Actor, "runner-subject")
+	}
+	if entry.Action != "run" {
+		t.Errorf("audit action = %q, want run (OpLoadTest)", entry.Action)
+	}
+	if entry.Allowed {
+		t.Error("audit entry allowed a run despite a failed gate check")
+	}
+	if !strings.Contains(entry.Reason, "policy check failed") {
+		t.Errorf("audit reason = %q, want a policy-check failure", entry.Reason)
 	}
 }
