@@ -339,19 +339,19 @@
         capMain.textContent = 'Capacity not measurable: target refused load (HTTP ' + Number(report.blocked_status || 0) + ')';
         capSub.textContent = (blockedShare > 0 ? (blockedShare.toFixed(0) + '% of audit requests were rejected. ') : '') +
           'The access gate answered instead of the service, so no breaking point is claimed. Allowlist the load generator or use a staging target and re-run.';
-      } else if (report.stress_test_available && report.breaking_point_reached) {
+      } else if (report.load_test_available && report.breaking_point_reached) {
         var bpUsers = Number(report.breaking_point_users || 0);
         capMain.textContent = bpUsers > 0
           ? 'Capacity Limit Reached: System fails at ' + bpUsers.toLocaleString() + ' concurrent users'
-          : 'Capacity limit reached during stress test';
-        capSub.textContent = 'Measured during linear-ramp stress test (failure threshold: error rate > 5% or p99 latency > 2000ms).';
-      } else if (report.stress_test_available) {
+          : 'Capacity limit reached during load test';
+        capSub.textContent = 'Measured during linear-ramp load test (failure threshold: error rate > 5% or p99 latency > 2000ms).';
+      } else if (report.load_test_available) {
         var observed = Number(report.max_observed_rps || 0);
         capMain.textContent = 'No breaking point reached within the audit window';
-        capSub.textContent = observed > 0 ? ('Peak observed throughput: ' + observed.toFixed(1) + ' req/s. Higher load may still cause failure.') : 'Stress test ran but no failure threshold was breached in the allotted time.';
+        capSub.textContent = observed > 0 ? ('Peak observed throughput: ' + observed.toFixed(1) + ' req/s. Higher load may still cause failure.') : 'Load test ran but no failure threshold was breached in the allotted time.';
       } else {
         capMain.textContent = 'Capacity limit unavailable';
-        capSub.textContent = 'Stress/load evidence could not be measured for this target in this run (not fabricated).';
+        capSub.textContent = 'Load evidence could not be measured for this target in this run (not fabricated).';
       }
     }
 

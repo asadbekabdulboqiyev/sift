@@ -112,48 +112,48 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 		emit(StageScan, StatusCompleted, fmt.Sprintf("Security scan completed (%d findings).", len(secFindings)), "")
 	}
 
-	// Stage 2: Breaking point stress test (skipped in passive mode)
+	// Stage 2: Breaking point load test (skipped in passive mode)
 	// Re-check before spending the largest slice of the budget and before any
 	// further traffic is sent.
 	if err := aborted(); err != nil {
-		emit(StageStress, StatusFailed, "", err.Error())
+		emit(StageLoad, StatusFailed, "", err.Error())
 		return nil, err
 	}
-	var stress StressOutcome
-	var plannedStressDurSec, plannedStressMaxUsers int
+	var load LoadOutcome
+	var plannedLoadDurSec, plannedLoadMaxUsers int
 	if opt.Mode == ModePassive {
-		emit(StageStress, StatusRunning, "Passive mode: skipping active load test...", "")
-		stress = StressOutcome{Skipped: true, Notes: []string{"Passive mode: active load/capacity testing skipped (non-intrusive checks only)."}}
-		notes = append(notes, stress.Notes...)
-		emit(StageStress, StatusCompleted, "Skipped in passive mode (no active load generated).", "")
+		emit(StageLoad, StatusRunning, "Passive mode: skipping active load test...", "")
+		load = LoadOutcome{Skipped: true, Notes: []string{"Passive mode: active load/capacity testing skipped (non-intrusive checks only)."}}
+		notes = append(notes, load.Notes...)
+		emit(StageLoad, StatusCompleted, "Skipped in passive mode (no active load generated).", "")
 	} else {
-		emit(StageStress, StatusRunning, "Ramping load to find safe capacity and breaking point...", "")
-		stressBudget := 12 * time.Second
-		if rem := time.Until(deadline) - 2*time.Second; rem > 4*time.Second && rem < stressBudget {
-			stressBudget = rem
+		emit(StageLoad, StatusRunning, "Ramping load to find safe capacity and breaking point...", "")
+		loadBudget := 12 * time.Second
+		if rem := time.Until(deadline) - 2*time.Second; rem > 4*time.Second && rem < loadBudget {
+			loadBudget = rem
 		}
-		plannedStressDurSec, plannedStressMaxUsers = stressRunConfig(stressBudget)
-		stressCtx, stressCancel := stageContext(budgetCtx, deadline, stressBudget, 2*time.Second)
-		stress = runStressTest(stressCtx, opt.TargetURL, stressBudget, opt.DialControl)
-		stressCancel()
-		notes = append(notes, stress.Notes...)
-		stress = normalizeStressOutcome(stress)
-		if stress.RejectedByTarget {
-			emit(StageStress, StatusCompleted, fmt.Sprintf("Capacity not measurable: target refused load (%s).", rejectionLabel(stress.RejectStatusCode)), "")
-		} else if stress.Available {
-			if stress.Breached {
-				emit(StageStress, StatusCompleted, fmt.Sprintf("Breaking point reached near %d users.", stress.BreakingPointUsers), "")
+		plannedLoadDurSec, plannedLoadMaxUsers = loadRunConfig(loadBudget)
+		loadCtx, loadCancel := stageContext(budgetCtx, deadline, loadBudget, 2*time.Second)
+		load = runLoadTest(loadCtx, opt.TargetURL, loadBudget, opt.DialControl)
+		loadCancel()
+		notes = append(notes, load.Notes...)
+		load = normalizeLoadOutcome(load)
+		if load.RejectedByTarget {
+			emit(StageLoad, StatusCompleted, fmt.Sprintf("Capacity not measurable: target refused load (%s).", rejectionLabel(load.RejectStatusCode)), "")
+		} else if load.Available {
+			if load.Breached {
+				emit(StageLoad, StatusCompleted, fmt.Sprintf("Breaking point reached near %d users.", load.BreakingPointUsers), "")
 			} else {
-				emit(StageStress, StatusCompleted, "No failure threshold breached within test window.", "")
+				emit(StageLoad, StatusCompleted, "No failure threshold breached within test window.", "")
 			}
 		} else {
-			emit(StageStress, StatusCompleted, "Stress test unavailable (target unreachable or not measurable).", "")
+			emit(StageLoad, StatusCompleted, "Load test unavailable (target unreachable or not measurable).", "")
 		}
 	}
 
 	// Stage 3: Resilience scoring/remediation
 	emit(StageResilience, StatusRunning, "Calculating security, resilience, capacity, and evidence quality scores...", "")
-	breakdown, risk, findings, scoreNotes := ComputeAssessment(secFindings, secPartial, stress)
+	breakdown, risk, findings, scoreNotes := ComputeAssessment(secFindings, secPartial, load)
 	notes = append(notes, scoreNotes...)
 	emit(StageResilience, StatusCompleted, fmt.Sprintf("Scores calculated (overall %d/100, security %d, resilience %d, capacity %d, evidence %d, %s).", breakdown.Overall, breakdown.Security, breakdown.Resilience, breakdown.Capacity, breakdown.EvidenceQuality, risk), "")
 
@@ -170,9 +170,9 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 		Mode:                  opt.Mode,
 		MaxDurationSec:        int(opt.MaxDuration / time.Second),
 		RequestedTarget:       opt.TargetURL,
-		StressMaxUsers:        plannedStressMaxUsers,
-		StressDurationSec:     plannedStressDurSec,
-		StressProfile:         "linear-ramp",
+		LoadMaxUsers:          plannedLoadMaxUsers,
+		LoadDurationSec:       plannedLoadDurSec,
+		LoadProfile:           "linear-ramp",
 		SecurityScanEnabled:   true,
 		ActiveLoadEnabled:     opt.Mode != ModePassive,
 		AuthorizationProvided: opt.Mode == ModeStandard || opt.Mode == ModeAdmin,
@@ -183,7 +183,7 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 		RequestedMaxDurationSec: int(opt.MaxDuration / time.Second),
 		SecurityPartial:         secPartial,
 		SecurityFindings:        secFindings,
-		Stress:                  stress,
+		Load:                    load,
 	})
 
 	rep := &Audit360Report{
@@ -198,38 +198,38 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 		Notes:                notes,
 		BreakingPointReached: false,
 		MaxObservedRPS:       0,
-		StressTestAvailable:  stress.Available,
+		LoadTestAvailable:    load.Available,
 		SecurityScanPartial:  secPartial,
-		CapacityBlocked:      stress.RejectedByTarget,
+		CapacityBlocked:      load.RejectedByTarget,
 		BlockedStatus:        0,
 		BlockedSharePct:      0,
 		MaxObservedUsers:     0,
-		LoadTestSkipped:      stress.Skipped,
+		LoadTestSkipped:      load.Skipped,
 		Scores:               &breakdown,
 		ScoringVersion:       ScoringVersion,
 		TestConfiguration:    testCfg,
 		RawEvidenceHash:      rawHash,
 		RawEvidenceFormat:    rawFmt,
 	}
-	if stress.RejectedByTarget {
+	if load.RejectedByTarget {
 		rep.CapacityBlocked = true
-		rep.BlockedStatus = stress.RejectStatusCode
-		share := nonNegFinite(stress.RejectSharePct)
+		rep.BlockedStatus = load.RejectStatusCode
+		share := nonNegFinite(load.RejectSharePct)
 		rep.BlockedSharePct = math.Round(share*10) / 10
 		rep.BreakingPointReached = false
 		rep.BreakingPointUsers = 0
 		rep.MaxSafeRPS = 0
 		rep.MaxObservedRPS = 0
-		rep.MaxObservedUsers = max(0, stress.MaxObservedUsers)
-	} else if stress.Available {
-		rep.BreakingPointReached = stress.Breached
-		rep.MaxObservedRPS = nonNegFinite(stress.MaxObservedRPS)
-		rep.MaxObservedUsers = max(0, stress.MaxObservedUsers)
-		if stress.Breached && stress.BreakingPointUsers > 0 {
-			rep.BreakingPointUsers = stress.BreakingPointUsers
+		rep.MaxObservedUsers = max(0, load.MaxObservedUsers)
+	} else if load.Available {
+		rep.BreakingPointReached = load.Breached
+		rep.MaxObservedRPS = nonNegFinite(load.MaxObservedRPS)
+		rep.MaxObservedUsers = max(0, load.MaxObservedUsers)
+		if load.Breached && load.BreakingPointUsers > 0 {
+			rep.BreakingPointUsers = load.BreakingPointUsers
 		}
-		if stress.MaxSafeRPS > 0 {
-			rep.MaxSafeRPS = nonNegFinite(stress.MaxSafeRPS)
+		if load.MaxSafeRPS > 0 {
+			rep.MaxSafeRPS = nonNegFinite(load.MaxSafeRPS)
 		}
 	} else {
 		// Unavailable/skipped: no fabricated capacity/breach metrics.
@@ -723,26 +723,26 @@ func runLightweightOWASP(ctx context.Context, targetURL string, control func(net
 	}
 }
 
-func runStressTest(ctx context.Context, targetURL string, budget time.Duration, control func(network, address string, c syscall.RawConn) error) StressOutcome {
-	out := StressOutcome{Notes: []string{}}
+func runLoadTest(ctx context.Context, targetURL string, budget time.Duration, control func(network, address string, c syscall.RawConn) error) LoadOutcome {
+	out := LoadOutcome{Notes: []string{}}
 	// A cancelled run must not send its reachability probe: the caller has
 	// already withdrawn consent for traffic to this target.
 	if err := ctx.Err(); err != nil {
-		out.Notes = append(out.Notes, "Stress test skipped: run context was cancelled before any traffic was sent.")
+		out.Notes = append(out.Notes, "Load test skipped: run context was cancelled before any traffic was sent.")
 		return out
 	}
 	if _, _, _, err := ParseTargetHostPort(targetURL); err != nil {
-		out.Notes = append(out.Notes, "Stress test skipped: invalid target URL.")
+		out.Notes = append(out.Notes, "Load test skipped: invalid target URL.")
 		return out
 	}
 
 	// Quick reachability probe (no fabricated metrics if unreachable).
 	if !probeReachableContext(ctx, targetURL, 1500*time.Millisecond, control) {
-		out.Notes = append(out.Notes, "Stress test unavailable: target not reachable from this environment.")
+		out.Notes = append(out.Notes, "Load test unavailable: target not reachable from this environment.")
 		return out
 	}
 
-	durSec, maxUsers := stressRunConfig(budget)
+	durSec, maxUsers := loadRunConfig(budget)
 	sc := &config.Scenario{
 		Name:    "Sift 360° Breaking Point",
 		BaseURL: targetURL,
@@ -760,13 +760,13 @@ func runStressTest(ctx context.Context, targetURL string, budget time.Duration, 
 		}},
 	}
 	if err := sc.Normalize(); err != nil {
-		out.Notes = append(out.Notes, "Stress test unavailable: scenario setup error: "+err.Error())
+		out.Notes = append(out.Notes, "Load test unavailable: scenario setup error: "+err.Error())
 		return out
 	}
 
 	eng, err := engine.NewWithControl(sc, control)
 	if err != nil {
-		out.Notes = append(out.Notes, "Stress test unavailable: engine init error: "+err.Error())
+		out.Notes = append(out.Notes, "Load test unavailable: engine init error: "+err.Error())
 		return out
 	}
 
@@ -867,10 +867,10 @@ func runStressTest(ctx context.Context, targetURL string, budget time.Duration, 
 		}
 	}
 
-	finalize := func(r runRes) StressOutcome {
+	finalize := func(r runRes) LoadOutcome {
 		capture(true)
 		if !haveTelemetry && r.err != nil {
-			out.Notes = append(out.Notes, "Stress test unavailable: "+r.err.Error())
+			out.Notes = append(out.Notes, "Load test unavailable: "+r.err.Error())
 			return out
 		}
 		out.Available = haveTelemetry || (r.err == nil)
@@ -899,9 +899,9 @@ func runStressTest(ctx context.Context, targetURL string, budget time.Duration, 
 			return out
 		}
 		if !out.Available {
-			out.Notes = append(out.Notes, "Stress test did not produce measurable telemetry.")
+			out.Notes = append(out.Notes, "Load test did not produce measurable telemetry.")
 		} else if !out.Breached {
-			out.Notes = append(out.Notes, "Linear-ramp stress test completed without breaching failure thresholds (error rate <= 5% and p99 <= 2000ms) within the time window.")
+			out.Notes = append(out.Notes, "Linear-ramp load test completed without breaching failure thresholds (error rate <= 5% and p99 <= 2000ms) within the time window.")
 		} else {
 			out.Notes = append(out.Notes, "Linear-ramp load runner reused; breach detection based on live telemetry thresholds.")
 		}
@@ -923,7 +923,7 @@ func runStressTest(ctx context.Context, targetURL string, budget time.Duration, 
 				return finalize(r)
 			case <-time.After(3 * time.Second):
 				capture(true)
-				out.Notes = append(out.Notes, "Stress test cancelled: engine did not drain within grace period.")
+				out.Notes = append(out.Notes, "Load test cancelled: engine did not drain within grace period.")
 				return out
 			}
 		}
@@ -1051,10 +1051,10 @@ func ValidateStartRequest(req StartRequest, demoStoreURL string, adminBypass boo
 	return target, maxDur, mode, nil
 }
 
-// stressRunConfig returns the deterministic duration/users configuration used by
-// the linear-ramp stress runner for a given budget. This keeps executed test
+// loadRunConfig returns the deterministic duration/users configuration used by
+// the linear-ramp load runner for a given budget. This keeps executed test
 // configuration and report metadata consistent with the actual runner behavior.
-func stressRunConfig(budget time.Duration) (durSec, maxUsers int) {
+func loadRunConfig(budget time.Duration) (durSec, maxUsers int) {
 	durSec = int(math.Max(6, math.Min(budget.Seconds(), 20)))
 	maxUsers = 600
 	if durSec >= 15 {
@@ -1063,7 +1063,7 @@ func stressRunConfig(budget time.Duration) (durSec, maxUsers int) {
 	return durSec, maxUsers
 }
 
-func normalizeStressOutcome(s StressOutcome) StressOutcome {
+func normalizeLoadOutcome(s LoadOutcome) LoadOutcome {
 	s.MaxSafeRPS = nonNegFinite(s.MaxSafeRPS)
 	s.MaxObservedRPS = nonNegFinite(s.MaxObservedRPS)
 	if s.MaxObservedUsers < 0 {

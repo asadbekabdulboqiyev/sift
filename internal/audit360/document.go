@@ -138,7 +138,7 @@ li{margin:4px 0}
   </div>
 
   <div class="section">
-    <h2>Capacity & stress evidence</h2>
+    <h2>Capacity & load evidence</h2>
     ` + capHTML + `
   </div>
 
@@ -222,8 +222,8 @@ func RenderPDF(r *Audit360Report) ([]byte, error) {
 		p.line("  (breakdown unavailable)")
 	}
 	p.sep()
-	p.line("CAPACITY & STRESS")
-	p.kv("Stress test available", fmt.Sprintf("%t", r.StressTestAvailable))
+	p.line("CAPACITY & LOAD")
+	p.kv("Load test available", fmt.Sprintf("%t", r.LoadTestAvailable))
 	p.kv("Load test skipped", fmt.Sprintf("%t", r.LoadTestSkipped))
 	p.kv("Capacity blocked", fmt.Sprintf("%t", r.CapacityBlocked))
 	p.kv("Breaking point reached", fmt.Sprintf("%t", r.BreakingPointReached))
@@ -375,23 +375,23 @@ func renderCapacity(r *Audit360Report) string {
 	case r.CapacityBlocked:
 		status = `<span class="badge warn">Capacity not measurable</span>`
 		detail = fmt.Sprintf("Target refused audit traffic (HTTP %d, %.1f%% blocked). No breaking point claimed.", r.BlockedStatus, r.BlockedSharePct)
-	case r.StressTestAvailable && r.BreakingPointReached:
+	case r.LoadTestAvailable && r.BreakingPointReached:
 		status = `<span class="badge bad">Breaking point reached</span>`
 		if r.BreakingPointUsers > 0 {
 			detail = fmt.Sprintf("System reached failure threshold at ~%d concurrent users.", r.BreakingPointUsers)
 		} else {
-			detail = "Failure threshold breached during stress test."
+			detail = "Failure threshold breached during load test."
 		}
-	case r.StressTestAvailable:
+	case r.LoadTestAvailable:
 		status = `<span class="badge ok">No breaking point in window</span>`
 		if r.MaxObservedRPS > 0 {
 			detail = fmt.Sprintf("Peak observed throughput: %.2f req/s within audit window.", r.MaxObservedRPS)
 		} else {
-			detail = "Stress test ran without breaching the failure threshold in the allotted time."
+			detail = "Load test ran without breaching the failure threshold in the allotted time."
 		}
 	default:
 		status = `<span class="badge warn">Unavailable</span>`
-		detail = "Stress/load evidence unavailable for this run (not fabricated)."
+		detail = "Load evidence unavailable for this run (not fabricated)."
 	}
 	var extra []string
 	if r.MaxSafeRPS > 0 {
@@ -425,14 +425,14 @@ func renderConfig(c *TestConfiguration) string {
 		kv("Active load enabled", fmt.Sprintf("%t", c.ActiveLoadEnabled)),
 		kv("Authorization provided", fmt.Sprintf("%t", c.AuthorizationProvided)),
 	}
-	if c.StressMaxUsers > 0 {
-		rows = append(rows, kv("Stress max users", fmt.Sprintf("%d", c.StressMaxUsers)))
+	if c.LoadMaxUsers > 0 {
+		rows = append(rows, kv("Load max users", fmt.Sprintf("%d", c.LoadMaxUsers)))
 	}
-	if c.StressDurationSec > 0 {
-		rows = append(rows, kv("Stress duration", fmt.Sprintf("%ds", c.StressDurationSec)))
+	if c.LoadDurationSec > 0 {
+		rows = append(rows, kv("Load duration", fmt.Sprintf("%ds", c.LoadDurationSec)))
 	}
-	if strings.TrimSpace(c.StressProfile) != "" {
-		rows = append(rows, kv("Stress profile", c.StressProfile))
+	if strings.TrimSpace(c.LoadProfile) != "" {
+		rows = append(rows, kv("Load profile", c.LoadProfile))
 	}
 	return `<div class="kv">` + strings.Join(rows, "") + `</div>`
 }

@@ -81,7 +81,7 @@ func RecommendedActionNotes(r *Audit360Report) []string {
 	switch {
 	case r.CapacityBlocked:
 		notes = append(notes, "Capacity evidence: target refused load during the test; rerun from an allowed/authorized environment to measure sustainable capacity and breaking point.")
-	case r.LoadTestSkipped || !r.StressTestAvailable:
+	case r.LoadTestSkipped || !r.LoadTestAvailable:
 		notes = append(notes, "Capacity evidence: active load/breaking-point metrics were not measured in this run; run an authorized active test when needed to establish safe capacity.")
 	}
 	if r.SecurityScanPartial {

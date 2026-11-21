@@ -387,10 +387,10 @@ Sift-worker -listen 0.0.0.0:50061 -id w1 \
 
 ```bash
 docker build -f Dockerfile.worker -t Sift-worker:0.18.1 .
-docker network create strike
-docker run -d --name master --network strike -p 50051:50051 \
+docker network create sift-net
+docker run -d --name master --network sift-net -p 50051:50051 \
   Sift-master...            # or run the master on a host
-docker run -d --name worker-1 --network strike \
+docker run -d --name worker-1 --network sift-net \
   --ulimit nofile=1048576:1048576 \
   Sift-worker:0.18.1 \
   -listen 0.0.0.0:50061 -advertise worker-1:50061 \

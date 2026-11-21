@@ -206,7 +206,7 @@ run — it is reported as a warning.
 
 ## Scope of this layer
 
-Gated: `run` (including the interactive wizard, `beast`, and gate-strike
+Gated: `run` (including the interactive wizard, `beast`, and gate-burst
 profiles), and `pentest`.
 
 Not yet gated: `scan` and `replay`, which dispatch to separate binaries

@@ -35,7 +35,7 @@ func TestDefaultStagesAndProgress(t *testing.T) {
 	if len(stages) != 4 {
 		t.Fatalf("len(defaultStages()) = %d, want 4", len(stages))
 	}
-	wantIDs := []string{StageScan, StageStress, StageResilience, StageSeal}
+	wantIDs := []string{StageScan, StageLoad, StageResilience, StageSeal}
 	for i, id := range wantIDs {
 		if stages[i].ID != id {
 			t.Errorf("stage[%d].ID = %q, want %q", i, stages[i].ID, id)
@@ -87,7 +87,7 @@ func TestApplyStageUpdateAndMarkAllDone(t *testing.T) {
 		t.Fatalf("CurrentStage after completion = %q, want empty", st.CurrentStage)
 	}
 
-	applyStageUpdate(st, StageStress, StatusFailed, "", "boom")
+	applyStageUpdate(st, StageLoad, StatusFailed, "", "boom")
 	if st.Stages[1].Status != StatusFailed || st.Stages[1].Error != "boom" {
 		t.Fatalf("failed stage = %+v, want failed with error", st.Stages[1])
 	}

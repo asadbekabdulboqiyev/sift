@@ -119,7 +119,7 @@ func getToken() string {
 
 // PostComment adds a rich-markdown comment to the given issue or pull request.
 //
-//	owner/repo   e.g. "adsr/strike"
+//	owner/repo   e.g. "adsr/sift-test"
 //	issueNumber  the PR or issue number (not the GitHub API internal ID)
 //	body         Markdown text; GitHub renders it natively.
 //
@@ -143,7 +143,7 @@ func PostComment(ownerRepo string, issueNumber int, body string) (int64, error) 
 
 // ListComments returns all comments on an issue or pull request.
 //
-//	owner/repo   e.g. "adsr/strike"
+//	owner/repo   e.g. "adsr/sift-test"
 //	issueNumber  the PR or issue number
 //
 // Returns a slice of Comment, or an error.
@@ -165,7 +165,7 @@ func ListComments(ownerRepo string, issueNumber int) ([]Comment, error) {
 
 // UpdateComment replaces the body of an existing comment.
 //
-//	ownerRepo    e.g. "adsr/strike" — the repository the comment lives in
+//	ownerRepo    e.g. "adsr/sift-test" — the repository the comment lives in
 //	commentID    the GitHub-assigned comment ID (not the issue number)
 //	body         new Markdown body
 //

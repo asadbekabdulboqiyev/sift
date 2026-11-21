@@ -79,15 +79,15 @@ func TestRunSecurityScanUsesDialControl(t *testing.T) {
 	}
 }
 
-// TestRunStressTestUsesDialControl verifies that the stress stage's reachability
+// TestRunLoadTestUsesDialControl verifies that the load stage's reachability
 // probe is gated as well, so an unauthorized target cannot be load-tested.
-func TestRunStressTestUsesDialControl(t *testing.T) {
+func TestRunLoadTestUsesDialControl(t *testing.T) {
 	target := localTarget(t)
 	c := &dialCounter{}
 
-	out := runStressTest(context.Background(), target, time.Second, c.control)
+	out := runLoadTest(context.Background(), target, time.Second, c.control)
 	if n := c.count(); n == 0 {
-		t.Fatalf("runStressTest never invoked the dial control on its probe, notes: %v", out.Notes)
+		t.Fatalf("runLoadTest never invoked the dial control on its probe, notes: %v", out.Notes)
 	}
 }
 

@@ -99,12 +99,12 @@ LABEL org.opencontainers.image.title="Sift" \
 # alpine minor cannot reach the runtime layer (see the base-image note above).
 RUN apk upgrade --no-cache \
     && apk add --no-cache ca-certificates tzdata \
-    && adduser -D -H -u 10001 -s /sbin/nologin stress
+    && adduser -D -H -u 10001 -s /sbin/nologin sift
 
 WORKDIR /app
 
 # Reports go to a volume, owned by the unprivileged user.
-RUN mkdir -p /app/reports && chown -R stress:stress /app
+RUN mkdir -p /app/reports && chown -R sift:sift /app
 
 COPY --from=builder /out/Sift           /usr/local/bin/Sift
 COPY --from=builder /out/Sift-dashboard /usr/local/bin/Sift-dashboard

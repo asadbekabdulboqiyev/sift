@@ -1,10 +1,10 @@
-# api-stress.yaml
-# Full CRUD stress test: exercises GET, POST, PUT, and DELETE across multiple
+# api-load.yaml
+# Full CRUD load test: exercises GET, POST, PUT, and DELETE across multiple
 # API endpoints with extraction, variables, and assertions. Simulates a
 # realistic workload that creates resources, reads them back, updates, and
 # finally cleans up. Uses soak profile for extended duration testing.
 
-name: api-stress
+name: api-load
 base_url: http://localhost:8080
 
 variables:
@@ -30,11 +30,11 @@ steps:
       X-Request-ID: "{{request_id}}"
     body: |
       {
-        "name": "stress-test-item",
+        "name": "load-test-item",
         "type": "benchmark",
         "metadata": {
           "created_by": "load-test",
-          "tags": ["stress", "performance"]
+          "tags": ["load", "performance"]
         }
       }
     extract:
@@ -66,7 +66,7 @@ steps:
       - type: json_path
         value: name
       - type: regex
-        value: '"stress-test-item"'
+        value: '"load-test-item"'
     timeout: 10
 
   # List all resources with filtering
@@ -97,11 +97,11 @@ steps:
       Accept: application/json
     body: |
       {
-        "name": "stress-test-item-updated",
+        "name": "load-test-item-updated",
         "type": "benchmark",
         "metadata": {
           "updated_by": "load-test",
-          "tags": ["stress", "performance", "updated"]
+          "tags": ["load", "performance", "updated"]
         }
       }
     assertions:

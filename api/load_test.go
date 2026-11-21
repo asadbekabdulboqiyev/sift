@@ -83,12 +83,12 @@ func TestRunHeaders(t *testing.T) {
 		seen    bool
 	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		v := r.Header.Get("X-Stress-Test")
+		v := r.Header.Get("X-Load-Test")
 		mu.Lock()
 		seen = true
 		echoVal = v
 		mu.Unlock()
-		w.Header().Set("X-Stress-Test", v)
+		w.Header().Set("X-Load-Test", v)
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, "ok")
 	}))
@@ -100,7 +100,7 @@ func TestRunHeaders(t *testing.T) {
 		URL:      srv.URL,
 		Users:    2,
 		Duration: time.Second,
-		Headers:  map[string]string{"X-Stress-Test": "reach-server"},
+		Headers:  map[string]string{"X-Load-Test": "reach-server"},
 	})
 	if err != nil {
 		t.Fatal(err)

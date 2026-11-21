@@ -336,7 +336,7 @@ Sift %s — Ultra-Fast Load Testing & Security Suite
    --header string          Header: --header "Key=Value" (repeatable)
    --timeout int            Request timeout in seconds (default: 10)
    --keep-alive             Reuse TCP connections (default: true)
-   --name string            Report name (default: "stress-test")
+   --name string            Report name (default: "load-test")
 
    Load Profiles:
    --profile string         steady|soak|linear-ramp|spike|wave|constant-rps

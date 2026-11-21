@@ -209,7 +209,7 @@ type sealPayload struct {
 	MaxObservedRPS       float64   `json:"max_observed_rps,omitempty"`
 	MaxObservedUsers     int       `json:"max_observed_users,omitempty"`
 	BreakingPointReached bool      `json:"breaking_point_reached"`
-	StressTestAvailable  bool      `json:"stress_test_available"`
+	LoadTestAvailable    bool      `json:"load_test_available"`
 	SecurityScanPartial  bool      `json:"security_scan_partial,omitempty"`
 	CapacityBlocked      bool      `json:"capacity_blocked,omitempty"`
 	BlockedStatus        int       `json:"blocked_status,omitempty"`
@@ -238,7 +238,7 @@ func canonicalSealPayload(report *Audit360Report) ([]byte, error) {
 		MaxObservedRPS:       report.MaxObservedRPS,
 		MaxObservedUsers:     report.MaxObservedUsers,
 		BreakingPointReached: report.BreakingPointReached,
-		StressTestAvailable:  report.StressTestAvailable,
+		LoadTestAvailable:    report.LoadTestAvailable,
 		SecurityScanPartial:  report.SecurityScanPartial,
 		CapacityBlocked:      report.CapacityBlocked,
 		BlockedStatus:        report.BlockedStatus,

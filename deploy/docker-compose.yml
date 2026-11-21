@@ -52,7 +52,7 @@ services:
       start_period: 10s
       retries: 3
     networks:
-      - strike
+      - sift-net
     restart: unless-stopped
 
   worker-1:
@@ -95,7 +95,7 @@ services:
       master:
         condition: service_healthy
     networks:
-      - strike
+      - sift-net
     restart: unless-stopped
 
   worker-2:
@@ -135,7 +135,7 @@ services:
       master:
         condition: service_healthy
     networks:
-      - strike
+      - sift-net
     restart: unless-stopped
 
   # Standalone real-time web dashboard (all-in-one alpine image, so a shell
@@ -169,9 +169,9 @@ services:
       start_period: 10s
       retries: 3
     networks:
-      - strike
+      - sift-net
     restart: unless-stopped
 
 networks:
-  strike:
+  sift-net:
     driver: bridge

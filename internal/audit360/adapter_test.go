@@ -40,7 +40,7 @@ func TestAudit360FindingCanonicalRoundTrip(t *testing.T) {
 		ImpactSummary: "timeouts under load",
 		Remediation:   "add caching",
 		Evidence:      "p95 above 2s",
-		Source:        "stress_test",
+		Source:        "load_test",
 	}
 	if got := FromCanonical(legacy.Canonical()); !reflect.DeepEqual(got, legacy) {
 		t.Fatalf("round trip = %+v, want %+v", got, legacy)

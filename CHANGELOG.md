@@ -116,7 +116,7 @@ cosign same-run verification) are confirmed on the tagged run.
   cancellation, the raw UDP socket is closed after exchange, passive subdomain
   sources are bounded by a timeout context, and the fuzz producer stops on
   context cancellation.
-- No legacy stress-strike references remain; the gitleaks allowlist matches the
+- No legacy load-burst references remain; the gitleaks allowlist matches the
   literal test token only.
 
 ### Verified

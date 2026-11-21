@@ -42,5 +42,5 @@ steps:
   - name: udp_stats_probe
     type: udp
     url: localhost:8125
-    body: 'stress.probe:1|c'
+    body: 'load.probe:1|c'
     await_response: true       # wait for the reply and measure true RTT

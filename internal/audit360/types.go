@@ -9,7 +9,7 @@ import (
 // Stage identifiers for progress reporting.
 const (
 	StageScan       = "scan_security"
-	StageStress     = "test_load"
+	StageLoad       = "test_load"
 	StageResilience = "calculate_resilience"
 	StageSeal       = "seal_certificate"
 )
@@ -48,7 +48,7 @@ type Finding struct {
 	ImpactSummary string `json:"impact_summary"`
 	Remediation   string `json:"remediation"`
 	Evidence      string `json:"evidence,omitempty"` // measured/observed evidence supporting the finding
-	Source        string `json:"source,omitempty"`   // security_scan|stress_test|system|evidence_quality
+	Source        string `json:"source,omitempty"`   // security_scan|load_test|system|evidence_quality
 }
 
 // Canonical converts an audit360 finding into the shared model. ImpactSummary
@@ -98,9 +98,9 @@ type TestConfiguration struct {
 	Mode                  string `json:"mode"`
 	MaxDurationSec        int    `json:"max_duration_sec"`
 	RequestedTarget       string `json:"requested_target"`
-	StressMaxUsers        int    `json:"stress_max_users,omitempty"`
-	StressDurationSec     int    `json:"stress_duration_sec,omitempty"`
-	StressProfile         string `json:"stress_profile,omitempty"`
+	LoadMaxUsers          int    `json:"load_max_users,omitempty"`
+	LoadDurationSec       int    `json:"load_duration_sec,omitempty"`
+	LoadProfile           string `json:"load_profile,omitempty"`
 	SecurityScanEnabled   bool   `json:"security_scan_enabled"`
 	ActiveLoadEnabled     bool   `json:"active_load_enabled"`
 	AuthorizationProvided bool   `json:"authorization_provided,omitempty"`
@@ -123,7 +123,7 @@ type Audit360Report struct {
 	// Optional transparency fields (additive, not part of strict required schema).
 	BreakingPointReached bool    `json:"breaking_point_reached"`
 	MaxObservedRPS       float64 `json:"max_observed_rps,omitempty"` // observed peak throughput (measured), not sustained capacity
-	StressTestAvailable  bool    `json:"stress_test_available"`
+	LoadTestAvailable    bool    `json:"load_test_available"`
 	SecurityScanPartial  bool    `json:"security_scan_partial,omitempty"`
 
 	// CapacityBlocked is true when the target refused the audit traffic itself

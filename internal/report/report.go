@@ -206,7 +206,7 @@ func (r Report) Render(w io.Writer) {
 	// ── Header ──────────────────────────────────────────────────────────
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, sep)
-	title := colorize(colorBold, c, fmt.Sprintf("  STRESS TEST REPORT: %s", r.Name))
+	title := colorize(colorBold, c, fmt.Sprintf("  LOAD TEST REPORT: %s", r.Name))
 	fmt.Fprintln(w, title)
 	fmt.Fprintln(w, sep)
 	fmt.Fprintln(w)
@@ -328,7 +328,7 @@ func (r Report) Render(w io.Writer) {
 	fmt.Fprintf(w, "    Latency range:   %s — %s\n", overall.Min, overall.Max)
 	fmt.Fprintf(w, "    Duration:        %s\n", r.Duration.Round(time.Millisecond))
 	if r.Gate {
-		fmt.Fprintln(w, colorize(colorYellow, c, "    Mode:            simultaneous strike (race window)"))
+		fmt.Fprintln(w, colorize(colorYellow, c, "    Mode:            simultaneous burst (race window)"))
 	}
 	if len(r.ResourceEvidence) > 0 && string(r.ResourceEvidence) != "null" {
 		fmt.Fprintf(w, "    Resource evidence: attached (explicit; unavailable metrics labeled)\n")

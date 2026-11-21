@@ -32,7 +32,7 @@ func TestRecommendedActionNotesPrioritized(t *testing.T) {
 func TestRecommendedActionNotesCapacityAndCoverage(t *testing.T) {
 	r := &Audit360Report{
 		LoadTestSkipped:     true,
-		StressTestAvailable: false,
+		LoadTestAvailable:   false,
 		SecurityScanPartial: true,
 	}
 	joined := strings.Join(RecommendedActionNotes(r), "\n")

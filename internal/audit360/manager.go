@@ -299,7 +299,7 @@ func (j *job) publish(ev Event) {
 func defaultStages() []StageProgress {
 	return []StageProgress{
 		{ID: StageScan, Label: "Scanning Security", Status: StatusPending},
-		{ID: StageStress, Label: "Testing Load Limit", Status: StatusPending},
+		{ID: StageLoad, Label: "Testing Load Limit", Status: StatusPending},
 		{ID: StageResilience, Label: "Calculating Resilience", Status: StatusPending},
 		{ID: StageSeal, Label: "Sealing VPMP Certificate", Status: StatusPending},
 	}

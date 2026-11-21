@@ -27,7 +27,7 @@ func TestGateModeFiresSimultaneously(t *testing.T) {
 
 	const users = 25
 	sc := &config.Scenario{
-		Name: "race-strike",
+		Name: "race-burst",
 		Profile: config.Profile{
 			Type:     config.ProfileSteady,
 			Users:    users,
@@ -35,7 +35,7 @@ func TestGateModeFiresSimultaneously(t *testing.T) {
 			Timeout:  3,
 			Gate:     true,
 		},
-		Steps: []config.Step{{Name: "strike", Method: "GET", URL: srv.URL}},
+		Steps: []config.Step{{Name: "burst", Method: "GET", URL: srv.URL}},
 	}
 
 	eng, err := New(sc)
@@ -53,7 +53,7 @@ func TestGateModeFiresSimultaneously(t *testing.T) {
 	}
 
 	if got := hits.Load(); got != users {
-		t.Errorf("hits = %d, want exactly %d (one strike per user)", got, users)
+		t.Errorf("hits = %d, want exactly %d (one burst per user)", got, users)
 	}
 	if tel.TotalRequests() != users {
 		t.Errorf("recorded requests = %d, want %d", tel.TotalRequests(), users)

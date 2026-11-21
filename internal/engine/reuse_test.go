@@ -32,7 +32,7 @@ func TestEngineReuseWithGate(t *testing.T) {
 			Timeout:  3,
 			Gate:     true,
 		},
-		Steps: []config.Step{{Name: "strike", Method: "GET", URL: srv.URL}},
+		Steps: []config.Step{{Name: "burst", Method: "GET", URL: srv.URL}},
 	}
 	eng, err := New(sc)
 	if err != nil {
@@ -48,7 +48,7 @@ func TestEngineReuseWithGate(t *testing.T) {
 			t.Fatalf("run %d: %v", run, runErr)
 		}
 		if got := hits.Load() - before; got != 2 {
-			t.Fatalf("run %d hits = %d, want 2 (one strike per user)", run, got)
+			t.Fatalf("run %d hits = %d, want 2 (one burst per user)", run, got)
 		}
 	}
 

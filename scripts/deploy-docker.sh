@@ -146,7 +146,7 @@ EOF
   cat <<EOF
     ports:
       - "50051:50051"
-    networks: [strike]
+    networks: [sift-net]
     restart: unless-stopped
 EOF
   for i in $(seq 1 "$WORKERS"); do
@@ -174,14 +174,14 @@ EOF
     cat <<EOF
     ulimits:
       nofile: { soft: 1048576, hard: 1048576 }
-    networks: [strike]
+    networks: [sift-net]
     restart: unless-stopped
 EOF
   done
   cat <<'EOF'
 
 networks:
-  strike: {}
+  sift-net: {}
 EOF
 } > "$COMPOSE_FILE"
 log_ok "compose file written: ${COMPOSE_FILE}"

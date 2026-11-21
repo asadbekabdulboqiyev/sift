@@ -82,10 +82,10 @@ func TestIsDemoStoreTarget_LocalhostEquivalence(t *testing.T) {
 	}
 }
 
-func TestComputeResilience_NoFabricationWhenStressUnavailable(t *testing.T) {
-	score, risk, findings, notes := ComputeResilience(nil, false, StressOutcome{Available: false})
+func TestComputeResilience_NoFabricationWhenLoadUnavailable(t *testing.T) {
+	score, risk, findings, notes := ComputeResilience(nil, false, LoadOutcome{Available: false})
 	if score >= 90 {
-		t.Fatalf("score should be penalized when stress unavailable, got %d", score)
+		t.Fatalf("score should be penalized when load unavailable, got %d", score)
 	}
 	if risk == "" {
 		t.Fatal("risk level must be set")
@@ -113,8 +113,8 @@ func TestComputeResilience_NoFabricationWhenStressUnavailable(t *testing.T) {
 }
 
 func TestComputeResilience_BreachLowersScore(t *testing.T) {
-	scoreNoBreach, _, _, _ := ComputeResilience(nil, false, StressOutcome{Available: true, Breached: false, MaxObservedUsers: 300, PeakP99MS: 200})
-	scoreBreach, _, findings, _ := ComputeResilience(nil, false, StressOutcome{Available: true, Breached: true, BreakingPointUsers: 120, BreachReason: "error rate 6% > 5%", PeakErrorRatePct: 6})
+	scoreNoBreach, _, _, _ := ComputeResilience(nil, false, LoadOutcome{Available: true, Breached: false, MaxObservedUsers: 300, PeakP99MS: 200})
+	scoreBreach, _, findings, _ := ComputeResilience(nil, false, LoadOutcome{Available: true, Breached: true, BreakingPointUsers: 120, BreachReason: "error rate 6% > 5%", PeakErrorRatePct: 6})
 	if scoreBreach >= scoreNoBreach {
 		t.Fatalf("breach score (%d) should be lower than no-breach score (%d)", scoreBreach, scoreNoBreach)
 	}
@@ -135,7 +135,7 @@ func TestComputeResilience_BreachLowersScore(t *testing.T) {
 func TestComputeResilience_BlockedTargetDoesNotClaimCapacityLimit(t *testing.T) {
 	// A target answering 403 to every request looks like a 100% error rate, but it
 	// is refusing load, not failing under it. The report must say so.
-	score, risk, findings, _ := ComputeResilience(nil, false, StressOutcome{
+	score, risk, findings, _ := ComputeResilience(nil, false, LoadOutcome{
 		Available:        true,
 		RejectedByTarget: true,
 		RejectStatusCode: http.StatusForbidden,
@@ -204,14 +204,14 @@ func TestDominantRejection(t *testing.T) {
 	}
 }
 
-func TestRunStressTest_DetectsTargetRejection(t *testing.T) {
+func TestRunLoadTest_DetectsTargetRejection(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte("Access Temporarily Blocked"))
 	}))
 	defer srv.Close()
 
-	out := runStressTest(context.Background(), srv.URL, 6*time.Second, nil)
+	out := runLoadTest(context.Background(), srv.URL, 6*time.Second, nil)
 
 	if !out.RejectedByTarget {
 		t.Fatalf("expected RejectedByTarget, notes: %v", out.Notes)
@@ -236,7 +236,7 @@ func TestSealAndVerify(t *testing.T) {
 		RiskLevel:            RiskModerate,
 		TargetURL:            "http://127.0.0.1:8090",
 		Timestamp:            time.Now().UTC().Format(time.RFC3339),
-		StressTestAvailable:  true,
+		LoadTestAvailable:    true,
 		BreakingPointReached: false,
 		Findings:             []Finding{{Title: "Missing header", Severity: "medium", ImpactSummary: "impact", Remediation: "fix", Evidence: "Header X-Test missing in response", Source: "security_scan"}},
 		Notes:                []string{"note"},
@@ -332,10 +332,10 @@ func TestRunIntegrationAgainstLocalServer(t *testing.T) {
 	if rep.ResilienceScore < 0 || rep.ResilienceScore > 100 {
 		t.Fatalf("invalid resilience score: %d", rep.ResilienceScore)
 	}
-	// No fabrication: stress may be available or not depending on environment timing; fields must be consistent.
-	if !rep.StressTestAvailable {
+	// No fabrication: load may be available or not depending on environment timing; fields must be consistent.
+	if !rep.LoadTestAvailable {
 		if rep.BreakingPointReached || rep.BreakingPointUsers != 0 {
-			t.Fatalf("stress unavailable but breaking point reported: %+v", rep)
+			t.Fatalf("load unavailable but breaking point reported: %+v", rep)
 		}
 	}
 }
@@ -348,7 +348,7 @@ func TestComputeResilience_CriticalFindingCannotYieldLowRiskOrHighOverall(t *tes
 		Remediation:   "fix",
 		Evidence:      "measured",
 		Source:        "security_scan",
-	}}, false, StressOutcome{Available: true, Breached: false, MaxObservedUsers: 500, MaxObservedRPS: 200, MaxSafeRPS: 180, PeakP99MS: 100})
+	}}, false, LoadOutcome{Available: true, Breached: false, MaxObservedUsers: 500, MaxObservedRPS: 200, MaxSafeRPS: 180, PeakP99MS: 100})
 	if risk != RiskCritical {
 		t.Fatalf("risk = %q, want %q when critical finding exists", risk, RiskCritical)
 	}
@@ -363,7 +363,7 @@ func TestComputeResilience_CriticalFindingCannotYieldLowRiskOrHighOverall(t *tes
 func TestComputeResilience_HighFindingCannotYieldLowRisk(t *testing.T) {
 	score, risk, _, _ := ComputeResilience([]Finding{{
 		Title: "High severity issue", Severity: "high", ImpactSummary: "impact", Remediation: "fix", Evidence: "ev", Source: "security_scan",
-	}}, false, StressOutcome{Available: true, Breached: false, MaxObservedUsers: 500, MaxObservedRPS: 200, MaxSafeRPS: 180, PeakP99MS: 100})
+	}}, false, LoadOutcome{Available: true, Breached: false, MaxObservedUsers: 500, MaxObservedRPS: 200, MaxSafeRPS: 180, PeakP99MS: 100})
 	if risk == RiskLow {
 		t.Fatalf("risk must not be Low when high-severity finding exists (score=%d)", score)
 	}
@@ -373,7 +373,7 @@ func TestComputeResilience_HighFindingCannotYieldLowRisk(t *testing.T) {
 }
 
 func TestComputeResilience_SkippedPassiveNoFabricatedCapacityBreach(t *testing.T) {
-	score, _, findings, notes := ComputeResilience(nil, false, StressOutcome{Skipped: true})
+	score, _, findings, notes := ComputeResilience(nil, false, LoadOutcome{Skipped: true})
 	if score < 0 || score > 100 {
 		t.Fatalf("score out of range: %d", score)
 	}
@@ -391,7 +391,7 @@ func TestComputeResilience_SkippedPassiveNoFabricatedCapacityBreach(t *testing.T
 
 func TestComputeResilience_ZeroSampleOutcomeNoInvalidState(t *testing.T) {
 	// Zero/timeout-like edge: no samples, all zero metrics, unavailable/unmeasurable.
-	score, risk, findings, _ := ComputeResilience(nil, false, StressOutcome{})
+	score, risk, findings, _ := ComputeResilience(nil, false, LoadOutcome{})
 	if score < 0 || score > 100 {
 		t.Fatalf("score out of range for zero-sample outcome: %d", score)
 	}
@@ -412,7 +412,7 @@ func TestComputeResilience_ZeroSampleOutcomeNoInvalidState(t *testing.T) {
 func TestSealVerify_TamperedCertificateIDFails(t *testing.T) {
 	rep := &Audit360Report{
 		ResilienceScore: 80, RiskLevel: RiskLow, TargetURL: "http://127.0.0.1:8090",
-		Timestamp: time.Now().UTC().Format(time.RFC3339), StressTestAvailable: true,
+		Timestamp: time.Now().UTC().Format(time.RFC3339), LoadTestAvailable: true,
 		Findings: []Finding{}, Notes: []string{"n"}, DurationMS: 10,
 		ScoringVersion: ScoringVersion, RawEvidenceHash: "h", RawEvidenceFormat: "f",
 		Scores: &ScoreBreakdown{Overall: 80, Security: 80, Resilience: 80, Capacity: 80, EvidenceQuality: 80},
@@ -443,7 +443,7 @@ func TestSealVerify_TamperedCertificateIDFails(t *testing.T) {
 	}
 }
 
-func TestRunReportConsistency_StressUnavailableNoFabricatedMetrics(t *testing.T) {
+func TestRunReportConsistency_LoadUnavailableNoFabricatedMetrics(t *testing.T) {
 	// Unreachable target should yield no fabricated breach/capacity metrics and consistent state.
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -471,7 +471,7 @@ func TestRunReportConsistency_StressUnavailableNoFabricatedMetrics(t *testing.T)
 		t.Fatal("unreachable/unavailable run must not be marked as capacity-blocked rejection")
 	}
 	if rep.BreakingPointReached || rep.BreakingPointUsers != 0 || rep.MaxSafeRPS != 0 || rep.MaxObservedRPS != 0 {
-		t.Fatalf("unavailable stress must not fabricate capacity metrics: %+v", rep)
+		t.Fatalf("unavailable load must not fabricate capacity metrics: %+v", rep)
 	}
 	if rep.RiskLevel == "" {
 		t.Fatal("risk level must be set")
@@ -500,10 +500,10 @@ func TestRunReportConsistency_StressUnavailableNoFabricatedMetrics(t *testing.T)
 	}
 }
 
-func TestComputeAssessment_SanitizesNonFiniteStressMetrics(t *testing.T) {
+func TestComputeAssessment_SanitizesNonFiniteLoadMetrics(t *testing.T) {
 	nan := math.NaN()
 	inf := math.Inf(1)
-	breakdown, risk, findings, notes := ComputeAssessment(nil, false, StressOutcome{
+	breakdown, risk, findings, notes := ComputeAssessment(nil, false, LoadOutcome{
 		Available:        true,
 		Breached:         false,
 		MaxObservedRPS:   inf,
@@ -530,9 +530,9 @@ func TestComputeAssessment_SanitizesNonFiniteStressMetrics(t *testing.T) {
 }
 
 func TestComputeAssessment_ZeroSamplesUnavailableConsistent(t *testing.T) {
-	breakdown, risk, findings, _ := ComputeAssessment(nil, false, StressOutcome{Available: false})
+	breakdown, risk, findings, _ := ComputeAssessment(nil, false, LoadOutcome{Available: false})
 	if breakdown.Overall == 100 {
-		t.Fatal("unavailable stress with no measured capacity should not claim perfect overall assessment")
+		t.Fatal("unavailable load with no measured capacity should not claim perfect overall assessment")
 	}
 	if risk == "" {
 		t.Fatal("risk must be set")
@@ -549,10 +549,10 @@ func TestComputeAssessment_ZeroSamplesUnavailableConsistent(t *testing.T) {
 }
 
 func TestComputeAssessment_PartialTimeoutAndZeroSamples(t *testing.T) {
-	// Partial security scan + unavailable stress (e.g. timeout/0 samples) must be explicit and bounded.
+	// Partial security scan + unavailable load (e.g. timeout/0 samples) must be explicit and bounded.
 	breakdown, _, findings, notes := ComputeAssessment([]Finding{
 		{Title: "Missing header", Severity: "medium", Source: "security_scan", Evidence: "X-Test missing"},
-	}, true, StressOutcome{Available: false, MaxObservedUsers: 0, MaxObservedRPS: 0})
+	}, true, LoadOutcome{Available: false, MaxObservedUsers: 0, MaxObservedRPS: 0})
 	if breakdown.Security >= 100 || breakdown.EvidenceQuality >= 100 {
 		t.Fatalf("partial/unavailable evidence must reduce relevant scores: %+v", breakdown)
 	}

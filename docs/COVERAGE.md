@@ -106,7 +106,7 @@ its gRPC listener before probing it — gRPC is fail-fast by default, so a Ping
 that raced a not-yet-serving listener marked a healthy worker dead under
 repeated runs. No test is skipped or shortened.
 
-Stress beyond the CI setting exposed a second, real defect in the tests
+Load beyond the CI setting exposed a second, real defect in the tests
 themselves, and it is fixed rather than documented away. `go test
 ./internal/dist/coordinator -count=5` used to fail 3 of 5 iterations with
 `connect: can't assign requested address` inside a readiness Ping.
@@ -116,7 +116,7 @@ because the unpaced load tests in that package opened far more connections than
 the 16 384-port range can hold in TIME_WAIT. `tinyScenario` now paces its runs
 at 100 req/s — these tests assert coordinator semantics, not throughput — and
 the same package then passed six consecutive `-count=1` runs and a `-count=5`
-stress run with zero EADDRNOTAVAIL. The same probe run alongside the paced
+load run with zero EADDRNOTAVAIL. The same probe run alongside the paced
 suite reports no dial failures at any point.
 
 Two real cross-platform defects were found through the same CI runs and are

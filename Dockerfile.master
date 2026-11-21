@@ -6,7 +6,7 @@
 #   docker build -f Dockerfile.master -t ghcr.io/asadbekabdulboqiyev/sift-master:0.18.1 .
 #
 # Run (auto-discovery fleet; workers self-register):
-#   docker run --rm --network strike -p 50051:50051 \
+#   docker run --rm --network sift-net -p 50051:50051 \
 #     -e SS_TOKEN="$TOKEN" \
 #     ghcr.io/asadbekabdulboqiyev/sift-master:0.18.1
 

@@ -589,11 +589,11 @@ func (w *wizard) expertFlow(ans *wizardAnswers) error {
 	}
 	ans.capture = capN
 
-	gateStrike, err := w.askBool("Gate strike — simultaneous race shot", false, "advanced")
+	gateBurst, err := w.askBool("Gate burst — simultaneous race shot", false, "advanced")
 	if err != nil {
 		return err
 	}
-	ans.gate = gateStrike
+	ans.gate = gateBurst
 
 	name, err := w.ask("Test name", defaultTestName(ans.url), "")
 	if err != nil {

@@ -53,7 +53,7 @@ func TestPostCommentSendsAuthenticatedRequest(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":4242,"html_url":"https://example/1"}`))
 	})
 
-	id, err := PostComment("adsr/strike", 7, "## report")
+	id, err := PostComment("adsr/sift-test", 7, "## report")
 	if err != nil {
 		t.Fatalf("PostComment: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestPostCommentSendsAuthenticatedRequest(t *testing.T) {
 	if gotMethod != http.MethodPost {
 		t.Errorf("method = %q, want POST", gotMethod)
 	}
-	if gotPath != "/repos/adsr/strike/issues/7/comments" {
+	if gotPath != "/repos/adsr/sift-test/issues/7/comments" {
 		t.Errorf("path = %q", gotPath)
 	}
 	if gotAuth != "token secret-token" {
@@ -89,7 +89,7 @@ func TestPostCommentServerError(t *testing.T) {
 		_, _ = w.Write([]byte(`{"message":"Resource not accessible by integration"}`))
 	})
 
-	_, err := PostComment("adsr/strike", 7, "x")
+	_, err := PostComment("adsr/sift-test", 7, "x")
 	if err == nil {
 		t.Fatal("expected error for 403")
 	}
@@ -103,7 +103,7 @@ func TestPostCommentBadJSONResponse(t *testing.T) {
 		_, _ = w.Write([]byte(`<html>oops</html>`))
 	})
 
-	if _, err := PostComment("adsr/strike", 7, "x"); err == nil {
+	if _, err := PostComment("adsr/sift-test", 7, "x"); err == nil {
 		t.Fatal("expected parse error")
 	} else if !strings.Contains(err.Error(), "parse comment response") {
 		t.Fatalf("error = %v", err)
@@ -115,7 +115,7 @@ func TestListComments(t *testing.T) {
 		if r.Method != http.MethodGet {
 			t.Errorf("method = %q, want GET", r.Method)
 		}
-		if r.URL.Path != "/repos/adsr/strike/issues/9/comments" {
+		if r.URL.Path != "/repos/adsr/sift-test/issues/9/comments" {
 			t.Errorf("path = %q", r.URL.Path)
 		}
 		_, _ = w.Write([]byte(`[
@@ -124,7 +124,7 @@ func TestListComments(t *testing.T) {
 		]`))
 	})
 
-	comments, err := ListComments("adsr/strike", 9)
+	comments, err := ListComments("adsr/sift-test", 9)
 	if err != nil {
 		t.Fatalf("ListComments: %v", err)
 	}
@@ -145,7 +145,7 @@ func TestListCommentsServerError(t *testing.T) {
 		_, _ = w.Write([]byte("boom"))
 	})
 
-	if _, err := ListComments("adsr/strike", 9); err == nil || !strings.Contains(err.Error(), "500") {
+	if _, err := ListComments("adsr/sift-test", 9); err == nil || !strings.Contains(err.Error(), "500") {
 		t.Fatalf("error = %v, want 500", err)
 	}
 }
@@ -164,14 +164,14 @@ func TestUpdateCommentUsesRepoScopedPatchEndpoint(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":999}`))
 	})
 
-	if err := UpdateComment("adsr/strike", 999, "updated body"); err != nil {
+	if err := UpdateComment("adsr/sift-test", 999, "updated body"); err != nil {
 		t.Fatalf("UpdateComment: %v", err)
 	}
 	if gotMethod != http.MethodPatch {
 		t.Errorf("method = %q, want PATCH", gotMethod)
 	}
 	// GitHub's real endpoint: PATCH /repos/{owner}/{repo}/issues/comments/{id}
-	if gotPath != "/repos/adsr/strike/issues/comments/999" {
+	if gotPath != "/repos/adsr/sift-test/issues/comments/999" {
 		t.Errorf("path = %q, want repo-scoped comment endpoint", gotPath)
 	}
 	if gotBody["body"] != "updated body" {
@@ -185,7 +185,7 @@ func TestUpdateCommentServerError(t *testing.T) {
 		_, _ = w.Write([]byte("Not Found"))
 	})
 
-	err := UpdateComment("adsr/strike", 1, "x")
+	err := UpdateComment("adsr/sift-test", 1, "x")
 	if err == nil || !strings.Contains(err.Error(), "404") {
 		t.Fatalf("error = %v, want 404", err)
 	}
@@ -199,7 +199,7 @@ func TestDoRequestNetworkFailure(t *testing.T) {
 	httpClient = &http.Client{Timeout: 2 * time.Second}
 	t.Cleanup(func() { apiBase, httpClient = oldBase, oldClient })
 
-	if err := UpdateComment("adsr/strike", 1, "x"); err == nil {
+	if err := UpdateComment("adsr/sift-test", 1, "x"); err == nil {
 		t.Fatal("expected network error")
 	} else if !strings.Contains(err.Error(), "github:") {
 		t.Fatalf("error = %v, want github prefix", err)

@@ -50,7 +50,7 @@ A standard Sift 360° report includes component scores and an overall result:
 
 ### 2.5 Evidence completeness
 - Security scan must complete without partial coverage.
-- In Standard mode, stress/load telemetry must be produced and measurable (not refused/blocked/unavailable).
+- In Standard mode, load telemetry must be produced and measurable (not refused/blocked/unavailable).
 - Use a consistent, known target and record the run configuration (mode, duration, target).
 
 ---
@@ -99,7 +99,7 @@ Confirm:
 - `state: completed`, all stages completed
 - `findings` empty (or only acceptable informational context, if any)
 - `scores.overall/security/resilience/capacity/evidence_quality` all **100** (when evidence supports it)
-- `stress_test_available: true`, `load_test_skipped: false`, `breaking_point_reached: false` (as applicable)
+- `load_test_available: true`, `load_test_skipped: false`, `breaking_point_reached: false` (as applicable)
 - `vpmp_signature`, `certificate_id`, `raw_evidence_hash` present (attested report)
 - Notes reflect measured reality (no fabricated metrics)
 

@@ -17,4 +17,4 @@ steps:
   - name: metrics_datagram
     type: udp
     url: localhost:8125
-    body: 'stress.test:1|c'
+    body: 'load.test:1|c'

@@ -70,7 +70,7 @@ func defaultEvidence(f Finding) string {
 	switch strings.ToLower(strings.TrimSpace(f.Source)) {
 	case "security_scan":
 		return "Observed during automated security scan checks (headers/TLS/OWASP/lightweight probes) for the target."
-	case "stress_test":
+	case "load_test":
 		return "Observed from measured load-test telemetry during the audit run."
 	case "evidence_quality":
 		return "Derived from audit execution coverage and evidence availability for this run."
@@ -134,17 +134,17 @@ func riskForOverall(score int) string {
 // No values are fabricated: capacity metrics are only scored/labeled when measured.
 // Scoring is evidence-based and transparent: deductions are driven by observed
 // weaknesses, incomplete coverage, and unmeasured capacity/resilience evidence.
-func ComputeAssessment(secFindings []Finding, securityPartial bool, stress StressOutcome) (ScoreBreakdown, string, []Finding, []string) {
-	// Normalize measured stress inputs so NaN/Infinity/negative values cannot
+func ComputeAssessment(secFindings []Finding, securityPartial bool, load LoadOutcome) (ScoreBreakdown, string, []Finding, []string) {
+	// Normalize measured load inputs so NaN/Infinity/negative values cannot
 	// leak into scoring, notes, or cross-module assessment state.
-	stress.MaxSafeRPS = nonNegFinite(stress.MaxSafeRPS)
-	stress.MaxObservedRPS = nonNegFinite(stress.MaxObservedRPS)
-	if stress.MaxObservedUsers < 0 {
-		stress.MaxObservedUsers = 0
+	load.MaxSafeRPS = nonNegFinite(load.MaxSafeRPS)
+	load.MaxObservedRPS = nonNegFinite(load.MaxObservedRPS)
+	if load.MaxObservedUsers < 0 {
+		load.MaxObservedUsers = 0
 	}
-	stress.PeakErrorRatePct = nonNegFinite(stress.PeakErrorRatePct)
-	stress.PeakP99MS = nonNegFinite(stress.PeakP99MS)
-	stress.RejectSharePct = nonNegFinite(stress.RejectSharePct)
+	load.PeakErrorRatePct = nonNegFinite(load.PeakErrorRatePct)
+	load.PeakP99MS = nonNegFinite(load.PeakP99MS)
+	load.RejectSharePct = nonNegFinite(load.RejectSharePct)
 
 	findings := []Finding{}
 	notes := []string{}
@@ -190,8 +190,8 @@ func ComputeAssessment(secFindings []Finding, securityPartial bool, stress Stres
 		findings = append(findings, sf)
 
 		src := strings.ToLower(strings.TrimSpace(sf.Source))
-		isStressDerived := src == "stress_test"
-		if !isStressDerived {
+		isLoadDerived := src == "load_test"
+		if !isLoadDerived {
 			secWeaknesses++
 			switch sf.Severity {
 			case "critical":
@@ -218,27 +218,27 @@ func ComputeAssessment(secFindings []Finding, securityPartial bool, stress Stres
 		notes = append(notes, "No security weaknesses were reported by the executed security checks (absence of evidence in untested areas is not a guarantee).")
 	}
 
-	// Capacity/resilience/evidence components from stress outcome.
+	// Capacity/resilience/evidence components from load outcome.
 	switch {
-	case stress.RejectedByTarget:
+	case load.RejectedByTarget:
 		// Access gate refused load: capacity/breaking point is unmeasurable (not a measured capacity failure).
 		coveredUnits += 0.35
 		capacityScore -= 25
 		resilienceScore -= 10
 		evidenceScore -= 20
-		label := rejectionLabel(stress.RejectStatusCode)
+		label := rejectionLabel(load.RejectStatusCode)
 		findings = append(findings, Finding{
-			Title:         fmt.Sprintf("Target refused load before capacity could be measured (HTTP %d)", stress.RejectStatusCode),
+			Title:         fmt.Sprintf("Target refused load before capacity could be measured (HTTP %d)", load.RejectStatusCode),
 			Severity:      "medium",
-			ImpactSummary: fmt.Sprintf("The target answered %s to %.0f%% of requests during the ramp, so the probe measured the access gate rather than service capacity.", label, stress.RejectSharePct),
+			ImpactSummary: fmt.Sprintf("The target answered %s to %.0f%% of requests during the ramp, so the probe measured the access gate rather than service capacity.", label, load.RejectSharePct),
 			Remediation:   "Run the audit from an authorized client/network that the target accepts (or against a staging environment) to measure real capacity and breaking-point behavior.",
-			Evidence:      fmt.Sprintf("Dominant response during ramp: %s on %.0f%% of observed requests. No breach/throughput/capacity figure is reported because the service itself was not exercised.", label, stress.RejectSharePct),
+			Evidence:      fmt.Sprintf("Dominant response during ramp: %s on %.0f%% of observed requests. No breach/throughput/capacity figure is reported because the service itself was not exercised.", label, load.RejectSharePct),
 			Source:        "evidence_quality",
 		})
-		notes = append(notes, fmt.Sprintf("Capacity not measurable: target answered %s to %.0f%% of requests during the ramp (access gate, not service capacity).", label, stress.RejectSharePct))
+		notes = append(notes, fmt.Sprintf("Capacity not measurable: target answered %s to %.0f%% of requests during the ramp (access gate, not service capacity).", label, load.RejectSharePct))
 		notes = append(notes, "Observed throughput/capacity figures suppressed because the target refused load traffic (access gate, not service capacity).")
 		notes = append(notes, "Capacity and resilience-under-load were not measured due to target refusal; capacity score reflects no adverse measured capacity evidence in this run.")
-	case stress.Skipped:
+	case load.Skipped:
 		// Intentionally not executed (e.g. passive mode): no capacity measurement, not a failure.
 		coveredUnits += 0.15
 		evidenceScore -= 20
@@ -246,65 +246,65 @@ func ComputeAssessment(secFindings []Finding, securityPartial bool, stress Stres
 		resilienceScore -= 10
 		notes = append(notes, "Capacity/load testing skipped in passive mode (non-intrusive checks only); capacity metrics not measured.")
 		notes = append(notes, "Sustainable capacity and breaking point were not measured in Passive mode; capacity score reflects limited/no load evidence.")
-	case !stress.Available:
+	case !load.Available:
 		coveredUnits += 0.1
 		capacityScore -= 35
 		resilienceScore -= 20
 		evidenceScore -= 25
-		notes = append(notes, "Load/stress evidence unavailable: capacity could not be measured in this run.")
+		notes = append(notes, "Load evidence unavailable: capacity could not be measured in this run.")
 		findings = append(findings, Finding{
 			Title:         "Capacity test unavailable",
 			Severity:      "high",
-			ImpactSummary: "Without a measured load test, the system's real breaking point and resilience under stress are unknown.",
-			Remediation:   "Run the stress test against an authorized, reachable target to measure safe capacity and failure thresholds.",
-			Evidence:      "Stress test stage did not produce measurable telemetry (unreachable target, execution error, or no samples).",
+			ImpactSummary: "Without a measured load test, the system's real breaking point and resilience under load are unknown.",
+			Remediation:   "Run the load test against an authorized, reachable target to measure safe capacity and failure thresholds.",
+			Evidence:      "Load test stage did not produce measurable telemetry (unreachable target, execution error, or no samples).",
 			Source:        "evidence_quality",
 		})
 	default:
-		// Measured stress evidence available.
+		// Measured load evidence available.
 		coveredUnits += 1.0
-		if stress.Breached {
+		if load.Breached {
 			capacityScore -= 35
 			resilienceScore -= 30
 			impact := "The service reached a failure threshold during ramp-up, which means users may see errors or severe slowdowns under load."
 			rem := "Increase capacity, optimize slow endpoints, add caching/queueing, and tune timeouts/autoscaling before higher traffic. Re-test to confirm improved safe capacity."
-			if stress.BreakingPointUsers > 0 {
-				impact = fmt.Sprintf("The service hit failure thresholds around %d concurrent users, so higher traffic can cause errors or severe slowdowns.", stress.BreakingPointUsers)
+			if load.BreakingPointUsers > 0 {
+				impact = fmt.Sprintf("The service hit failure thresholds around %d concurrent users, so higher traffic can cause errors or severe slowdowns.", load.BreakingPointUsers)
 			}
 			findings = append(findings, Finding{
-				Title:         "Capacity limit reached during stress test",
+				Title:         "Capacity limit reached during load test",
 				Severity:      "high",
 				ImpactSummary: impact,
 				Remediation:   rem,
 				Evidence: fmt.Sprintf(
 					"Measured ramp result: breached=%v, breaking_point_users=%d, peak_observed_rps=%.2f, safe_rps_estimate=%.2f, peak_error_rate=%.2f%%, peak_p99_ms=%.0f, reason=%q.",
-					stress.Breached, stress.BreakingPointUsers, stress.MaxObservedRPS, stress.MaxSafeRPS, stress.PeakErrorRatePct, stress.PeakP99MS, stress.BreachReason),
-				Source: "stress_test",
+					load.Breached, load.BreakingPointUsers, load.MaxObservedRPS, load.MaxSafeRPS, load.PeakErrorRatePct, load.PeakP99MS, load.BreachReason),
+				Source: "load_test",
 			})
-			notes = append(notes, fmt.Sprintf("Breaking point detected from measured telemetry: %s", stress.BreachReason))
+			notes = append(notes, fmt.Sprintf("Breaking point detected from measured telemetry: %s", load.BreachReason))
 		} else {
 			notes = append(notes, "No failure threshold breached within the audit's time/load window (not a guarantee under higher load).")
-			if stress.MaxObservedUsers >= 200 {
+			if load.MaxObservedUsers >= 200 {
 				resilienceScore += 2
 			}
 		}
 
 		// Penalize poor observed reliability/latency (resilience) even without formal breach.
-		if stress.PeakErrorRatePct > 1.0 {
-			pen := int(math.Min(15, math.Round(stress.PeakErrorRatePct)))
+		if load.PeakErrorRatePct > 1.0 {
+			pen := int(math.Min(15, math.Round(load.PeakErrorRatePct)))
 			resilienceScore -= pen
 			capacityScore -= pen / 2
 		}
-		if stress.PeakP99MS > 1000 {
-			pen := int(math.Min(12, math.Round((stress.PeakP99MS-1000)/250)))
+		if load.PeakP99MS > 1000 {
+			pen := int(math.Min(12, math.Round((load.PeakP99MS-1000)/250)))
 			resilienceScore -= pen
 			capacityScore -= pen / 2
 		}
 
 		notes = append(notes, fmt.Sprintf(
 			"Measured capacity evidence: observed peak throughput=%.2f RPS, observed peak users=%d, sustainable/safe capacity estimate=%.2f RPS (from samples meeting thresholds), peak error=%.2f%%, peak p99=%.0fms.",
-			stress.MaxObservedRPS, stress.MaxObservedUsers, stress.MaxSafeRPS, stress.PeakErrorRatePct, stress.PeakP99MS))
-		if stress.MaxSafeRPS > 0 && stress.MaxObservedRPS > stress.MaxSafeRPS {
+			load.MaxObservedRPS, load.MaxObservedUsers, load.MaxSafeRPS, load.PeakErrorRatePct, load.PeakP99MS))
+		if load.MaxSafeRPS > 0 && load.MaxObservedRPS > load.MaxSafeRPS {
 			notes = append(notes, "Observed peak throughput can exceed sustainable/safe capacity estimate; sustainable/safe estimate is derived only from measured samples meeting error/latency thresholds.")
 		}
 	}
@@ -370,16 +370,16 @@ func ComputeAssessment(secFindings []Finding, securityPartial bool, stress Stres
 	return breakdown, risk, findings, notes
 }
 
-// ComputeResilience calculates score/risk from scan and stress outcomes.
+// ComputeResilience calculates score/risk from scan and load outcomes.
 // Backward-compatible wrapper around ComputeAssessment.
 // No values are fabricated: capacity metrics are only scored when measured.
-func ComputeResilience(secFindings []Finding, securityPartial bool, stress StressOutcome) (score int, risk string, findings []Finding, notes []string) {
-	breakdown, risk, findings, notes := ComputeAssessment(secFindings, securityPartial, stress)
+func ComputeResilience(secFindings []Finding, securityPartial bool, load LoadOutcome) (score int, risk string, findings []Finding, notes []string) {
+	breakdown, risk, findings, notes := ComputeAssessment(secFindings, securityPartial, load)
 	return breakdown.Overall, risk, findings, notes
 }
 
-// StressOutcome captures measured load-test results (no fabricated values).
-type StressOutcome struct {
+// LoadOutcome captures measured load-test results (no fabricated values).
+type LoadOutcome struct {
 	Available          bool
 	Breached           bool
 	BreakingPointUsers int
@@ -394,7 +394,7 @@ type StressOutcome struct {
 	RejectedByTarget bool
 	RejectStatusCode int
 	RejectSharePct   float64
-	// Skipped indicates the stress/load stage was intentionally not executed
+	// Skipped indicates the load stage was intentionally not executed
 	// (e.g. passive mode). No capacity penalty or fabricated measurement applies.
 	Skipped bool
 	Notes   []string
@@ -403,12 +403,12 @@ type StressOutcome struct {
 // RawEvidenceInput captures measured inputs for deterministic evidence hashing.
 // Only observed/measured or explicitly provided configuration fields are included.
 type RawEvidenceInput struct {
-	TargetURL               string        `json:"target_url"`
-	Mode                    string        `json:"mode,omitempty"`
-	RequestedMaxDurationSec int           `json:"requested_max_duration_sec,omitempty"`
-	SecurityPartial         bool          `json:"security_scan_partial"`
-	SecurityFindings        []Finding     `json:"security_findings,omitempty"`
-	Stress                  StressOutcome `json:"stress"`
+	TargetURL               string      `json:"target_url"`
+	Mode                    string      `json:"mode,omitempty"`
+	RequestedMaxDurationSec int         `json:"requested_max_duration_sec,omitempty"`
+	SecurityPartial         bool        `json:"security_scan_partial"`
+	SecurityFindings        []Finding   `json:"security_findings,omitempty"`
+	Load                    LoadOutcome `json:"load"`
 }
 
 // ComputeRawEvidenceHash returns a deterministic SHA-256 hash of measured/raw

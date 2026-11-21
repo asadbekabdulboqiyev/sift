@@ -330,7 +330,7 @@ func TestRender(t *testing.T) {
 	var sb strings.Builder
 	r.Render(&sb)
 	out := sb.String()
-	for _, want := range []string{"STRESS TEST REPORT: x", "OVERALL RESULTS", "STEP", "200", "SUMMARY"} {
+	for _, want := range []string{"LOAD TEST REPORT: x", "OVERALL RESULTS", "STEP", "200", "SUMMARY"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("render output missing %q:\n%s", want, out)
 		}

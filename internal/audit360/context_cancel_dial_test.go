@@ -32,18 +32,18 @@ func TestRunSecurityScanHonorsCancelledContext(t *testing.T) {
 	}
 }
 
-// TestRunStressTestHonorsCancelledContext verifies that the stress stage does
+// TestRunLoadTestHonorsCancelledContext verifies that the load stage does
 // not send its reachability probe once the run has been cancelled.
-func TestRunStressTestHonorsCancelledContext(t *testing.T) {
+func TestRunLoadTestHonorsCancelledContext(t *testing.T) {
 	target := localTarget(t)
 	c := &dialCounter{}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_ = runStressTest(ctx, target, time.Second, c.control)
+	_ = runLoadTest(ctx, target, time.Second, c.control)
 
 	if n := c.count(); n != 0 {
-		t.Fatalf("runStressTest attempted %d dial(s) after ctx was cancelled, want 0", n)
+		t.Fatalf("runLoadTest attempted %d dial(s) after ctx was cancelled, want 0", n)
 	}
 }
