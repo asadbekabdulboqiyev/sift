@@ -105,19 +105,37 @@ func SendTelegram(cfg TelegramConfig, alert TelegramAlert) error {
 	return nil
 }
 
-// formatAlert formats a TelegramAlert into a Markdown string.
+// escapeTelegramMarkdown escapes Telegram legacy-Markdown formatting
+// characters in event-controlled text. SIEM field values can originate from
+// scanned target responses, so interpolating them verbatim into a message sent
+// with parse_mode "Markdown" lets an attacker inject links into a trusted alert
+// or break entity parsing and drop the alert with a 400 response.
+func escapeTelegramMarkdown(s string) string {
+	replacer := strings.NewReplacer(
+		`\`, `\\`,
+		`*`, `\*`,
+		`_`, `\_`,
+		"`", "\\`",
+		`[`, `\[`,
+		`]`, `\]`,
+	)
+	return replacer.Replace(s)
+}
+
+// formatAlert formats a TelegramAlert into a Markdown string. Only the labels
+// are ours; every value is escaped so event content cannot alter the message.
 func formatAlert(a TelegramAlert) string {
 	var b strings.Builder
-	b.WriteString("*Alert:* " + a.Severity + "\n")
-	b.WriteString("*Source:* " + a.Source + "\n")
-	b.WriteString("*Message:* " + a.Message + "\n")
+	b.WriteString("*Alert:* " + escapeTelegramMarkdown(a.Severity) + "\n")
+	b.WriteString("*Source:* " + escapeTelegramMarkdown(a.Source) + "\n")
+	b.WriteString("*Message:* " + escapeTelegramMarkdown(a.Message) + "\n")
 	if len(a.Fields) > 0 {
 		b.WriteString("\n*Fields:*\n")
 		for k, v := range a.Fields {
-			_, _ = fmt.Fprintf(&b, "`%s`: %s\n", k, v)
+			_, _ = fmt.Fprintf(&b, "`%s`: %s\n", escapeTelegramMarkdown(k), escapeTelegramMarkdown(v))
 		}
 	}
-	b.WriteString("\n*Timestamp:* " + a.Timestamp)
+	b.WriteString("\n*Timestamp:* " + escapeTelegramMarkdown(a.Timestamp))
 	return b.String()
 }
 

@@ -79,6 +79,39 @@ func TestSendTelegramSuccess(t *testing.T) {
 	}
 }
 
+// TestFormatAlertEscapesEventControlledMarkdown proves alert field values
+// cannot inject Telegram formatting. Without escaping, a crafted Message could
+// render as a link inside a trusted alert or break entity parsing entirely.
+func TestFormatAlertEscapesEventControlledMarkdown(t *testing.T) {
+	alert := TelegramAlert{
+		Timestamp: "2026-01-02T03:04:05Z",
+		Source:    "scan[n]el_*x",
+		Severity:  "high`low",
+		Message:   "See [Security update](https://evil.example) and *bold* _ital_ `code` \\ tail",
+		Fields:    map[string]string{"end`point": "[link](https://evil.example) *x*"},
+	}
+	text := formatAlert(alert)
+
+	// No raw formatting construct from event content may survive.
+	for _, raw := range []string{
+		"[Security update]", "[link]", "*bold*", "_ital_", "`code`", "`end`point`",
+	} {
+		if strings.Contains(text, raw) {
+			t.Errorf("unescaped event content %q survives in:\n%s", raw, text)
+		}
+	}
+	// Each metacharacter class must be preceded by a backslash.
+	for _, esc := range []string{`\[`, `\*`, `\_`, "\\`", `\\`} {
+		if !strings.Contains(text, esc) {
+			t.Errorf("expected escape %q in:\n%s", esc, text)
+		}
+	}
+	// The static labels still render as real Markdown.
+	if !strings.Contains(text, "*Alert:*") || !strings.Contains(text, "*Fields:*") {
+		t.Errorf("static labels missing in:\n%s", text)
+	}
+}
+
 func TestSendTelegramMissingConfig(t *testing.T) {
 	cases := []TelegramConfig{
 		{ChatID: "1"},
