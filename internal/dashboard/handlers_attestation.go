@@ -82,6 +82,10 @@ func verifyAttestation(bundlePath, samplesPath string) map[string]interface{} {
 		}
 	}
 
+	// Deliberately self-consistency-only: this endpoint has no trust store, so
+	// RequireTrustAnchor stays false. verifyResultMap always reports the issuer
+	// verdict (issuerTrust/issuerTrusted); the UI MUST render issuerTrusted=false
+	// as "VALID (UNPINNED)" and never as a plain successful verification (F-03).
 	res := attest.VerifyWith(bundle, samples, attest.VerifyOptions{})
 	out := verifyResultMap(res)
 	if loadStats.Lines > 0 {
@@ -207,6 +211,9 @@ func (s *Server) handleAttestationVerifyUpload(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// Same policy as the stored-run endpoint above (F-03): no trust store here,
+	// so the honest issuer verdict is returned and the UI must not present a
+	// self-consistent-but-unpinned bundle as an identity-verified one.
 	res := attest.Verify(bundle, nil)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(verifyResultMap(res))

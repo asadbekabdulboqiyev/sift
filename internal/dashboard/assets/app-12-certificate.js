@@ -259,8 +259,15 @@ function certShowAttestation(res) {
 
   certClear(facts);
   var ok = !!res.valid;
-  verdict.className = 'cert-verdict ' + (ok ? 'ok' : 'bad');
-  if (ok) {
+  // F-03: no trust store is configured on this endpoint, so a valid bundle is
+  // only self-consistent. issuerTrusted=false (or missing on an older backend)
+  // must be shown explicitly instead of implying the signer was identified.
+  var trusted = res.issuerTrusted === true;
+  verdict.className = 'cert-verdict ' + ((ok && trusted) ? 'ok' : 'bad');
+  if (ok && !trusted) {
+    verdict.textContent = 'VALID (UNPINNED) — signer identity not verified. The bundle signature and internal cross-sums check out, but no trust anchor was configured.';
+    certStatus('Bundle verified (unpinned): signer identity not verified.', 'bad');
+  } else if (ok) {
     verdict.textContent = 'VALID — the bundle signature and its internal cross-sums check out.';
     certStatus('Attestation bundle verified.', 'ok');
   } else {
@@ -285,7 +292,9 @@ function certShowAttestation(res) {
   if (actions) actions.classList.add('hidden');
 
   wrap.classList.remove('hidden');
-  toast(ok ? 'Attestation bundle is valid' : 'Attestation bundle is invalid', ok ? 'ok' : 'error');
+  // F-03: keep the toast consistent with the verdict above.
+  toast(ok ? (trusted ? 'Attestation bundle is valid' : 'Bundle valid (unpinned) — signer identity not verified') : 'Attestation bundle is invalid',
+    (ok && trusted) ? 'ok' : 'error');
 }
 
 /* --------------------------------------------------------------------------

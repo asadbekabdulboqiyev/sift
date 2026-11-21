@@ -277,7 +277,13 @@ func Verify(b Bundle, samples map[string][]Record) VerifyResult {
 }
 
 // VerifyWith is Verify with explicit limits.
-func VerifyWith(b Bundle, samples map[string][]Record, opts VerifyOptions) VerifyResult {
+//
+// The result is named (G-1) because a recovered panic skips the final
+// `return v.res`: with an unnamed result the caller would receive a zero-valued
+// VerifyResult and lose the Errors/Checks/Format/IssuerTrust accumulated before
+// the panic. The deferred handler copies v.res into the named result on every
+// path, so a hostile bundle always yields a complete, structured verdict.
+func VerifyWith(b Bundle, samples map[string][]Record, opts VerifyOptions) (res VerifyResult) {
 	opts = opts.withDefaults()
 	v := &verifier{opts: opts}
 	v.res.Format = b.Format
@@ -288,21 +294,22 @@ func VerifyWith(b Bundle, samples map[string][]Record, opts VerifyOptions) Verif
 	// *loaded* at all — an unparsable bundle, an unreadable sidecar — still fail
 	// before this point, with a fatal error and exit code 1.)
 	defer func() {
-		r := recover()
-		if r == nil {
-			return
-		}
-		// Fail closed, and never let the reporting path crash in turn: whatever
-		// happens below, the verdict is invalid, because a verifier that panics
-		// cannot certify anything.
-		func() {
-			defer func() {
-				_ = recover()
-				v.res.Valid = false
+		if r := recover(); r != nil {
+			// Fail closed, and never let the reporting path crash in turn: whatever
+			// happens below, the verdict is invalid, because a verifier that panics
+			// cannot certify anything.
+			func() {
+				defer func() {
+					_ = recover()
+					v.res.Valid = false
+				}()
+				v.globalFail("internal-error", fmt.Sprintf("verifier panicked on this evidence: %v", r))
+				v.finish()
 			}()
-			v.globalFail("internal-error", fmt.Sprintf("verifier panicked on this evidence: %v", r))
-			v.finish()
-		}()
+		}
+		// G-1: populate the named result on BOTH paths. On a panic `return v.res`
+		// never executes, so this copy is what preserves the full report.
+		res = v.res
 	}()
 	v.run(b, samples)
 	v.finish()
@@ -615,6 +622,40 @@ func (v *verifier) verifyWorkerSamples(wr *WorkerReport, w *WorkerBundle, recs [
 		v.workerPass(wr, "commit-count", fmt.Sprintf("%d records match commit.sample_count", len(recs)))
 	} else {
 		v.workerFail(wr, "commit-count", fmt.Sprintf("sidecar has %d records but commit.sample_count is %d", len(recs), w.Commit.SampleCount), nil)
+	}
+
+	// G-3: the commit is signed over window_start_ns/window_end_ns too, but
+	// until now nothing tied those fields to the evidence. Recompute them from
+	// the same records with the exact BuildCommit rule: start = min(start_ns),
+	// end = max(start_ns + latency_ns). Using any other rule (e.g. the last
+	// record's start_ns, or a max over start_ns alone) would reject honest
+	// bundles, so mirror the producer bit-for-bit. This check only runs with a
+	// sidecar — without one the window cannot be recomputed and SamplesAbsent
+	// already narrows the claim.
+	var winStart, winEnd int64
+	for i := range recs {
+		r := recs[i]
+		// BuildCommit refuses an overflowing finish time; fail closed here as
+		// well instead of wrapping into a negative value that might compare equal.
+		if r.StartNS > math.MaxInt64-r.LatencyNS {
+			idx := int64(i)
+			v.workerFail(wr, "commit-window", fmt.Sprintf("record %d: start_ns %d + latency_ns %d overflows int64", i, r.StartNS, r.LatencyNS), &idx)
+			return
+		}
+		finish := r.StartNS + r.LatencyNS
+		if i == 0 || r.StartNS < winStart {
+			winStart = r.StartNS
+		}
+		if i == 0 || finish > winEnd {
+			winEnd = finish
+		}
+	}
+	if winStart != w.Commit.WindowStartNS || winEnd != w.Commit.WindowEndNS {
+		v.workerFail(wr, "commit-window", fmt.Sprintf(
+			"sidecar spans [%d, %d] but the signed commit pins [%d, %d]",
+			winStart, winEnd, w.Commit.WindowStartNS, w.Commit.WindowEndNS), nil)
+	} else {
+		v.workerPass(wr, "commit-window", fmt.Sprintf("sidecar spans [%d, %d] as pinned by the signed commit", winStart, winEnd))
 	}
 
 	// commit root

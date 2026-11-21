@@ -870,8 +870,17 @@ if (_btnAttestVerify) {
       var st = document.getElementById('attestVerifyStatus');
       if (!st) return;
       if (res.valid) {
-        st.textContent = 'valid';
-        st.className = 'attest-status attest-ok';
+        // F-03: valid=true only means the bundle is self-consistent. The
+        // backend has no trust store on this endpoint, so issuerTrusted=false
+        // is the honest signal that nobody verified WHO signed it. Fail closed
+        // when the signal is absent too (an older/cached backend).
+        if (res.issuerTrusted !== true) {
+          st.textContent = 'VALID (UNPINNED) — signer identity not verified';
+          st.className = 'attest-status attest-bad';
+        } else {
+          st.textContent = 'valid';
+          st.className = 'attest-status attest-ok';
+        }
       } else {
         var reason = res.reason || 'invalid';
         st.textContent = 'invalid: ' + reason;

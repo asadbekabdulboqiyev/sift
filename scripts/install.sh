@@ -13,12 +13,14 @@
 #     a moving branch, so a compromised main branch cannot repoint the install.
 #   * Every downloaded archive is verified against checksums.txt from the same
 #     release before a single byte is executed.
-#   * If cosign is available, the checksum file is verified against the
-#     release's keyless signature (OIDC-issued, bound to the GitHub workflow).
+#   * The checksum file is verified against the release's keyless signature,
+#     pinned to the release workflow AND the exact tag. A checksum alone is not
+#     authenticity: a compromised release can replace the archive and its
+#     checksums together, so verifier identity is checked before anything runs.
 #   * No secrets, no root, no writes outside the install prefix.
 #
-# Requires: curl, tar, unzip (Windows), sha256sum or shasum.
-# Optional:  cosign (https://github.com/sigstore/cosign)
+# Requires: curl, tar, unzip (Windows), sha256sum or shasum,
+#           cosign (https://github.com/sigstore/cosign)
 
 set -euo pipefail
 
@@ -114,23 +116,35 @@ fi
 step "downloading checksums.txt"
 curl -fsSL --retry 3 -o "${TMP}/checksums.txt" "${base}/checksums.txt"
 
-# Optional: verify the checksum file itself against its cosign signature.
-if command -v cosign >/dev/null 2>&1; then
-  step "verifying checksum signature (cosign)"
-  curl -fsSL -o "${TMP}/checksums.txt.pem" "${base}/checksums.txt.pem" || true
-  curl -fsSL -o "${TMP}/checksums.txt.sig" "${base}/checksums.txt.sig" || true
-  if [ -s "${TMP}/checksums.txt.sig" ] && [ -s "${TMP}/checksums.txt.pem" ]; then
-    if cosign verify-blob --certificate "${TMP}/checksums.txt.pem" \
-         --signature "${TMP}/checksums.txt.sig" "${TMP}/checksums.txt"; then
-      ok "signature valid"
-    else
-      err "SIGNATURE VERIFICATION FAILED — aborting install"; exit 1
-    fi
-  else
-    err "signature files missing from the release — aborting install"; exit 1
-  fi
+# Verify the checksum file itself against its cosign keyless signature. Cosign is
+# REQUIRED (C-1): skipping it leaves only checksums.txt from the same release
+# channel, which is not an authenticity check at all. --go is the supported path
+# for hosts that cannot install cosign.
+command -v cosign >/dev/null 2>&1 || {
+  err "cosign is required to verify the release signature (install it from https://github.com/sigstore/cosign, or use './install.sh --go')"
+  exit 1
+}
+step "verifying checksum signature (cosign)"
+# C-1: pin the OIDC issuer and the exact workflow identity. Without these flags
+# cosign accepts a keyless cert from ANY GitHub Actions workflow, so any actor
+# with a repo could sign a forged checksums.txt. The identity below mirrors
+# .goreleaser.yaml: '...release.yml@{{ .Tag }}' where the tag is v${VERSION}
+# (VERSION has its leading 'v' stripped during argument parsing above).
+curl -fsSL --retry 3 -o "${TMP}/checksums.txt.pem" "${base}/checksums.txt.pem" \
+  || { err "could not download checksums.txt.pem — aborting install"; exit 1; }
+curl -fsSL --retry 3 -o "${TMP}/checksums.txt.sig" "${base}/checksums.txt.sig" \
+  || { err "could not download checksums.txt.sig — aborting install"; exit 1; }
+[ -s "${TMP}/checksums.txt.pem" ] && [ -s "${TMP}/checksums.txt.sig" ] \
+  || { err "signature files missing from the release — aborting install"; exit 1; }
+if cosign verify-blob \
+     --certificate "${TMP}/checksums.txt.pem" \
+     --signature "${TMP}/checksums.txt.sig" \
+     --certificate-identity "https://github.com/${REPO}/.github/workflows/release.yml@v${VERSION}" \
+     --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+     "${TMP}/checksums.txt"; then
+  ok "signature valid (pinned to release.yml@v${VERSION})"
 else
-  step "cosign not installed — skipping signature check (checksums still verified)"
+  err "SIGNATURE VERIFICATION FAILED — aborting install"; exit 1
 fi
 
 step "verifying checksum"
