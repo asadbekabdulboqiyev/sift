@@ -117,10 +117,11 @@ const (
 	DefaultBurst      = 300
 	DefaultDifficulty = 4
 
-	// MaxDifficulty caps proof-of-work difficulty. The in-browser solver
-	// iterates nonces up to maxNonce; above 6 the expected work exceeds the
-	// cap and legitimate browsers could never solve the challenge, locking
-	// every visitor out. New clamps Difficulty to this value.
+	// MaxDifficulty caps proof-of-work difficulty. At difficulty 6 the expected
+	// work (16^6 = 2^24) equals maxNonce, so a browser may exhaust the nonce
+	// range without finding a solution; the challenge page handles that by
+	// requesting a fresh challenge instead of spinning forever. Above 6 the
+	// expected work exceeds the cap entirely, so New clamps to this value.
 	MaxDifficulty = 6
 
 	challengePath = "/__verigate/challenge"
@@ -699,6 +700,7 @@ func (g *VeriGate) serveChallenge(w http.ResponseWriter, r *http.Request, reason
 	_ = challengeTmpl.Execute(w, map[string]any{
 		"Prefix":     prefix,
 		"Difficulty": difficulty,
+		"MaxNonce":   maxNonce,
 		"Redirect":   redirect,
 		"Reason":     reason,
 	})

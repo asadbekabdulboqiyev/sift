@@ -186,6 +186,13 @@ func TestControllerClampsBounds(t *testing.T) {
 	if c.opts.Min != 4 || c.opts.Max != MaxDifficulty {
 		t.Errorf("defaults gave bounds [%d,%d]", c.opts.Min, c.opts.Max)
 	}
+
+	// A hostile or misconfigured ScheduleCap must not survive normalization:
+	// the controller allocates a slice of that length when it trims history.
+	c = newDifficultyController(4, AdaptiveOptions{ScheduleCap: 1 << 30})
+	if c.opts.ScheduleCap != MaxScheduleCap {
+		t.Errorf("ScheduleCap = %d, want clamp to %d", c.opts.ScheduleCap, MaxScheduleCap)
+	}
 }
 
 // --- gate integration -------------------------------------------------------

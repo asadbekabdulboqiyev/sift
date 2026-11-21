@@ -58,7 +58,8 @@ type AdaptiveOptions struct {
 	// LowWaterRPS is the request rate at or below which difficulty falls back
 	// toward Min. Default 25.
 	LowWaterRPS float64
-	// ScheduleCap bounds the retained schedule length. Default 1024.
+	// ScheduleCap bounds the retained schedule length. Default 1024, hard-capped
+	// at MaxScheduleCap so a misconfigured value cannot force a huge allocation.
 	ScheduleCap int
 }
 
@@ -69,6 +70,12 @@ const (
 	DefaultAdaptiveHighWaterRPS = 100
 	DefaultAdaptiveLowWaterRPS  = 25
 	DefaultAdaptiveScheduleCap  = 1024
+
+	// MaxScheduleCap is a hard ceiling on the retained schedule length. A
+	// hostile or misconfigured operator value would otherwise allocate GBs in
+	// make([]DifficultyEntry, ScheduleCap); the history is only an observability
+	// snapshot, so a few thousand entries are more than enough.
+	MaxScheduleCap = 4096
 )
 
 // DefaultAdaptiveOptions returns the defaults with Min and Max left for the
@@ -105,6 +112,9 @@ func (o *AdaptiveOptions) normalize(baseline int) {
 	}
 	if o.ScheduleCap <= 0 {
 		o.ScheduleCap = DefaultAdaptiveScheduleCap
+	}
+	if o.ScheduleCap > MaxScheduleCap {
+		o.ScheduleCap = MaxScheduleCap
 	}
 	if o.Min <= 0 {
 		o.Min = baseline

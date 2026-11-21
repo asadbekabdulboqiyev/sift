@@ -55,6 +55,7 @@
 (function () {
   var prefix = "{{.Prefix}}";
   var difficulty = {{.Difficulty}};
+  var maxNonce = {{- .MaxNonce -}};
   var redirect = "{{.Redirect}}";
   var meta = document.getElementById('meta');
   var msg = document.getElementById('msg');
@@ -79,6 +80,15 @@
 
   async function solve() {
     for (;;) {
+      // The server rejects nonces at or above maxNonce. Without this cap an
+      // unsolvable challenge spins the browser forever; ask for a fresh prefix
+      // instead (the expected work at the top difficulty equals the cap, so a
+      // fraction of challenges have no solution in range).
+      if (nonce >= maxNonce) {
+        msg.textContent = 'Search space exhausted - requesting a new challenge&hellip;';
+        location.href = '/__verigate/challenge?retry=1';
+        return;
+      }
       var h = await sha256Hex(prefix + nonce);
       if (h.indexOf(target) === 0) {
         msg.textContent = 'Verification passed — redirecting&hellip;';

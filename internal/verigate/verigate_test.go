@@ -65,6 +65,32 @@ func doReq(t *testing.T, url, accept string) (int, string, http.Header) {
 	return resp.StatusCode, string(body), resp.Header
 }
 
+// TestChallengePageCapsSolverNonce pins the browser/server nonce agreement: the
+// page must publish the server's cap and stop the solver when it is exhausted,
+// otherwise an unsolvable challenge spins the browser forever.
+func TestChallengePageCapsSolverNonce(t *testing.T) {
+	g := newTestGate(t, nil)
+	req := httptest.NewRequest(http.MethodGet, challengePath, nil)
+	req.RemoteAddr = "203.0.113.7:1234"
+	rec := httptest.NewRecorder()
+	g.serveChallenge(rec, req, "manual")
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("challenge status = %d, want 403", rec.Code)
+	}
+	body := rec.Body.String()
+	// html/template pads numeric interpolations with spaces, so check the cap
+	// value and the assignment separately.
+	if !strings.Contains(body, "var maxNonce = ") || !strings.Contains(body, strconv.Itoa(maxNonce)) {
+		t.Fatalf("challenge page does not publish server nonce cap %d", maxNonce)
+	}
+	if !strings.Contains(body, "nonce >= maxNonce") {
+		t.Fatal("challenge solver has no cap guard; an unsolvable challenge would spin forever")
+	}
+	if !strings.Contains(body, challengePath+"?retry=1") {
+		t.Fatal("challenge solver does not request a fresh challenge when the cap is exhausted")
+	}
+}
+
 // solveProof computes a valid nonce for a challenge prefix (mirrors the
 // browser solver in vg_challenge.html).
 func solveProof(prefix string, difficulty int) string {

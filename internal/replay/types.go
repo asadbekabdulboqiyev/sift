@@ -95,20 +95,26 @@ const (
 
 // ReplayConfig controls rate, concurrency, filtering, and validation for a replay run.
 type ReplayConfig struct { //nolint:revive // reason: renaming exported identifier would break the public API
-	RateMultiplier   float64
-	MaxConcurrency   int
-	Duration         time.Duration
-	Pacing           ReplayPacing
-	RPS              float64
-	BaseURL          string
-	SkipTLSVerify    bool
-	TLSKeys          []*TLSKey
-	FollowRedirects  bool
-	ValidateResponse bool
-	Assertions       []Assertion
-	OutputReport     bool
-	ReportDir        string
-	Filter           *PacketFilter
+	RateMultiplier float64
+	MaxConcurrency int
+	Duration       time.Duration
+	Pacing         ReplayPacing
+	RPS            float64
+	BaseURL        string
+	// AllowOriginalDestinations permits requests to the hosts recorded in the
+	// capture. It is off by default: a HAR/PCAP may contain internal or
+	// cloud-metadata URLs together with captured auth headers, so replaying it
+	// unmodified would turn the operator's host into an SSRF/exfiltration proxy.
+	// Set BaseURL or this flag explicitly to override the safety check.
+	AllowOriginalDestinations bool
+	SkipTLSVerify             bool
+	TLSKeys                   []*TLSKey
+	FollowRedirects           bool
+	ValidateResponse          bool
+	Assertions                []Assertion
+	OutputReport              bool
+	ReportDir                 string
+	Filter                    *PacketFilter
 }
 
 // PacketFilter selects packets by method, URL, status, latency, protocol, and host.

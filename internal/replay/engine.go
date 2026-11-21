@@ -197,12 +197,42 @@ func (rw *ReplayWorker) Stop() {
 }
 
 // replayPacket replays a single HTTP request
+// redactURLForError drops userinfo, query and fragment from a captured URL so
+// tokens carried in them cannot reach error strings, stdout or the JSON report.
+func redactURLForError(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "<unparseable URL>"
+	}
+	u.User = nil
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u.String()
+}
+
+// sanitizeReplayError removes the full captured URL from a net/http error
+// string. url.Error renders it as `Verb "URL": ...`, so the quoted original is
+// replaced with its redacted form before the error is stored or printed.
+func sanitizeReplayError(err error, rawURL string) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	if quoted := strconv.Quote(rawURL); strings.Contains(msg, quoted) {
+		msg = strings.Replace(msg, quoted, strconv.Quote(redactURLForError(rawURL)), 1)
+	}
+	return fmt.Errorf("%s", msg)
+}
+
 func (rw *ReplayWorker) replayPacket(pkt *Packet) error {
 	if pkt.Method == "" || pkt.URL == "" {
 		return nil // skip non-HTTP packets
 	}
 
-	// Apply base URL override if configured
+	// Apply base URL override if configured. Without an override, replaying a
+	// capture's own destinations can reach internal or cloud-metadata endpoints
+	// with the captured Authorization/Cookie headers, so require an explicit
+	// opt-in before doing so.
 	reqURL := pkt.URL
 	if rw.config.BaseURL != "" {
 		u, err := url.Parse(pkt.URL)
@@ -216,6 +246,8 @@ func (rw *ReplayWorker) replayPacket(pkt *Packet) error {
 		u.Scheme = base.Scheme
 		u.Host = base.Host
 		reqURL = u.String()
+	} else if !rw.config.AllowOriginalDestinations {
+		return fmt.Errorf("refusing to replay capture-supplied URL %q without --base-url or --allow-original-destinations", redactURLForError(pkt.URL))
 	}
 
 	// Create HTTP request
@@ -242,7 +274,7 @@ func (rw *ReplayWorker) replayPacket(pkt *Packet) error {
 	// Send request
 	resp, err := rw.conn.Do(req)
 	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
+		return sanitizeReplayError(fmt.Errorf("request failed: %w", err), reqURL)
 	}
 	defer func() { _ = resp.Body.Close() }()
 

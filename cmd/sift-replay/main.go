@@ -41,6 +41,7 @@ func main() {
 	concurrency := flag.Int("concurrency", 10, "Number of concurrent replay workers")
 	duration := flag.String("duration", "", "Max replay duration (e.g. 30s, 5m)")
 	baseURL := flag.String("base-url", "", "Override target base URL")
+	allowOriginal := flag.Bool("allow-original-destinations", false, "Allow replaying to hosts recorded in the capture (unsafe for untrusted captures)")
 	skipTLS := flag.Bool("skip-tls-verify", false, "Skip TLS certificate verification")
 	pace := flag.String("pace", "timing", "Pacing mode: timing (capture-accurate, default), rps (fixed requests/sec), legacy (1s/rate)")
 	rpsFlag := flag.Float64("rps", 0, "Target requests per second (used with --pace rps)")
@@ -185,20 +186,21 @@ Examples:
 
 	// Build config
 	config := &replay.ReplayConfig{
-		RateMultiplier:   rateMultiplier,
-		MaxConcurrency:   *concurrency,
-		Duration:         dur,
-		Pacing:           pacing,
-		RPS:              *rpsFlag,
-		BaseURL:          *baseURL,
-		SkipTLSVerify:    *skipTLS,
-		TLSKeys:          tlsKeys,
-		FollowRedirects:  *followRedirects,
-		ValidateResponse: *validate,
-		Assertions:       assertions,
-		OutputReport:     *outputJSON != "" || *outputCSV != "",
-		ReportDir:        *reportDir,
-		Filter:           filter,
+		RateMultiplier:            rateMultiplier,
+		MaxConcurrency:            *concurrency,
+		Duration:                  dur,
+		Pacing:                    pacing,
+		RPS:                       *rpsFlag,
+		BaseURL:                   *baseURL,
+		AllowOriginalDestinations: *allowOriginal,
+		SkipTLSVerify:             *skipTLS,
+		TLSKeys:                   tlsKeys,
+		FollowRedirects:           *followRedirects,
+		ValidateResponse:          *validate,
+		Assertions:                assertions,
+		OutputReport:              *outputJSON != "" || *outputCSV != "",
+		ReportDir:                 *reportDir,
+		Filter:                    filter,
 	}
 
 	// Load capture

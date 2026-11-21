@@ -15,6 +15,62 @@ import (
 	"time"
 )
 
+// --- Replay destination safety ---------------------------------------------
+
+// TestReplayPacketRefusesCaptureDestinationsByDefault pins the SSRF guard: a
+// capture may contain metadata or internal URLs plus captured auth headers, so
+// replaying its own destinations must require an explicit opt-in.
+func TestReplayPacketRefusesCaptureDestinationsByDefault(t *testing.T) {
+	cap := &Capture{Format: FormatHAR}
+	cfg := &ReplayConfig{MaxConcurrency: 1}
+	w := NewReplayWorker(0, cfg, cap, nil)
+	pkt := &Packet{
+		Method: "GET",
+		URL:    "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+	}
+	err := w.replayPacket(pkt)
+	if err == nil {
+		t.Fatal("expected refusal to replay a capture-supplied URL without opt-in")
+	}
+	if !strings.Contains(err.Error(), "allow-original-destinations") {
+		t.Fatalf("error should name the opt-in flag, got %v", err)
+	}
+
+	// With the opt-in the destination guard must step aside. Use a local server
+	// so the request itself stays in-process.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	cfg.AllowOriginalDestinations = true
+	w = NewReplayWorker(0, cfg, cap, nil)
+	pkt.URL = srv.URL + "/ok"
+	if err := w.replayPacket(pkt); err != nil {
+		t.Fatalf("opt-in should allow the captured destination, got %v", err)
+	}
+}
+
+// TestReplayErrorRedactsQueryToken verifies that a failing request's URL query
+// (a common place for API keys) never reaches error strings or the report.
+func TestReplayErrorRedactsQueryToken(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	failingURL := srv.URL + "/api?api_key=SECRET123"
+	srv.Close() // subsequent requests fail, and the url.Error carries the full URL
+
+	cfg := &ReplayConfig{MaxConcurrency: 1, AllowOriginalDestinations: true}
+	cap := &Capture{Format: FormatHAR}
+	w := NewReplayWorker(0, cfg, cap, nil)
+	err := w.replayPacket(&Packet{Method: "GET", URL: failingURL})
+	if err == nil {
+		t.Fatal("expected a dial error against the closed server")
+	}
+	if strings.Contains(err.Error(), "SECRET123") || strings.Contains(err.Error(), "api_key=") {
+		t.Fatalf("error leaks the captured query token: %v", err)
+	}
+}
+
 // --- HAR Parsing Tests ------------------------------------------------------
 
 func TestParseHAR(t *testing.T) {
@@ -748,9 +804,10 @@ func TestReplayWorker_SkipsNonHTTP(t *testing.T) {
 
 func TestReplayWorker_SkipsHostAndContentLengthHeaders(t *testing.T) {
 	cfg := &ReplayConfig{
-		RateMultiplier: 1.0,
-		MaxConcurrency: 1,
-		SkipTLSVerify:  true,
+		RateMultiplier:            1.0,
+		MaxConcurrency:            1,
+		AllowOriginalDestinations: true,
+		SkipTLSVerify:             true,
 	}
 
 	pkt := &Packet{
@@ -944,10 +1001,11 @@ func TestReplayPacingTiming_PreservesRelativeGaps(t *testing.T) {
 	capture := timedCapture(base, srv.URL+"/a", 0, 200*time.Millisecond, 500*time.Millisecond)
 
 	cfg := &ReplayConfig{
-		Pacing:         PacingTiming,
-		RateMultiplier: 1.0,
-		MaxConcurrency: 1,
-		SkipTLSVerify:  true,
+		Pacing:                    PacingTiming,
+		RateMultiplier:            1.0,
+		MaxConcurrency:            1,
+		AllowOriginalDestinations: true,
+		SkipTLSVerify:             true,
 	}
 
 	result := runReplayEngine(t, cfg, capture, 1)
@@ -979,10 +1037,11 @@ func TestReplayPacingTiming_RateScalesGaps(t *testing.T) {
 	capture := timedCapture(base, srv.URL+"/b", 0, 200*time.Millisecond, 500*time.Millisecond)
 
 	cfg := &ReplayConfig{
-		Pacing:         PacingTiming,
-		RateMultiplier: 2.0,
-		MaxConcurrency: 1,
-		SkipTLSVerify:  true,
+		Pacing:                    PacingTiming,
+		RateMultiplier:            2.0,
+		MaxConcurrency:            1,
+		AllowOriginalDestinations: true,
+		SkipTLSVerify:             true,
 	}
 
 	result := runReplayEngine(t, cfg, capture, 1)
@@ -1014,10 +1073,11 @@ func TestReplayPacingLegacy(t *testing.T) {
 	capture := timedCapture(base, srv.URL+"/l", 0, 10*time.Minute, 20*time.Minute)
 
 	cfg := &ReplayConfig{
-		Pacing:         PacingLegacy,
-		RateMultiplier: 10.0,
-		MaxConcurrency: 1,
-		SkipTLSVerify:  true,
+		Pacing:                    PacingLegacy,
+		RateMultiplier:            10.0,
+		MaxConcurrency:            1,
+		AllowOriginalDestinations: true,
+		SkipTLSVerify:             true,
 	}
 
 	start := time.Now()
@@ -1074,11 +1134,12 @@ func TestReplayFollowRedirects(t *testing.T) {
 
 			pkt := &Packet{Method: "GET", URL: srv.URL + "/start", Protocol: "http", IsRequest: true}
 			cfg := &ReplayConfig{
-				Pacing:          PacingTiming,
-				RateMultiplier:  1000,
-				MaxConcurrency:  1,
-				SkipTLSVerify:   true,
-				FollowRedirects: tc.follow,
+				Pacing:                    PacingTiming,
+				RateMultiplier:            1000,
+				MaxConcurrency:            1,
+				AllowOriginalDestinations: true,
+				SkipTLSVerify:             true,
+				FollowRedirects:           tc.follow,
 			}
 
 			w := NewReplayWorker(0, cfg, &Capture{}, []*Packet{pkt})
@@ -1123,11 +1184,12 @@ func TestReplayDuration(t *testing.T) {
 	capture := timedCapture(base, srv.URL+"/d", offsets...)
 
 	cfg := &ReplayConfig{
-		Pacing:         PacingTiming,
-		RateMultiplier: 1.0,
-		MaxConcurrency: 1,
-		Duration:       300 * time.Millisecond,
-		SkipTLSVerify:  true,
+		Pacing:                    PacingTiming,
+		RateMultiplier:            1.0,
+		MaxConcurrency:            1,
+		Duration:                  300 * time.Millisecond,
+		AllowOriginalDestinations: true,
+		SkipTLSVerify:             true,
 	}
 
 	start := time.Now()
