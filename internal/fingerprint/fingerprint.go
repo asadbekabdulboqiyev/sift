@@ -24,6 +24,7 @@ import (
 // Go stack untouched".
 type Profile string
 
+// Chrome and the other profile constants name TLS ClientHello presets.
 const (
 	// Default disables fingerprinting and uses crypto/tls as usual.
 	Default Profile = ""

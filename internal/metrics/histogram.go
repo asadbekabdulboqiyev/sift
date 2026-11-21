@@ -118,6 +118,7 @@ func (h *Histogram) Add(d time.Duration) {
 	}
 }
 
+// Count returns the number of observations recorded so far.
 func (h *Histogram) Count() uint64 { return h.count.Load() }
 
 // Clamped reports how many observations exceeded the top bucket and were
@@ -223,6 +224,7 @@ func (h *Histogram) MinLatency() time.Duration {
 	return time.Duration(h.min.Load()) // #nosec G115 -- latency/duration values are bounded in practice
 }
 
+// MaxLatency returns the largest recorded latency, or zero if empty.
 func (h *Histogram) MaxLatency() time.Duration {
 	if h.count.Load() == 0 {
 		return 0

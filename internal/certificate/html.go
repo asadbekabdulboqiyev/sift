@@ -92,11 +92,11 @@ func RenderHTMLMeta(a Assessment, m DocumentMeta) string {
 
 	var rows strings.Builder
 	for _, f := range a.Findings {
-		rows.WriteString(fmt.Sprintf(
+		_, _ = fmt.Fprintf(&rows,
 			"      <tr><td class=\"sev\"><span class=\"badge b-%s\">%s</span></td><td>%s</td><td class=\"mono dim\">%s</td><td class=\"mono dim id\">%s</td></tr>\n",
 			severityClass(f.Severity), html.EscapeString(strings.ToUpper(strings.TrimSpace(f.Severity))),
 			html.EscapeString(f.Title), html.EscapeString(f.Evidence), html.EscapeString(f.ID),
-		))
+		)
 	}
 	if rows.Len() == 0 {
 		rows.WriteString("      <tr><td colspan=\"4\" class=\"dim\">No defects were recorded in the tested categories.</td></tr>\n")
@@ -104,11 +104,11 @@ func RenderHTMLMeta(a Assessment, m DocumentMeta) string {
 
 	var comps strings.Builder
 	for _, ctl := range a.Compliance {
-		comps.WriteString(fmt.Sprintf(
+		_, _ = fmt.Fprintf(&comps,
 			"      <tr><td>%s</td><td class=\"mono dim\">%s</td><td>%s</td><td class=\"status s-%s\">%s</td></tr>\n",
 			html.EscapeString(ctl.Framework), html.EscapeString(ctl.ID), html.EscapeString(ctl.Title),
 			statusClass(ctl.Status), html.EscapeString(strings.ToUpper(strings.TrimSpace(ctl.Status))),
-		))
+		)
 	}
 	if comps.Len() == 0 {
 		comps.WriteString("      <tr><td colspan=\"4\" class=\"dim\">No compliance controls were mapped.</td></tr>\n")

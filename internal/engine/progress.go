@@ -25,6 +25,7 @@ const (
 	pCyan   = "\x1b[36m"
 )
 
+// ProgressTracker renders live request and latency counters for a load run.
 type ProgressTracker struct {
 	startTime  time.Time
 	duration   time.Duration
@@ -50,6 +51,7 @@ type ProgressTracker struct {
 	finishOnce sync.Once
 }
 
+// NewProgressTracker creates a ProgressTracker writing to os.Stderr.
 func NewProgressTracker(duration time.Duration, users int) *ProgressTracker {
 	return newProgressTracker(duration, users, os.Stderr)
 }
@@ -71,6 +73,7 @@ func newProgressTracker(duration time.Duration, users int, out io.Writer) *Progr
 	return pt
 }
 
+// Update records one measurement snapshot from the engine.
 func (pt *ProgressTracker) Update(totalReqs, totalErrors uint64, latency time.Duration) {
 	pt.totalReqs.Store(totalReqs)
 	pt.totalErrors.Store(totalErrors)
@@ -94,6 +97,7 @@ func (pt *ProgressTracker) Update(totalReqs, totalErrors uint64, latency time.Du
 	pt.snapCount.Add(1)
 }
 
+// Finish stops the render loop and prints the final box exactly once.
 func (pt *ProgressTracker) Finish() {
 	pt.finishOnce.Do(func() {
 		if !pt.isTerminal {
@@ -108,6 +112,7 @@ func (pt *ProgressTracker) Finish() {
 	})
 }
 
+// SetQuiet enables or suppresses terminal rendering.
 func (pt *ProgressTracker) SetQuiet(q bool) {
 	pt.quiet = q
 }

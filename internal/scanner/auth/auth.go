@@ -27,6 +27,7 @@ import (
 // AuthType selects how a scan session authenticates against a target.
 type AuthType int
 
+// AuthNone and the following values enumerate the supported authentication modes.
 const (
 	AuthNone    AuthType = iota // no authentication
 	AuthForm                    // POST credentials to a login URL, keep session cookies

@@ -20,6 +20,7 @@ const (
 	PermAuditRead = "audit:read"
 )
 
+// ErrDenied is returned when a role does not grant the requested permission.
 var ErrDenied = errors.New("rbac: permission denied")
 
 // Has reports whether the role grants perm. Admin always grants everything.

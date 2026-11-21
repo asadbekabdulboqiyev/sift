@@ -12,19 +12,25 @@ const (
 	bufMaxTier = bufLarge
 )
 
+// ReusableBuffer is a byte buffer borrowed from a BufferPool; release it with Release when done.
 type ReusableBuffer struct {
 	buf  []byte
 	pool *BufferPool
 }
 
+// Bytes returns the bytes currently written to the buffer.
 func (b *ReusableBuffer) Bytes() []byte { return b.buf }
 
+// Len returns the number of bytes currently written to the buffer.
 func (b *ReusableBuffer) Len() int { return len(b.buf) }
 
+// Cap returns the capacity of the buffer's underlying byte slice.
 func (b *ReusableBuffer) Cap() int { return cap(b.buf) }
 
+// Reset truncates the buffer to zero length while keeping its capacity.
 func (b *ReusableBuffer) Reset() { b.buf = b.buf[:0] }
 
+// Release returns the buffer to its originating pool; it is a no-op for a standalone buffer.
 func (b *ReusableBuffer) Release() {
 	if b.pool == nil {
 		return
@@ -32,6 +38,7 @@ func (b *ReusableBuffer) Release() {
 	b.pool.put(b)
 }
 
+// BufferPool is a concurrency-safe tiered pool of byte buffers used on the hot request path.
 type BufferPool struct {
 	small  sync.Pool
 	medium sync.Pool
@@ -44,6 +51,7 @@ type BufferPool struct {
 	upgradedBuffers  atomic.Int64
 }
 
+// PoolStats is a point-in-time snapshot of BufferPool usage counters.
 type PoolStats struct {
 	Gets        int64
 	Releases    int64
@@ -52,6 +60,7 @@ type PoolStats struct {
 	Upgrades    int64
 }
 
+// NewBufferPool creates a BufferPool with small, medium, and large size tiers.
 func NewBufferPool() *BufferPool {
 	p := &BufferPool{}
 	p.small.New = func() any { return make([]byte, 0, bufSmall) }
@@ -60,10 +69,12 @@ func NewBufferPool() *BufferPool {
 	return p
 }
 
+// Get borrows a buffer with no minimum size requirement.
 func (p *BufferPool) Get() *ReusableBuffer {
 	return p.GetMinSize(0)
 }
 
+// GetMinSize borrows a buffer of at least minSize bytes, allocating a one-off buffer above the largest tier.
 func (p *BufferPool) GetMinSize(minSize int) *ReusableBuffer {
 	p.totalGets.Add(1)
 
@@ -110,6 +121,7 @@ func (p *BufferPool) put(rb *ReusableBuffer) {
 	rb.buf = nil
 }
 
+// Stats returns a snapshot of the pool usage counters.
 func (p *BufferPool) Stats() PoolStats {
 	return PoolStats{
 		Gets:        p.totalGets.Load(),
@@ -120,6 +132,7 @@ func (p *BufferPool) Stats() PoolStats {
 	}
 }
 
+// Reset zeroes the pool usage counters without returning borrowed buffers.
 func (p *BufferPool) Reset() {
 	p.totalGets.Store(0)
 	p.totalReleases.Store(0)
@@ -128,8 +141,14 @@ func (p *BufferPool) Reset() {
 	p.upgradedBuffers.Store(0)
 }
 
+// DefaultPool is the package-level pool used by GetBuffer, GetBufferMin, and ReleaseBuffer.
 var DefaultPool = NewBufferPool()
 
-func GetBuffer() *ReusableBuffer            { return DefaultPool.Get() }
+// GetBuffer borrows a buffer from DefaultPool.
+func GetBuffer() *ReusableBuffer { return DefaultPool.Get() }
+
+// GetBufferMin borrows a buffer of at least size bytes from DefaultPool.
 func GetBufferMin(size int) *ReusableBuffer { return DefaultPool.GetMinSize(size) }
-func ReleaseBuffer(rb *ReusableBuffer)      { rb.Release() }
+
+// ReleaseBuffer returns a buffer to DefaultPool.
+func ReleaseBuffer(rb *ReusableBuffer) { rb.Release() }

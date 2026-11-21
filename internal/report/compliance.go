@@ -9,6 +9,7 @@ import (
 // ComplianceFramework identifies a supported compliance standard.
 type ComplianceFramework string
 
+// CompPCI and its sibling constants identify supported compliance frameworks.
 const (
 	CompPCI  ComplianceFramework = "PCI DSS v4.0"
 	CompSOC2 ComplianceFramework = "SOC 2"

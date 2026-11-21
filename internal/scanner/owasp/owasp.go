@@ -1433,8 +1433,8 @@ func (c *OWASPChecker) Render() string {
 	if gradeDisplay == "" {
 		gradeDisplay = "N/A"
 	}
-	b.WriteString(fmt.Sprintf("║  Target: %-50s ║\n", r.Categories["A01"].Name))
-	b.WriteString(fmt.Sprintf("║  Score:  %d/100  Grade: %-35s ║\n", r.Score, gradeDisplay))
+	_, _ = fmt.Fprintf(&b, "║  Target: %-50s ║\n", r.Categories["A01"].Name)
+	_, _ = fmt.Fprintf(&b, "║  Score:  %d/100  Grade: %-35s ║\n", r.Score, gradeDisplay)
 	b.WriteString("╚══════════════════════════════════════════════════════════════╝\n\n")
 
 	// Category order
@@ -1456,15 +1456,15 @@ func (c *OWASPChecker) Render() string {
 			statusIcon = "➖"
 		}
 
-		b.WriteString(fmt.Sprintf("┌─── %s: %s ─── %s [%d/100]\n", cat.ID, cat.Name, statusIcon, cat.Score))
+		_, _ = fmt.Fprintf(&b, "┌─── %s: %s ─── %s [%d/100]\n", cat.ID, cat.Name, statusIcon, cat.Score)
 
 		if len(cat.Findings) == 0 {
 			b.WriteString("│  No findings\n")
 		} else {
 			for i, f := range cat.Findings {
-				b.WriteString(fmt.Sprintf("│  %s\n", f))
+				_, _ = fmt.Fprintf(&b, "│  %s\n", f)
 				if i < len(cat.Remediation) {
-					b.WriteString(fmt.Sprintf("│    → %s\n", cat.Remediation[i]))
+					_, _ = fmt.Fprintf(&b, "│    → %s\n", cat.Remediation[i])
 				}
 			}
 		}
@@ -1488,11 +1488,11 @@ func (c *OWASPChecker) Render() string {
 
 	b.WriteString("════════════════════════════════════════════════════════════════\n")
 	if notTestedCount > 0 {
-		b.WriteString(fmt.Sprintf(" SUMMARY: ✅ %d PASS  ⚠️  %d WARNING  ❌ %d FAIL  ➖ %d NOT TESTED\n", passCount, warnCount, failCount, notTestedCount))
+		_, _ = fmt.Fprintf(&b, " SUMMARY: ✅ %d PASS  ⚠️  %d WARNING  ❌ %d FAIL  ➖ %d NOT TESTED\n", passCount, warnCount, failCount, notTestedCount)
 	} else {
-		b.WriteString(fmt.Sprintf(" SUMMARY: ✅ %d PASS  ⚠️  %d WARNING  ❌ %d FAIL\n", passCount, warnCount, failCount))
+		_, _ = fmt.Fprintf(&b, " SUMMARY: ✅ %d PASS  ⚠️  %d WARNING  ❌ %d FAIL\n", passCount, warnCount, failCount)
 	}
-	b.WriteString(fmt.Sprintf(" OVERALL SCORE: %d/100  GRADE: %s\n", r.Score, gradeDisplay))
+	_, _ = fmt.Fprintf(&b, " OVERALL SCORE: %d/100  GRADE: %s\n", r.Score, gradeDisplay)
 	// Warn only for this checker's own opt-out, never for a global setting.
 	if c.Results.InsecureTLS || c.InsecureTLS {
 		b.WriteString(" " + TLSVerifyWarning + "\n")

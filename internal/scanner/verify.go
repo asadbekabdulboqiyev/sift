@@ -34,6 +34,7 @@ import (
 // Confidence grades how strongly a finding survived re-verification.
 type Confidence string
 
+// ConfConfirmed and the following values grade how strongly a finding was re-verified.
 const (
 	ConfConfirmed Confidence = "confirmed" // independently re-verified
 	ConfProbable  Confidence = "probable"  // strong signal, single method

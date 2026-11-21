@@ -10,6 +10,7 @@ import (
 // ResourceMetricStatus describes availability of a resource metric.
 type ResourceMetricStatus string
 
+// ResourceStatusAvailable and its sibling statuses describe metric availability.
 const (
 	ResourceStatusAvailable        ResourceMetricStatus = "available"
 	ResourceStatusUnavailable      ResourceMetricStatus = "unavailable"

@@ -33,6 +33,7 @@ type job struct {
 	mode      string
 }
 
+// NewManager returns an empty Manager ready to accept audit jobs.
 func NewManager() *Manager {
 	return &Manager{jobs: make(map[string]*job)}
 }
@@ -205,6 +206,7 @@ func (m *Manager) run(ctx context.Context, j *job, target string, maxDur time.Du
 	j.publish(Event{Type: "completed", Status: j.snapshot(), Report: rep})
 }
 
+// Get returns a snapshot of the job status and whether the job exists.
 func (m *Manager) Get(jobID string) (*JobStatus, bool) {
 	m.mu.RLock()
 	j, ok := m.jobs[jobID]
@@ -216,6 +218,8 @@ func (m *Manager) Get(jobID string) (*JobStatus, bool) {
 	return st, true
 }
 
+// Subscribe registers a listener for job events and returns its channel, an
+// unsubscribe function, and whether the job exists.
 func (m *Manager) Subscribe(jobID string) (<-chan Event, func(), bool) {
 	m.mu.RLock()
 	j, ok := m.jobs[jobID]

@@ -94,6 +94,7 @@ func ScanHTTPWithControl(target string, control func(network, address string, c 
 	return info, nil
 }
 
+// DetectTechnologies identifies server and framework names from response headers and cookies.
 func DetectTechnologies(resp *http.Response) []string {
 	var techs []string
 
@@ -158,6 +159,7 @@ func DetectTechnologies(resp *http.Response) []string {
 	return techs
 }
 
+// ContainsTech reports whether techs already contains tech, ignoring case.
 func ContainsTech(techs []string, tech string) bool {
 	for _, t := range techs {
 		if strings.EqualFold(t, tech) {

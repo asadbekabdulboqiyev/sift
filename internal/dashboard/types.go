@@ -6,6 +6,7 @@ import (
 
 // --- Types ------------------------------------------------------------------
 
+// LiveSnapshot is the point-in-time view of a run pushed to the browser.
 type LiveSnapshot struct {
 	Timestamp   time.Time      `json:"timestamp"`
 	RPS         float64        `json:"rps"`
@@ -22,6 +23,7 @@ type LiveSnapshot struct {
 	Workers     []WorkerStatus `json:"workers,omitempty"`
 }
 
+// WorkerStatus describes one load-generator worker in a live snapshot.
 type WorkerStatus struct {
 	ID      string  `json:"id"`
 	Address string  `json:"address"`
@@ -31,6 +33,7 @@ type WorkerStatus struct {
 	Errors  uint64  `json:"errors"`
 }
 
+// RunConfig is the configuration of a dashboard-started load run.
 type RunConfig struct {
 	TargetURL       string            `json:"target_url"`
 	Users           int               `json:"users"`
@@ -43,6 +46,7 @@ type RunConfig struct {
 	TLSFingerprint  string            `json:"tls_fingerprint,omitempty"`
 }
 
+// RunState is the current status and timing of a dashboard load run.
 type RunState struct {
 	Status    string        `json:"status"`
 	Config    *RunConfig    `json:"config,omitempty"`
@@ -54,6 +58,7 @@ type RunState struct {
 	Error     string        `json:"error,omitempty"`
 }
 
+// HistoryEntry is one completed run recorded in the dashboard history.
 type HistoryEntry struct {
 	ID        string    `json:"id"`
 	Timestamp time.Time `json:"timestamp"`
@@ -62,6 +67,7 @@ type HistoryEntry struct {
 	Duration  string    `json:"duration"`
 }
 
+// RunResult holds the aggregate measurements of a completed run.
 type RunResult struct {
 	TotalRequests uint64         `json:"total_requests"`
 	TotalErrors   uint64         `json:"total_errors"`

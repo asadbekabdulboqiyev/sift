@@ -44,6 +44,7 @@ type Config struct {
 	HTTPClient *http.Client
 }
 
+// ErrInvalidConfig reports an invalid OIDC client configuration.
 var (
 	ErrInvalidConfig = errors.New("oidc: invalid config")
 	ErrNoToken       = errors.New("oidc: no token returned")

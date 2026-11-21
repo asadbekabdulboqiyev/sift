@@ -43,6 +43,8 @@ const (
 
 // --- Dashboard Server -------------------------------------------------------
 
+// Server is the local dashboard's HTTP server: it owns the WebSocket
+// client set, live snapshot/run state, history and injected handlers.
 type Server struct {
 	upgrader websocket.Upgrader
 	clients  map[*websocket.Conn]bool
@@ -92,6 +94,7 @@ type Server struct {
 	allowedHosts map[string]struct{}
 }
 
+// NewServer creates a Server with empty state and a demo-store launcher.
 func NewServer() *Server {
 	return &Server{
 		upgrader: websocket.Upgrader{
@@ -117,6 +120,7 @@ func NewServer() *Server {
 	}
 }
 
+// SetCommandHandler installs the callback that receives dashboard commands.
 func (s *Server) SetCommandHandler(handler func(cmd string, args map[string]interface{})) {
 	s.onCommand = handler
 }
@@ -154,17 +158,21 @@ func (s *Server) SetAuthMiddleware(mw func(http.Handler) http.Handler) {
 	s.authMiddleware = mw
 }
 
+// GetAttestationInfo returns the latest attestation state.
 func (s *Server) GetAttestationInfo() AttestationInfo {
 	s.attestMu.RLock()
 	defer s.attestMu.RUnlock()
 	return s.attestInfo
 }
 
+// SetAttestationInfo replaces the latest attestation state.
 func (s *Server) SetAttestationInfo(info AttestationInfo) {
 	s.attestMu.Lock()
 	defer s.attestMu.Unlock()
 	s.attestInfo = info
 }
+
+// UpdateSnapshot replaces the live snapshot and broadcasts it to clients.
 func (s *Server) UpdateSnapshot(snap *LiveSnapshot) {
 	s.mu.Lock()
 	s.snapshot = snap
@@ -172,6 +180,7 @@ func (s *Server) UpdateSnapshot(snap *LiveSnapshot) {
 	s.broadcast()
 }
 
+// SetRunState replaces the current run state and broadcasts it to clients.
 func (s *Server) SetRunState(state *RunState) {
 	s.mu.Lock()
 	s.runState = state
@@ -179,6 +188,7 @@ func (s *Server) SetRunState(state *RunState) {
 	s.broadcastRunState()
 }
 
+// AddHistoryEntry appends a completed run to the dashboard history.
 func (s *Server) AddHistoryEntry(entry HistoryEntry) {
 	s.mu.Lock()
 	s.history = append(s.history, entry)

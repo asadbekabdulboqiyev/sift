@@ -16,6 +16,7 @@ import (
 	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 )
 
+// StepReport holds the measured statistics for one load-test step.
 type StepReport struct {
 	Name       string            `json:"name"`
 	Requests   uint64            `json:"requests"`
@@ -30,6 +31,7 @@ type StepReport struct {
 	P99        time.Duration     `json:"p99"`
 }
 
+// Report is the complete result of a load-test run.
 type Report struct {
 	Name          string                   `json:"name"`
 	BaseURL       string                   `json:"base_url"`
@@ -357,6 +359,7 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	return shared.Write(path, data, perm, shared.WithDirSync(true))
 }
 
+// SaveJSON writes the report as indented JSON and returns the file path.
 func (r Report) SaveJSON(dir string) (string, error) {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return "", err
@@ -372,6 +375,7 @@ func (r Report) SaveJSON(dir string) (string, error) {
 	return path, nil
 }
 
+// SaveTXT writes the rendered text report and returns the file path.
 func (r Report) SaveTXT(dir string) (string, error) {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return "", err

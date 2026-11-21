@@ -50,6 +50,8 @@ type EngineBridge struct {
 	engineFeedsSamples bool
 }
 
+// NewEngineBridge creates an EngineBridge wired to the given dashboard
+// server.
 func NewEngineBridge(server *Server) *EngineBridge {
 	return &EngineBridge{
 		server:      server,

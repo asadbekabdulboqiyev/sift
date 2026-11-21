@@ -114,7 +114,7 @@ func formatAlert(a TelegramAlert) string {
 	if len(a.Fields) > 0 {
 		b.WriteString("\n*Fields:*\n")
 		for k, v := range a.Fields {
-			b.WriteString(fmt.Sprintf("`%s`: %s\n", k, v))
+			_, _ = fmt.Fprintf(&b, "`%s`: %s\n", k, v)
 		}
 	}
 	b.WriteString("\n*Timestamp:* " + a.Timestamp)

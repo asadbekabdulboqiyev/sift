@@ -18,6 +18,7 @@ const liveLines = 3
 // sparklineChars renders RPS history; ordered from lowest to highest bar.
 const sparklineChars = "▁▁▂▂▃▃▄▄▅▅▆▆▇▇█"
 
+// StartLive renders a live progress panel until the returned stop function is called.
 func StartLive(t *metrics.Telemetry, total time.Duration, out io.Writer) func() {
 	if !isTerminal(out) {
 		return func() {}

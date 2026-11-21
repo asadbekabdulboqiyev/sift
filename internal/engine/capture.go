@@ -7,8 +7,10 @@ import (
 	"unicode/utf8"
 )
 
+// DefaultCaptureBodyBytes is the per-entry body limit used when none is configured.
 const DefaultCaptureBodyBytes = 2048
 
+// CapturedResponse is one recorded HTTP exchange for reporting or inspection.
 type CapturedResponse struct {
 	Step   string
 	Method string
@@ -18,10 +20,12 @@ type CapturedResponse struct {
 	Body   []byte
 }
 
+// ResponseCapture receives response records produced during a load run.
 type ResponseCapture interface {
 	Record(CapturedResponse)
 }
 
+// BufferCapture is a concurrency-safe ResponseCapture that keeps a bounded number of responses.
 type BufferCapture struct {
 	mu           sync.Mutex
 	maxEntries   int
@@ -30,6 +34,7 @@ type BufferCapture struct {
 	dropped      int
 }
 
+// NewBufferCapture creates a BufferCapture keeping at most maxEntries responses with bodies capped at maxBodyBytes.
 func NewBufferCapture(maxEntries, maxBodyBytes int) *BufferCapture {
 	if maxEntries < 1 {
 		maxEntries = 1
@@ -43,6 +48,7 @@ func NewBufferCapture(maxEntries, maxBodyBytes int) *BufferCapture {
 	}
 }
 
+// Record adds one response, dropping it when the entry cap is reached.
 func (b *BufferCapture) Record(r CapturedResponse) {
 	if b == nil {
 		return
@@ -59,6 +65,7 @@ func (b *BufferCapture) Record(r CapturedResponse) {
 	b.entries = append(b.entries, r)
 }
 
+// Count returns the number of kept responses and the number dropped at the cap.
 func (b *BufferCapture) Count() (kept, dropped int) {
 	if b == nil {
 		return 0, 0
@@ -68,6 +75,7 @@ func (b *BufferCapture) Count() (kept, dropped int) {
 	return len(b.entries), b.dropped
 }
 
+// Render writes a human-readable summary of all kept responses to w.
 func (b *BufferCapture) Render(w io.Writer) error {
 	if b == nil {
 		return nil

@@ -15,6 +15,8 @@ import (
 	"github.com/asadbekabdulboqiyev/sift/internal/fingerprint"
 )
 
+// ProfileSteady and the sibling constants below name the load profiles
+// accepted by Profile.Normalize.
 const (
 	ProfileSteady      = "steady"
 	ProfileSoak        = "soak"
@@ -34,6 +36,8 @@ const (
 	MaxTimeoutSeconds = 5 * 60 // 5 minutes
 )
 
+// Profile is the load-shape configuration of a scenario: user count,
+// duration, pacing and protocol options.
 type Profile struct {
 	Type        string `yaml:"type" json:"type"`
 	Users       int    `yaml:"users" json:"users"`
@@ -68,12 +72,16 @@ func (p *Profile) HTTP2Enabled() bool {
 	return p.Http2 == nil || *p.Http2
 }
 
+// Extract describes one value to capture from a step response into a
+// named variable.
 type Extract struct {
 	Name string `yaml:"name" json:"name"`
 	From string `yaml:"from" json:"from"`
 	Path string `yaml:"path" json:"path"`
 }
 
+// RateLimitConfig holds the rate-limit simulation settings embedded in a
+// Profile.
 type RateLimitConfig struct {
 	DefaultRPS   int           `yaml:"default_rps" json:"default_rps"`
 	MaxBurst     int           `yaml:"max_burst" json:"max_burst"`
@@ -89,6 +97,7 @@ type Assertion struct {
 	Value string `yaml:"value" json:"value"` // "200", "2xx", "data.token", regex pattern
 }
 
+// Step is one request (or one conditional branch) in a scenario.
 type Step struct {
 	Name       string            `yaml:"name" json:"name"`
 	Type       string            `yaml:"type" json:"type"` // http (default) | ws | grpc | grpc-stream | tcp | udp | if
@@ -257,6 +266,7 @@ type SLA struct {
 	MinRPS          float64 `yaml:"min_rps" json:"min_rps"`
 }
 
+// Normalize validates that every configured SLA threshold is non-negative.
 func (s *SLA) Normalize() error {
 	if s == nil {
 		return nil
@@ -279,6 +289,8 @@ func (s *SLA) Empty() bool {
 	return s == nil || (s.MaxP99Ms <= 0 && s.MaxAvgMs <= 0 && s.MaxErrorRatePct <= 0 && s.MinRPS <= 0)
 }
 
+// Scenario is a complete load-test definition: target, load profile,
+// ordered steps, variables and optional SLA thresholds.
 type Scenario struct {
 	Name               string            `yaml:"name" json:"name"`
 	BaseURL            string            `yaml:"base_url" json:"base_url"`
@@ -291,6 +303,7 @@ type Scenario struct {
 	PreWarmTime        time.Duration     `yaml:"-" json:"-"`
 }
 
+// Normalize fills in profile defaults and validates all load parameters.
 func (p *Profile) Normalize() error {
 	if p.Type == "" {
 		p.Type = ProfileSteady
@@ -399,6 +412,8 @@ func (p *Profile) Normalize() error {
 	return nil
 }
 
+// TotalDuration returns the profile's full duration in seconds, including
+// the warmup and hold phases of a spike.
 func (p *Profile) TotalDuration() int {
 	switch p.Type {
 	case ProfileSpike:
@@ -413,6 +428,8 @@ func (p *Profile) IsConstantRPS() bool {
 	return p.Type == ProfileConstantRPS
 }
 
+// Normalize fills in defaults and validates the scenario profile, SLA
+// and every step (recursing into conditional branches).
 func (s *Scenario) Normalize() error {
 	if s.Name == "" {
 		s.Name = "unnamed"
@@ -577,6 +594,7 @@ func normalizeControlFlow(st *Step) error {
 	return nil
 }
 
+// Load reads a YAML scenario from path and normalizes it.
 func Load(path string) (*Scenario, error) {
 	data, err := os.ReadFile(filepath.Clean(path)) // #nosec G304 -- path is an operator-selected scenario file
 	if err != nil {
@@ -592,6 +610,7 @@ func Load(path string) (*Scenario, error) {
 	return sc, nil
 }
 
+// LoadJSON decodes a JSON scenario and normalizes it.
 func LoadJSON(data []byte) (*Scenario, error) {
 	sc := &Scenario{}
 	if err := json.Unmarshal(data, sc); err != nil {

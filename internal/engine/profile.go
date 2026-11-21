@@ -8,6 +8,7 @@ import (
 	"github.com/asadbekabdulboqiyev/sift/internal/config"
 )
 
+// LoadProfile defines how virtual users and run duration evolve during a load test.
 type LoadProfile interface {
 	ConcurrencyAt(elapsed time.Duration) int
 	MaxConcurrency() int

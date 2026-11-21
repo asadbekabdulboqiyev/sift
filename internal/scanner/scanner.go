@@ -53,6 +53,7 @@ type BySeverity = core.BySeverity
 // (re-exported from the auth subpackage).
 type AuthType = auth.AuthType
 
+// AuthNone and the following values enumerate the supported authentication modes.
 const (
 	AuthNone    AuthType = 0 // no authentication
 	AuthForm    AuthType = 1 // POST credentials to a login URL, keep session cookies
@@ -78,8 +79,11 @@ func NewAuthSession(cfg AuthConfig, timeout time.Duration) (*AuthSession, error)
 // Endpoint / CrawlResult / CrawlOptions / Crawler are the attack-surface
 // crawl primitives (re-exported from the crawl subpackage).
 type (
-	Endpoint     = crawl.Endpoint
-	CrawlResult  = crawl.CrawlResult
+	// Endpoint describes a discovered URL and its HTTP method.
+	Endpoint = crawl.Endpoint
+	// CrawlResult holds the endpoints and forms found during a crawl.
+	CrawlResult = crawl.CrawlResult
+	// CrawlOptions configures the behaviour of a Crawler.
 	CrawlOptions = crawl.CrawlOptions
 )
 
@@ -93,8 +97,11 @@ func NewCrawler(startURL string, opts CrawlOptions) *Crawler {
 
 // OWASP re-exports (facade) — implementation lives in the owasp subpackage.
 type (
-	OWASPChecker  = owasp.OWASPChecker
-	OWASPReport   = owasp.OWASPReport
+	// OWASPChecker runs the OWASP Top 10 probes against a target.
+	OWASPChecker = owasp.OWASPChecker
+	// OWASPReport holds the outcome of an OWASP Top 10 assessment.
+	OWASPReport = owasp.OWASPReport
+	// OWASPCategory describes the status of one OWASP Top 10 category.
 	OWASPCategory = owasp.OWASPCategory
 )
 

@@ -21,7 +21,7 @@ type WAFSignature struct {
 	JSChallenge bool
 }
 
-// WAF signatures for detection.
+// WAFSignatures maps vendor keys to their fingerprinting signatures.
 var WAFSignatures = map[string]WAFSignature{
 	"cloudflare": {
 		Name:        "Cloudflare",

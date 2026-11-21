@@ -12,12 +12,14 @@ import (
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
 )
 
+// CVEDetector fingerprints a target and accumulates matched CVE findings.
 type CVEDetector struct {
 	Target  string
 	Client  *http.Client
 	Results *CVEReport
 }
 
+// CVEReport holds the outcome of a single CVE detection run.
 type CVEReport struct {
 	Target   string     `json:"target"`
 	ScanTime time.Time  `json:"scan_time"`
@@ -33,6 +35,7 @@ type CVEReport struct {
 	Grade     string `json:"grade"` // SeverityGrade scale, not report.GradeForScore
 }
 
+// CVEMatch describes one CVE matched against the scanned target.
 type CVEMatch struct {
 	CVEID       string     `json:"cve_id"`
 	Description string     `json:"description"`
@@ -53,6 +56,7 @@ type CVEMatch struct {
 // CVEFinding is an alias for CVEMatch (used in tests)
 type CVEFinding = CVEMatch
 
+// ExploitPoC describes a proof-of-concept for a matched CVE.
 type ExploitPoC struct {
 	Type        string   `json:"type,omitempty"`
 	Description string   `json:"description,omitempty"`
@@ -86,6 +90,7 @@ type cvePattern struct {
 	VerNum  string
 }
 
+// NewCVEDetector creates a CVE detector for the given target.
 func NewCVEDetector(target string) *CVEDetector {
 	return &CVEDetector{
 		Target: target,
@@ -102,6 +107,7 @@ func NewCVEDetector(target string) *CVEDetector {
 	}
 }
 
+// Scan fingerprints the target, matches known CVEs and returns the report.
 func (d *CVEDetector) Scan() *CVEReport {
 	d.Results.ScanTime = time.Now()
 	tech := d.fingerprint()
@@ -395,14 +401,15 @@ func SeverityGrade(score int) string {
 	}
 }
 
+// Render returns a human-readable text representation of the CVE report.
 func (d *CVEDetector) Render() string {
 	r := d.Results
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("\n  CVE SCAN REPORT\n"))
-	b.WriteString(fmt.Sprintf("  Target:  %s\n", r.Target))
-	b.WriteString(fmt.Sprintf("  Scanned: %s\n", r.ScanTime.Format("2006-01-02 15:04:05")))
-	b.WriteString(fmt.Sprintf("  CVEs:    %d found\n", len(r.CVEs)))
-	b.WriteString(fmt.Sprintf("  Risk:    %d/100 (Grade: %s)\n", r.RiskScore, r.Grade))
+	_, _ = fmt.Fprintf(&b, "  Target:  %s\n", r.Target)
+	_, _ = fmt.Fprintf(&b, "  Scanned: %s\n", r.ScanTime.Format("2006-01-02 15:04:05"))
+	_, _ = fmt.Fprintf(&b, "  CVEs:    %d found\n", len(r.CVEs))
+	_, _ = fmt.Fprintf(&b, "  Risk:    %d/100 (Grade: %s)\n", r.RiskScore, r.Grade)
 	b.WriteString(strings.Repeat("=", 72) + "\n\n")
 	if len(r.CVEs) == 0 {
 		b.WriteString("  No known CVEs detected.\n\n")
@@ -410,41 +417,41 @@ func (d *CVEDetector) Render() string {
 	}
 	icons := map[string]string{"critical": "[!!!]", "high": "[!!] ", "medium": "[!]  ", "low": "[i]  ", "info": "[.]  "}
 	for i, cve := range r.CVEs {
-		b.WriteString(fmt.Sprintf("  %s %s  CVSS: %.1f  %s\n", icons[cve.Severity], cve.CVEID, cve.CVSS, strings.ToUpper(cve.Severity)))
-		b.WriteString(fmt.Sprintf("     %s\n", cve.Description))
-		b.WriteString(fmt.Sprintf("     Product: %s  Version: %s  Fixed: %s\n", cve.Product, cve.Version, cve.FixedIn))
-		b.WriteString(fmt.Sprintf("     CWE: %s\n", cve.CWE))
-		b.WriteString(fmt.Sprintf("     Evidence: %s\n", cve.Evidence))
-		b.WriteString(fmt.Sprintf("     Impact: %s\n", cve.Impact))
-		b.WriteString(fmt.Sprintf("     Remediation: %s\n", cve.Remediation))
+		_, _ = fmt.Fprintf(&b, "  %s %s  CVSS: %.1f  %s\n", icons[cve.Severity], cve.CVEID, cve.CVSS, strings.ToUpper(cve.Severity))
+		_, _ = fmt.Fprintf(&b, "     %s\n", cve.Description)
+		_, _ = fmt.Fprintf(&b, "     Product: %s  Version: %s  Fixed: %s\n", cve.Product, cve.Version, cve.FixedIn)
+		_, _ = fmt.Fprintf(&b, "     CWE: %s\n", cve.CWE)
+		_, _ = fmt.Fprintf(&b, "     Evidence: %s\n", cve.Evidence)
+		_, _ = fmt.Fprintf(&b, "     Impact: %s\n", cve.Impact)
+		_, _ = fmt.Fprintf(&b, "     Remediation: %s\n", cve.Remediation)
 		if len(cve.References) > 0 {
 			b.WriteString("     References:\n")
 			for _, ref := range cve.References {
-				b.WriteString(fmt.Sprintf("       - %s\n", ref))
+				_, _ = fmt.Fprintf(&b, "       - %s\n", ref)
 			}
 		}
 		if cve.PoC.Type != "" {
-			b.WriteString(fmt.Sprintf("     PoC Type: %s\n", cve.PoC.Type))
-			b.WriteString(fmt.Sprintf("     PoC: %s\n", cve.PoC.Description))
+			_, _ = fmt.Fprintf(&b, "     PoC Type: %s\n", cve.PoC.Type)
+			_, _ = fmt.Fprintf(&b, "     PoC: %s\n", cve.PoC.Description)
 			if cve.PoC.Conditions != "" {
-				b.WriteString(fmt.Sprintf("     Conditions: %s\n", cve.PoC.Conditions))
+				_, _ = fmt.Fprintf(&b, "     Conditions: %s\n", cve.PoC.Conditions)
 			}
 			if len(cve.PoC.Steps) > 0 {
 				b.WriteString("     Steps:\n")
 				for j, s := range cve.PoC.Steps {
-					b.WriteString(fmt.Sprintf("       %d. %s\n", j+1, s))
+					_, _ = fmt.Fprintf(&b, "       %d. %s\n", j+1, s)
 				}
 			}
 			if cve.PoC.Request != "" {
 				b.WriteString("     Raw Request:\n")
 				for _, line := range strings.Split(cve.PoC.Request, "\r\n") {
-					b.WriteString(fmt.Sprintf("       %s\n", line))
+					_, _ = fmt.Fprintf(&b, "       %s\n", line)
 				}
 			}
 			if cve.PoC.Script != "" {
 				b.WriteString("     Script:\n")
 				for _, line := range strings.Split(cve.PoC.Script, "\n") {
-					b.WriteString(fmt.Sprintf("       %s\n", line))
+					_, _ = fmt.Fprintf(&b, "       %s\n", line)
 				}
 			}
 		}
@@ -453,12 +460,12 @@ func (d *CVEDetector) Render() string {
 		}
 	}
 	b.WriteString("\n" + strings.Repeat("=", 72) + "\n")
-	b.WriteString(fmt.Sprintf("  Total: %d CVEs  Critical: %d  High: %d  Medium: %d  Low: %d\n",
+	_, _ = fmt.Fprintf(&b, "  Total: %d CVEs  Critical: %d  High: %d  Medium: %d  Low: %d\n",
 		len(r.CVEs),
 		countBySeverity(r.CVEs, "critical"),
 		countBySeverity(r.CVEs, "high"),
 		countBySeverity(r.CVEs, "medium"),
-		countBySeverity(r.CVEs, "low")))
+		countBySeverity(r.CVEs, "low"))
 	b.WriteString(strings.Repeat("=", 72) + "\n\n")
 	return b.String()
 }

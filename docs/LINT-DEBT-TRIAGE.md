@@ -2,6 +2,7 @@
 
 **O'lchov:** 2026-11-20, HEAD `773fa56` (main), golangci-lint v2.14.0 (go1.26.11).
 **Jami:** 738 issue, 138 ta `.go` fayli. Tool ishladi, raqamlar haqiqiy hisobot chiqishidan olingan.
+**Yangilash (2026-11-21):** 1-bosqichdan keyin **510** issue qoldi — §7 ga qarang.
 
 ## 1. O'lchov usuli va konfiguratsiya
 
@@ -95,10 +96,26 @@ Tavsiya etilgan bajarish tartibi: QF1012 → revive comment → errcheck (eng ka
 4. Olib tashlash mezoni: `golangci-lint run ./...` **0 issue** berishi (yoki barcha qarzdor
    qoidalar uchun aniq, hujjatlashtirilgan suppressiya) va bir necha ketma-ket CI run yashil o'tishi.
 
+## 7. 1-bosqich bajarildi (2026-11-21)
+
+4 ta parallel agent 44 ta faylda ishladi. Natija: **735 → 510** issue (-225, -30.6%).
+
+| Linter | Oldin | Keyin | Izoh |
+|---|---:|---:|---|
+| staticcheck | 116 | 44 | **QF1012 72 → 0** (barchasi `_, _ = fmt.Fprintf(&b, ...)` ga o'tkazildi, errcheck soni oshmadi) |
+| revive | 172 | 19 | **exported-comment 152 → 0** (doc comment qo'shildi); qolgan 19 — asosan `stutter` (API buzilishi xavfi, ataylab tegilmadi) |
+| errcheck | 365 | 365 | 2-bosqichga qoldirildi (§5) |
+| gocritic / unused / goimports / ineffassign / gosec / unconvert | 82 | 82 | 2-bosqichga qoldirildi |
+
+Verification: `gofmt`, `go vet ./...`, `go build ./...`, `go test`, `go test -race`, integration,
+`gitleaks`, `actionlint`, `helm lint`, `goreleaser check` — barchasi PASS.
+
+**Ratchet hali olinmaydi:** 510 ta qarz qolmoqda (§6 mezoni bajarilmadi).
+
 ## Cheklovlar
 
-- Faqat ushbu hisobot fayli yaratildi; production kod, `.golangci.yml` va CI fayllari o'zgartirilmadi;
-  `git add` / `commit` / `push` qilinmadi.
+- Ushbu hisobot 2026-11-20 da yaratilgan; §7 2026-11-21 dagi 1-bosqich natijalarini qo'shadi.
+  `.golangci.yml` va CI fayllari o'zgartirilmadi; ular `only-new-issues: true` ratchet'ni saqlaydi.
 - Hisob `.golangci.yml` exclusionlari bilan olingan: testlardagi errcheck/gosec/gocritic chiqarilgan
   (izohda exclusion olib tashlanganda **+295** qo'shimcha topilma o'lchangani qayd etilgan — bu raqam
   mazkur o'lchovga kirmaydi); `.pb.go` va ikki scanner fayli ham chiqarilgan. To'liq gosec faqat

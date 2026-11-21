@@ -15,10 +15,14 @@ import (
 )
 
 var (
+	// ErrNotFound is returned when a requested row does not exist.
 	ErrNotFound = errors.New("memstore: not found")
-	ErrExists   = errors.New("memstore: already exists")
+	// ErrExists is returned when a row with the same identity already exists.
+	ErrExists = errors.New("memstore: already exists")
 )
 
+// Store is an in-memory implementation of the store interfaces, intended
+// for tests and local development.
 type Store struct {
 	mu      sync.Mutex
 	tenants map[string]store.Tenant
@@ -28,6 +32,7 @@ type Store struct {
 	audits  []store.AuditEvent
 }
 
+// New creates an empty Store with initialised maps.
 func New() *Store {
 	return &Store{
 		tenants: make(map[string]store.Tenant),
@@ -37,11 +42,20 @@ func New() *Store {
 	}
 }
 
+// Tenants returns the tenant sub-store.
 func (s *Store) Tenants() store.TenantStore { return &tenantStore{s} }
-func (s *Store) Users() store.UserStore     { return &userStore{s} }
-func (s *Store) Roles() store.RoleStore     { return &roleStore{s} }
+
+// Users returns the user sub-store.
+func (s *Store) Users() store.UserStore { return &userStore{s} }
+
+// Roles returns the role sub-store.
+func (s *Store) Roles() store.RoleStore { return &roleStore{s} }
+
+// APIKeys returns the API-key sub-store.
 func (s *Store) APIKeys() store.APIKeyStore { return &keyStore{s} }
-func (s *Store) Audits() store.AuditStore   { return &auditStore{s} }
+
+// Audits returns the audit-event sub-store.
+func (s *Store) Audits() store.AuditStore { return &auditStore{s} }
 
 type tenantStore struct{ s *Store }
 type userStore struct{ s *Store }

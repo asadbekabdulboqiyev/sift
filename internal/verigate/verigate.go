@@ -102,6 +102,7 @@ type Options struct {
 	Adaptive *AdaptiveOptions
 }
 
+// DefaultBurst and the other default constants configure the challenge gate.
 const (
 	// DefaultRateLimit / DefaultBurst / DefaultDifficulty as above.
 	DefaultRateLimit  = 100

@@ -440,7 +440,7 @@ func (re *ReplayEngine) Run() (*ReplayResult, error) {
 	return result, nil
 }
 
-// ExportJSON writes results to JSON file
+// ExportJSONToFile writes the replay result as indented JSON to path.
 func (re *ReplayResult) ExportJSONToFile(path string) error {
 	clean := filepath.Clean(path)
 	if dir := filepath.Dir(clean); dir != "" && dir != "." {

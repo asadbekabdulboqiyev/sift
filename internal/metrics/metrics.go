@@ -12,6 +12,8 @@ import (
 // all; anything outside the range falls back to a map.
 const statusArraySize = 600
 
+// StepStats holds the latency, status-code and error counters for one
+// named step (or for the "overall" aggregate).
 type StepStats struct {
 	Name    string
 	Latency *Histogram
@@ -27,6 +29,7 @@ type StepStats struct {
 	mu       sync.Mutex
 }
 
+// NewStepStats creates an empty StepStats with the given name.
 func NewStepStats(name string) *StepStats {
 	return &StepStats{
 		Name:        name,
@@ -36,6 +39,7 @@ func NewStepStats(name string) *StepStats {
 	}
 }
 
+// Record adds one observation: its latency, status code and optional error name.
 func (s *StepStats) Record(latency time.Duration, status int, errName string) {
 	s.Latency.Add(latency)
 	if status > 0 {
@@ -68,6 +72,7 @@ func (s *StepStats) Record(latency time.Duration, status int, errName string) {
 	}
 }
 
+// StatusCodes returns a copy of the per-status-code counts.
 func (s *StepStats) StatusCodes() map[int]uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -83,6 +88,7 @@ func (s *StepStats) StatusCodes() map[int]uint64 {
 	return out
 }
 
+// Errors returns a copy of the per-error-name counts.
 func (s *StepStats) Errors() map[string]uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -100,10 +106,13 @@ func (s *StepStats) ErrorCount() uint64 {
 	return s.errCount.Load()
 }
 
+// Requests returns the number of latency samples recorded for this step.
 func (s *StepStats) Requests() uint64 {
 	return s.Latency.Count()
 }
 
+// Telemetry aggregates the overall and per-step statistics of a load run,
+// including active/peak users and the run timeline.
 type Telemetry struct {
 	Start       time.Time
 	End         time.Time
@@ -126,6 +135,8 @@ type Telemetry struct {
 	elapsedNanos atomic.Int64
 }
 
+// NewTelemetry creates a Telemetry with a fresh overall StepStats and a
+// start time of now.
 func NewTelemetry() *Telemetry {
 	return &Telemetry{
 		Start:   time.Now(),
@@ -133,6 +144,8 @@ func NewTelemetry() *Telemetry {
 	}
 }
 
+// SetWarmup suppresses recording for the next d. Non-positive values are
+// ignored, leaving recording enabled.
 func (t *Telemetry) SetWarmup(d time.Duration) {
 	if d <= 0 {
 		return
@@ -140,6 +153,8 @@ func (t *Telemetry) SetWarmup(d time.Duration) {
 	t.warmupUntil.Store(time.Now().Add(d).UnixNano())
 }
 
+// Recording reports whether the warmup window has elapsed, so samples
+// should currently be recorded.
 func (t *Telemetry) Recording() bool {
 	until := t.warmupUntil.Load()
 	if until == 0 {
@@ -148,6 +163,8 @@ func (t *Telemetry) Recording() bool {
 	return time.Now().UnixNano() >= until
 }
 
+// AddStep appends a step's statistics to the run. It is safe to call while
+// readers are taking snapshots.
 func (t *Telemetry) AddStep(stats *StepStats) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -164,6 +181,7 @@ func (t *Telemetry) StepsSnapshot() []*StepStats {
 	return out
 }
 
+// Finish marks the run as complete and freezes its elapsed duration.
 func (t *Telemetry) Finish() {
 	now := time.Now()
 	t.End = now
@@ -181,6 +199,7 @@ func (t *Telemetry) Elapsed() time.Duration {
 	return time.Since(t.Start)
 }
 
+// TotalRequests returns the sum of requests across all recorded steps.
 func (t *Telemetry) TotalRequests() uint64 {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -191,6 +210,7 @@ func (t *Telemetry) TotalRequests() uint64 {
 	return n
 }
 
+// TotalErrors returns the sum of errored requests across all steps.
 func (t *Telemetry) TotalErrors() uint64 {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -201,6 +221,7 @@ func (t *Telemetry) TotalErrors() uint64 {
 	return n
 }
 
+// RPS returns the average requests per second over the run's elapsed time.
 func (t *Telemetry) RPS() float64 {
 	d := t.Elapsed().Seconds()
 	if d <= 0 {
@@ -209,6 +230,7 @@ func (t *Telemetry) RPS() float64 {
 	return float64(t.TotalRequests()) / d
 }
 
+// StatusCodes returns the per-status-code counts summed over all steps.
 func (t *Telemetry) StatusCodes() map[int]uint64 {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -221,6 +243,7 @@ func (t *Telemetry) StatusCodes() map[int]uint64 {
 	return out
 }
 
+// Errors returns the per-error-name counts summed over all steps.
 func (t *Telemetry) Errors() map[string]uint64 {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -233,6 +256,7 @@ func (t *Telemetry) Errors() map[string]uint64 {
 	return out
 }
 
+// SortedStatusCodes returns the keys of codes in ascending order.
 func SortedStatusCodes(codes map[int]uint64) []int {
 	keys := make([]int, 0, len(codes))
 	for code := range codes {
@@ -242,6 +266,7 @@ func SortedStatusCodes(codes map[int]uint64) []int {
 	return keys
 }
 
+// SortedErrors returns the keys of errs in lexicographic order.
 func SortedErrors(errs map[string]uint64) []string {
 	keys := make([]string, 0, len(errs))
 	for name := range errs {
@@ -251,11 +276,14 @@ func SortedErrors(errs map[string]uint64) []string {
 	return keys
 }
 
+// ErrorStat pairs an error name with its observed count.
 type ErrorStat struct {
 	Name  string
 	Count uint64
 }
 
+// TopErrors returns the n most frequent errors, highest count first with
+// names breaking ties. A non-positive n returns all entries.
 func TopErrors(errs map[string]uint64, n int) []ErrorStat {
 	list := make([]ErrorStat, 0, len(errs))
 	for name, count := range errs {

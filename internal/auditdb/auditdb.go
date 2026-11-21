@@ -75,6 +75,7 @@ func (a Adapter) RecordBestEffort(ctx context.Context, s store.Store, e authz.En
 // Stub to ensure it compiles when caller passes a concrete store.
 // Keep minimal and avoid adding heavy deps.
 
+// Example records a best-effort audit entry using a concrete store.
 func Example(ctx context.Context, s store.Store, e authz.Entry) {
 	Adapter{}.RecordBestEffort(ctx, s, e, "t1", "u1", "127.0.0.1", "cli")
 }

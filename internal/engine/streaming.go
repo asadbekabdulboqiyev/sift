@@ -250,6 +250,7 @@ type ChunkStats struct {
 	Errors      atomic.Int64
 }
 
+// Record adds one chunk read result to the cumulative counters.
 func (cs *ChunkStats) Record(n int, err error) {
 	cs.TotalChunks.Add(1)
 	cs.TotalBytes.Add(int64(n))

@@ -15,6 +15,7 @@ import (
 
 // --- Core Types -------------------------------------------------------------
 
+// Capture is a parsed traffic capture with its packets, TLS material, and time bounds.
 type Capture struct {
 	Source    string
 	Format    CaptureFormat
@@ -27,19 +28,24 @@ type Capture struct {
 	mu        sync.RWMutex
 }
 
+// CaptureFormat identifies the container format a Capture was read from.
 type CaptureFormat string
 
 const (
+	// FormatPCAP marks a capture read from a PCAP file.
 	FormatPCAP CaptureFormat = "pcap"
-	FormatHAR  CaptureFormat = "har"
+	// FormatHAR marks a capture read from a HAR file.
+	FormatHAR CaptureFormat = "har"
 )
 
+// TLSKey pairs an address with the client certificate used for its traffic.
 type TLSKey struct {
 	IP   string
 	Port int
 	Key  *tls.Certificate
 }
 
+// TLSSession holds the key material negotiated for one TLS connection.
 type TLSSession struct {
 	ClientRandom []byte
 	ServerRandom []byte
@@ -48,6 +54,7 @@ type TLSSession struct {
 	Key          *TLSKey
 }
 
+// Packet is one replayable HTTP request extracted from a capture.
 type Packet struct {
 	Timestamp time.Time
 	SrcIP     net.IP
@@ -64,6 +71,7 @@ type Packet struct {
 	IsRequest bool
 }
 
+// Response is the recorded HTTP response associated with a Packet.
 type Response struct {
 	StatusCode int
 	Headers    http.Header
@@ -72,6 +80,7 @@ type Response struct {
 	Duration   time.Duration
 }
 
+// ReplayPacing selects how a replay spaces captured requests over time.
 type ReplayPacing string
 
 const (
@@ -84,6 +93,7 @@ const (
 	PacingLegacy ReplayPacing = "legacy"
 )
 
+// ReplayConfig controls rate, concurrency, filtering, and validation for a replay run.
 type ReplayConfig struct {
 	RateMultiplier   float64
 	MaxConcurrency   int
@@ -101,6 +111,7 @@ type ReplayConfig struct {
 	Filter           *PacketFilter
 }
 
+// PacketFilter selects packets by method, URL, status, latency, protocol, and host.
 type PacketFilter struct {
 	Methods     []string
 	URLPatterns []string
@@ -111,11 +122,13 @@ type PacketFilter struct {
 	Hosts       []string
 }
 
+// Assertion is one response check identified by type and expected value.
 type Assertion struct {
 	Type  string
 	Value string
 }
 
+// ReplayResult aggregates counters and latency percentiles for a completed replay run.
 type ReplayResult struct {
 	Capture      *Capture        `json:"-"`
 	Config       *ReplayConfig   `json:"-"`
@@ -135,6 +148,7 @@ type ReplayResult struct {
 
 // --- Capture Methods --------------------------------------------------------
 
+// AddPacket appends a packet and extends the capture time bounds under the capture lock.
 func (c *Capture) AddPacket(p *Packet) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -153,6 +167,7 @@ func (c *Capture) AddPacket(p *Packet) {
 	}
 }
 
+// Filter returns packets matching f, or all packets when f is nil.
 func (c *Capture) Filter(f *PacketFilter) []*Packet {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -165,6 +180,7 @@ func (c *Capture) Filter(f *PacketFilter) []*Packet {
 	return out
 }
 
+// ExportJSON writes the capture as indented JSON to w.
 func (c *Capture) ExportJSON(w io.Writer) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
@@ -173,6 +189,7 @@ func (c *Capture) ExportJSON(w io.Writer) error {
 
 // --- TLS Helpers ------------------------------------------------------------
 
+// TLSConfigFromKeys builds a TLS config from keys with a minimum version of TLS 1.2.
 func TLSConfigFromKeys(keys []*TLSKey, skipVerify bool) *tls.Config {
 	cfg := &tls.Config{
 		InsecureSkipVerify: skipVerify, // #nosec G402 -- replay intentionally supports operator-controlled skip-verify for capturing/replaying targets with non-public TLS setups.

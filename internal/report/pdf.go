@@ -529,9 +529,9 @@ func GenerateMarkdown(report *PentestReport) []byte {
 	b.WriteString(report.ExecutiveSummary + "\n\n")
 
 	b.WriteString("## Risk Assessment\n\n")
-	b.WriteString(fmt.Sprintf("**Risk Rating:** %s | **Overall Score:** %d/100 | **Grade:** %s\n\n",
-		strings.ToUpper(report.RiskRating), report.OverallScore, report.Grade))
-	b.WriteString(fmt.Sprintf("Based on **%d** total findings across **%d** checks performed.\n\n", report.TotalFound, report.TotalChecks))
+	_, _ = fmt.Fprintf(&b, "**Risk Rating:** %s | **Overall Score:** %d/100 | **Grade:** %s\n\n",
+		strings.ToUpper(report.RiskRating), report.OverallScore, report.Grade)
+	_, _ = fmt.Fprintf(&b, "Based on **%d** total findings across **%d** checks performed.\n\n", report.TotalFound, report.TotalChecks)
 
 	b.WriteString("## Scope\n\n")
 	if len(report.TargetURLs) > 0 {

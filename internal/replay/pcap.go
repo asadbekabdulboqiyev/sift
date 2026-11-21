@@ -47,6 +47,7 @@ type PCAPParser struct {
 	streams sync.WaitGroup
 }
 
+// PCAPStats holds per-capture counters produced by the PCAP parser.
 type PCAPStats struct {
 	TotalPackets  int
 	TCPPackets    int
@@ -56,6 +57,7 @@ type PCAPStats struct {
 	Errors        int
 }
 
+// NewPCAPParser creates a PCAPParser ready to parse one or more capture files.
 func NewPCAPParser(keys []*TLSKey) *PCAPParser {
 	p := &PCAPParser{tlsKeys: keys}
 	p.resetForCapture("")
@@ -383,6 +385,7 @@ type streamParseStats struct {
 
 // --- HAR Parser -------------------------------------------------------------
 
+// ParseHAR reads a HAR document from path and returns the extracted Capture.
 func ParseHAR(path string) (*Capture, error) {
 	f, err := os.Open(filepath.Clean(path)) // #nosec G304 -- path is an operator-selected HAR capture file
 	if err != nil {
@@ -505,21 +508,25 @@ func joinStrings(ss []string, sep string) string {
 
 // --- HAR Format Types -------------------------------------------------------
 
+// HAR is the top-level structure of an HTTP Archive document.
 type HAR struct {
 	Log HARLog `json:"log"`
 }
 
+// HARLog is the log section of a HAR document, including its entries.
 type HARLog struct {
 	Version string     `json:"version"`
 	Creator HARCreator `json:"creator"`
 	Entries []HAREntry `json:"entries"`
 }
 
+// HARCreator identifies the tool that produced a HAR document.
 type HARCreator struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
 }
 
+// HAREntry is one request/response transaction in a HAR log.
 type HAREntry struct {
 	StartedDateTime string      `json:"startedDateTime"`
 	Time            float64     `json:"time"`
@@ -527,6 +534,7 @@ type HAREntry struct {
 	Response        HARResponse `json:"response"`
 }
 
+// HARRequest is the request half of a HAR entry.
 type HARRequest struct {
 	Method      string      `json:"method"`
 	URL         string      `json:"url"`
@@ -536,6 +544,7 @@ type HARRequest struct {
 	PostData    *HARPost    `json:"postData,omitempty"`
 }
 
+// HARResponse is the response half of a HAR entry.
 type HARResponse struct {
 	Status     int         `json:"status"`
 	StatusText string      `json:"statusText"`
@@ -543,21 +552,25 @@ type HARResponse struct {
 	Content    HARContent  `json:"content"`
 }
 
+// HARHeader is one name/value HTTP header in a HAR document.
 type HARHeader struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
 }
 
+// HARQuery is one URL query parameter in a HAR document.
 type HARQuery struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
 }
 
+// HARPost is the posted body payload of a HAR request.
 type HARPost struct {
 	MIMEType string `json:"mimeType"`
 	Text     string `json:"text"`
 }
 
+// HARContent describes the content of a HAR response.
 type HARContent struct {
 	Size     int    `json:"size"`
 	MIMEType string `json:"mimeType"`

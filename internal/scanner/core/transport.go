@@ -79,6 +79,7 @@ type DefaultHeaderHook struct {
 	Profile fingerprint.Profile
 }
 
+// RoundTrip stamps the configured profile headers onto req before delegating to Base.
 func (h DefaultHeaderHook) RoundTrip(req *http.Request) (*http.Response, error) {
 	base := h.Base
 	if base == nil {

@@ -42,6 +42,8 @@ const (
 // claimed value is preserved in the package for audit.
 type Severity string
 
+// SeverityCritical and its sibling constants list the severity levels a
+// reporter can claim for a finding.
 const (
 	SeverityCritical Severity = "critical"
 	SeverityHigh     Severity = "high"

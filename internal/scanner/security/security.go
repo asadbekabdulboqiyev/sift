@@ -10,6 +10,7 @@ import (
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
 )
 
+// SecurityHeaders defines the weighted security-header checks applied to each response.
 var SecurityHeaders = []struct {
 	Name     string
 	Required bool

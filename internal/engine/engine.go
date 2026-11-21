@@ -39,6 +39,7 @@ const (
 	adjustInterval   = 100 * time.Millisecond
 )
 
+// RunOptions carries per-run output, capture, pool, and sampling configuration.
 type RunOptions struct {
 	Out      io.Writer
 	Quiet    bool
@@ -155,6 +156,7 @@ func (w *loadWorker) runGatedOnce(runCtx, reqBase context.Context, index int) {
 	w.e.runIteration(reqBase, index, 0)
 }
 
+// Engine executes a configured scenario as a load test and collects its telemetry.
 type Engine struct {
 	scenario  *config.Scenario
 	profile   LoadProfile
@@ -379,6 +381,7 @@ func (e *Engine) preWarmConnections(count int) {
 	e.prewarmed.clients = ring.clients
 }
 
+// Run executes the scenario until its profile duration expires or stop_on_status fires.
 func (e *Engine) Run(ctx context.Context, opts RunOptions) (*metrics.Telemetry, error) {
 	out := opts.Out
 	if out == nil {
