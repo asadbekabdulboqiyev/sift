@@ -164,7 +164,7 @@ func (w *wizard) paint(code, s string) string {
 }
 
 func (w *wizard) printf(format string, a ...any) {
-	fmt.Fprintf(w.out, format, a...)
+	_, _ = fmt.Fprintf(w.out, format, a...)
 }
 
 func (w *wizard) errorf(format string, a ...any) {

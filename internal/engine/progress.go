@@ -107,7 +107,7 @@ func (pt *ProgressTracker) Finish() {
 		<-pt.done
 		if !pt.quiet {
 			pt.renderFinal()
-			fmt.Fprintln(pt.out)
+			_, _ = fmt.Fprintln(pt.out)
 		}
 	})
 }
@@ -197,7 +197,7 @@ func (pt *ProgressTracker) render() {
 	}
 	pt.first = false
 
-	fmt.Fprintln(pt.out, boxTop())
+	_, _ = fmt.Fprintln(pt.out, boxTop())
 
 	barStr := ptBar(pct, c)
 	line1 := fmt.Sprintf("  %s  %s%%  |  %s / %s",
@@ -206,7 +206,7 @@ func (pt *ProgressTracker) render() {
 		ptFmtDur(elapsed),
 		ptFmtDur(pt.duration),
 	)
-	fmt.Fprintln(pt.out, ptBoxLine(line1))
+	_, _ = fmt.Fprintln(pt.out, ptBoxLine(line1))
 
 	errStr := ptFmtErr(errPct, c)
 	line2 := fmt.Sprintf("  RPS: %s  |  Avg: %s  |  Max: %s  |  Err: %s",
@@ -215,16 +215,16 @@ func (pt *ProgressTracker) render() {
 		ptFmtDur(maxLat),
 		errStr,
 	)
-	fmt.Fprintln(pt.out, ptBoxLine(line2))
+	_, _ = fmt.Fprintln(pt.out, ptBoxLine(line2))
 
 	line3 := fmt.Sprintf("  Active: %d users  |  Requests: %s  |  Elapsed: %s",
 		pt.totalUsers,
 		ptFmtCount(reqs),
 		ptFmtDur(elapsed),
 	)
-	fmt.Fprintln(pt.out, ptBoxLine(line3))
+	_, _ = fmt.Fprintln(pt.out, ptBoxLine(line3))
 
-	fmt.Fprintln(pt.out, boxBottom())
+	_, _ = fmt.Fprintln(pt.out, boxBottom())
 }
 
 func (pt *ProgressTracker) renderFinal() {
@@ -260,7 +260,7 @@ func (pt *ProgressTracker) renderFinal() {
 	}
 	pt.first = false
 
-	fmt.Fprintln(pt.out, boxTop())
+	_, _ = fmt.Fprintln(pt.out, boxTop())
 
 	barStr := ptBar(100, c)
 	line1 := fmt.Sprintf("  %s  100%%  |  %s / %s",
@@ -268,7 +268,7 @@ func (pt *ProgressTracker) renderFinal() {
 		ptFmtDur(elapsed),
 		ptFmtDur(pt.duration),
 	)
-	fmt.Fprintln(pt.out, ptBoxLine(line1))
+	_, _ = fmt.Fprintln(pt.out, ptBoxLine(line1))
 
 	errStr := ptFmtErr(errPct, c)
 	line2 := fmt.Sprintf("  RPS: %s  |  Avg: %s  |  Max: %s  |  Err: %s",
@@ -277,16 +277,16 @@ func (pt *ProgressTracker) renderFinal() {
 		ptFmtDur(maxLat),
 		errStr,
 	)
-	fmt.Fprintln(pt.out, ptBoxLine(line2))
+	_, _ = fmt.Fprintln(pt.out, ptBoxLine(line2))
 
 	line3 := fmt.Sprintf("  Active: %d users  |  Requests: %s  |  Elapsed: %s",
 		pt.totalUsers,
 		ptFmtCount(reqs),
 		ptFmtDur(elapsed),
 	)
-	fmt.Fprintln(pt.out, ptBoxLine(line3))
+	_, _ = fmt.Fprintln(pt.out, ptBoxLine(line3))
 
-	fmt.Fprintln(pt.out, boxBottom())
+	_, _ = fmt.Fprintln(pt.out, boxBottom())
 }
 
 func boxTop() string    { return "┌" + strings.Repeat("─", boxWidth) + "┐" }

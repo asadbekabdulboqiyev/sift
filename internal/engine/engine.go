@@ -433,11 +433,11 @@ func (e *Engine) Run(ctx context.Context, opts RunOptions) (*metrics.Telemetry, 
 		if connCount <= 0 {
 			connCount = e.profile.MaxConcurrency()
 		}
-		fmt.Fprintf(out, "Pre-warming %d connections... ", connCount)
+		_, _ = fmt.Fprintf(out, "Pre-warming %d connections... ", connCount)
 		pwStart := time.Now()
 		e.preWarmConnections(connCount)
 		e.prewarmDur = time.Since(pwStart)
-		fmt.Fprintf(out, "done (%s)\n", e.prewarmDur.Round(time.Millisecond))
+		_, _ = fmt.Fprintf(out, "done (%s)\n", e.prewarmDur.Round(time.Millisecond))
 	}
 
 	if !opts.Quiet {
@@ -853,7 +853,7 @@ func (e *Engine) httpClientForUser(userIndex int, ctx context.Context, fullURL s
 	if err != nil {
 		return classifyError(err, time.Since(start)), nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// The body only needs to outlive this function when the caller will run
 	// assertions or capture against it. In the common benchmark path (no

@@ -92,7 +92,7 @@ func doRequest(method, endpoint string, body io.Reader) ([]byte, int, error) {
 	if err != nil {
 		return nil, 0, fmt.Errorf("github: do %s %s: %w", method, endpoint, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	// Bounded read: the API's replies are small, and a proxy or a hostile
 	// mirror answering with an endless body must not exhaust memory here.
 	resBody, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))

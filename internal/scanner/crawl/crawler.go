@@ -357,7 +357,7 @@ func (c *Crawler) processJob(j crawlJob) pageOutcome {
 	if err != nil {
 		return out
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	out.attempted = true
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))

@@ -274,7 +274,7 @@ func (s *AuthSession) loginLocked() error {
 	if err != nil {
 		return fmt.Errorf("auth: login request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxAuthResponseRead))
 	if err != nil {

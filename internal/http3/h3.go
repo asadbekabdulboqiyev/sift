@@ -149,7 +149,7 @@ func checkAltSvc(host string, port int, insecure bool) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(altSvcReadTimeout))
 
 	// Alt-Svc is a response header, so we need an HTTP response. Send a minimal

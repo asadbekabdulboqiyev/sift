@@ -94,16 +94,16 @@ func cmdDirBust() {
 // printDirBustHelp renders `Sift dirbust --help`.
 func printDirBustHelp(fs *flag.FlagSet) {
 	w := os.Stderr
-	fmt.Fprintf(w, "\n Sift dirbust — directory/file brute-forcer\n\n")
-	fmt.Fprintf(w, " USAGE\n")
-	fmt.Fprintf(w, "   Sift dirbust --target https://example.com [flags]\n\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
-	fmt.Fprintf(w, " FLAGS\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, "\n Sift dirbust — directory/file brute-forcer\n\n")
+	_, _ = fmt.Fprintf(w, " USAGE\n")
+	_, _ = fmt.Fprintf(w, "   Sift dirbust --target https://example.com [flags]\n\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, " FLAGS\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
 	cliux.PrintFlagList(w, fs)
-	fmt.Fprintf(w, "\n═══════════════════════════════════════════════════════════════════\n")
-	fmt.Fprintf(w, " EXAMPLES\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, "\n═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, " EXAMPLES\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
 	for _, e := range []string{
 		"# Brute-force the built-in wordlist",
 		"Sift dirbust --target https://example.com",
@@ -114,7 +114,7 @@ func printDirBustHelp(fs *flag.FlagSet) {
 		"# Machine-readable output",
 		"Sift dirbust --target https://example.com --json --output-json dirbust.json",
 	} {
-		fmt.Fprintf(w, "\n   %s\n", e)
+		_, _ = fmt.Fprintf(w, "\n   %s\n", e)
 	}
-	fmt.Fprintf(w, "\n")
+	_, _ = fmt.Fprintf(w, "\n")
 }

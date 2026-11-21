@@ -77,7 +77,7 @@ func SendTelegram(cfg TelegramConfig, alert TelegramAlert) error {
 	if err != nil {
 		return fmt.Errorf("telegram: send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// A hostile or broken endpoint must not be able to grow this process's
 	// heap by answering with a multi-gigabyte body: Telegram replies are a few

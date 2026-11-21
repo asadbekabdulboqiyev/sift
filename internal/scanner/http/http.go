@@ -50,7 +50,7 @@ func ScanHTTPWithControl(target string, control func(network, address string, c 
 	if err != nil {
 		return info, fmt.Errorf("probe failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	for key, values := range resp.Header {
 		if len(values) > 0 {

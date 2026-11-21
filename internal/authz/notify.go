@@ -66,7 +66,7 @@ func (n Notifier) Notify(ctx context.Context, e Entry) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("webhook returned %s", resp.Status)
 	}

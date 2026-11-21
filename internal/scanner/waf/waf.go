@@ -102,7 +102,7 @@ func ScanWAFWithControl(target string, control func(network, address string, c s
 	if err != nil {
 		return waf, fmt.Errorf("probe failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // 10MB
 	bodyStr := string(body)

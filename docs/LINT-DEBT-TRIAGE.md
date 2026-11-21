@@ -112,9 +112,39 @@ Verification: `gofmt`, `go vet ./...`, `go build ./...`, `go test`, `go test -ra
 
 **Ratchet not removed yet:** 510 debt issues remain (the §6 criteria are not met).
 
+## 8. Phase 2 completed (2026-11-21): errcheck
+
+4 parallel agents worked across all 48 files with errcheck findings. Result: **510 → 145** issues (-365),
+with **errcheck 365 → 0**. No other linter count changed, so no new issues were introduced.
+
+| Agent scope | Files | Findings fixed |
+|---|---:|---:|
+| `internal/report` + `internal/cliux` | 3 | 87 |
+| `cmd/sift` pentest/network printers | 6 | 124 |
+| `cmd/sift` misc + worker + examples | 13 | 101 |
+| `internal/*` (engine, dashboard, scanner, ...) | 26 | 53 |
+| **Total** | **48** | **365** |
+
+Handling breakdown across the whole phase:
+- **323** `fmt.Fprint*` calls made explicit as `_, _ = fmt.Fprint*(...)`. All target `io.Writer`,
+  `tabwriter.Writer`, `strings.Builder`, or `os.Stderr`; the enclosing functions do not return an error,
+  so behavior and output text are unchanged.
+- **42** cleanup calls made explicit: 39 deferred `Close()` calls rewritten as
+  `defer func() { _ = x.Close() }()`, 1 `os.RemoveAll(tmpDir)` and 2 direct `Close()` discarded with `_ =`.
+  One deferred TCP connection in `cmd/sift-worker/main.go` uses a value-capturing closure
+  (`func(c *grpc.ClientConn) { _ = c.Close() }(conn)`) because `conn` is reassigned later; this preserves
+  the original defer-time receiver. No cleanup error could be propagated without changing behavior.
+- **0** errors newly caught or handled; **0** logic, message, or test changes.
+
+Verification: `gofmt`, `go vet ./...`, `go build ./...`, `go test`, `go test -race`, integration tests,
+`gitleaks` (no leaks), `actionlint`, `git diff --check`, and English-only / absent-term scans — all PASS.
+
+Remaining: **145** issues (gocritic 31, staticcheck 44, unused 28, revive 19, goimports 8,
+ineffassign 6, gosec 5, unconvert 4). **Ratchet not removed yet:** the §6 criteria are not met.
+
 ## Limitations
 
-- This report was created on 2026-11-20; §7 adds the results of Phase 1 dated 2026-11-21.
+- This report was created on 2026-11-20; §7 adds Phase 1 and §8 adds Phase 2 results dated 2026-11-21.
   `.golangci.yml` and the CI files were not changed; they retain the `only-new-issues: true` ratchet.
 - The count was taken with `.golangci.yml` exclusions in place: errcheck/gosec/gocritic in tests are excluded
   (the comment records that removing the exclusions was measured at **+295** additional findings — this number

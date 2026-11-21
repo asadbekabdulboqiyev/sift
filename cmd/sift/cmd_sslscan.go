@@ -122,23 +122,23 @@ func cmdSSLScan() {
 // printSSLScanHelp renders `Sift sslscan --help`.
 func printSSLScanHelp(fs *flag.FlagSet) {
 	w := os.Stderr
-	fmt.Fprintf(w, "\n Sift sslscan — TLS certificate & configuration analyzer\n\n")
-	fmt.Fprintf(w, " USAGE\n")
-	fmt.Fprintf(w, "   Sift sslscan --target https://example.com [flags]\n\n")
-	fmt.Fprintf(w, " Performs a TLS handshake and reports the certificate (issuer, subject,\n")
-	fmt.Fprintf(w, " validity window, SANs) plus protocol and cipher weaknesses.\n\n")
-	fmt.Fprintf(w, " The handshake dials TLS directly, outside the probe gate: scope/\n")
-	fmt.Fprintf(w, " rate/budget are validated but not enforced on that connection. The\n")
-	fmt.Fprintf(w, " dial-time address check still applies, so the socket cannot reach an\n")
-	fmt.Fprintf(w, " address the authorization decision did not approve. Use --dry-run to\n")
-	fmt.Fprintf(w, " see the intent without connecting.\n\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
-	fmt.Fprintf(w, " FLAGS\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, "\n Sift sslscan — TLS certificate & configuration analyzer\n\n")
+	_, _ = fmt.Fprintf(w, " USAGE\n")
+	_, _ = fmt.Fprintf(w, "   Sift sslscan --target https://example.com [flags]\n\n")
+	_, _ = fmt.Fprintf(w, " Performs a TLS handshake and reports the certificate (issuer, subject,\n")
+	_, _ = fmt.Fprintf(w, " validity window, SANs) plus protocol and cipher weaknesses.\n\n")
+	_, _ = fmt.Fprintf(w, " The handshake dials TLS directly, outside the probe gate: scope/\n")
+	_, _ = fmt.Fprintf(w, " rate/budget are validated but not enforced on that connection. The\n")
+	_, _ = fmt.Fprintf(w, " dial-time address check still applies, so the socket cannot reach an\n")
+	_, _ = fmt.Fprintf(w, " address the authorization decision did not approve. Use --dry-run to\n")
+	_, _ = fmt.Fprintf(w, " see the intent without connecting.\n\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, " FLAGS\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
 	cliux.PrintFlagList(w, fs)
-	fmt.Fprintf(w, "\n═══════════════════════════════════════════════════════════════════\n")
-	fmt.Fprintf(w, " EXAMPLES\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, "\n═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, " EXAMPLES\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
 	for _, e := range []string{
 		"# Inspect a TLS endpoint",
 		"Sift sslscan --target https://example.com",
@@ -149,7 +149,7 @@ func printSSLScanHelp(fs *flag.FlagSet) {
 		"# Machine-readable output",
 		"Sift sslscan --target https://example.com --json --output-json tls.json",
 	} {
-		fmt.Fprintf(w, "\n   %s\n", e)
+		_, _ = fmt.Fprintf(w, "\n   %s\n", e)
 	}
-	fmt.Fprintf(w, "\n")
+	_, _ = fmt.Fprintf(w, "\n")
 }

@@ -130,21 +130,21 @@ func resolveJWTInput(tokenFlag, fileFlag string) (string, error) {
 // printJWTHelp renders `Sift jwt --help`.
 func printJWTHelp(fs *flag.FlagSet) {
 	w := os.Stderr
-	fmt.Fprintf(w, "\n Sift jwt — offline JWT weakness analyzer\n\n")
-	fmt.Fprintf(w, " USAGE\n")
-	fmt.Fprintf(w, "   Sift jwt --token <jwt>\n")
-	fmt.Fprintf(w, "   cat token.txt | Sift jwt\n\n")
-	fmt.Fprintf(w, " Decodes the header and payload locally and reports algorithm confusion\n")
-	fmt.Fprintf(w, " (alg=none), missing/expired claims, and injection headers (kid/jku/x5u).\n")
-	fmt.Fprintf(w, " Offline only — nothing is sent, so no authorization gate applies. The\n")
-	fmt.Fprintf(w, " token itself is never echoed back in the output or the JSON report.\n\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
-	fmt.Fprintf(w, " FLAGS\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, "\n Sift jwt — offline JWT weakness analyzer\n\n")
+	_, _ = fmt.Fprintf(w, " USAGE\n")
+	_, _ = fmt.Fprintf(w, "   Sift jwt --token <jwt>\n")
+	_, _ = fmt.Fprintf(w, "   cat token.txt | Sift jwt\n\n")
+	_, _ = fmt.Fprintf(w, " Decodes the header and payload locally and reports algorithm confusion\n")
+	_, _ = fmt.Fprintf(w, " (alg=none), missing/expired claims, and injection headers (kid/jku/x5u).\n")
+	_, _ = fmt.Fprintf(w, " Offline only — nothing is sent, so no authorization gate applies. The\n")
+	_, _ = fmt.Fprintf(w, " token itself is never echoed back in the output or the JSON report.\n\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, " FLAGS\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
 	cliux.PrintFlagList(w, fs)
-	fmt.Fprintf(w, "\n═══════════════════════════════════════════════════════════════════\n")
-	fmt.Fprintf(w, " EXAMPLES\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, "\n═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, " EXAMPLES\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
 	for _, e := range []string{
 		"# Analyze a token directly",
 		"Sift jwt --token eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.",
@@ -156,7 +156,7 @@ func printJWTHelp(fs *flag.FlagSet) {
 		"# Machine-readable output",
 		"Sift jwt --token <jwt> --json",
 	} {
-		fmt.Fprintf(w, "\n   %s\n", e)
+		_, _ = fmt.Fprintf(w, "\n   %s\n", e)
 	}
-	fmt.Fprintf(w, "\n")
+	_, _ = fmt.Fprintf(w, "\n")
 }

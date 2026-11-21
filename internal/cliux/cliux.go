@@ -86,19 +86,19 @@ func HandleFlagError(w io.Writer, o Options) int {
 		name := trimFlagName(strings.TrimPrefix(msg, "flag needs an argument:"))
 		errorf(w, "Flag --%s requires a value.", name)
 		if t := typeHint(o.FlagSet, name); t != "" {
-			fmt.Fprintf(w, "          (expects %s)\n", t)
+			_, _ = fmt.Fprintf(w, "          (expects %s)\n", t)
 		}
 	case strings.HasPrefix(msg, "flag provided but not defined:"):
 		name := trimFlagName(strings.TrimPrefix(msg, "flag provided but not defined:"))
 		errorf(w, "Unknown flag --%s.", name)
 		if suggs := Suggestions(name, names, 3); len(suggs) > 0 {
-			fmt.Fprintf(w, "Did you mean --%s?\n", strings.Join(suggs, " or --"))
+			_, _ = fmt.Fprintf(w, "Did you mean --%s?\n", strings.Join(suggs, " or --"))
 		}
 	case strings.HasPrefix(msg, "invalid value"):
 		name, val := parseInvalidValue(msg)
 		errorf(w, "Invalid value %s for flag --%s.", displayValue(val), name)
 		if t := typeHint(o.FlagSet, name); t != "" {
-			fmt.Fprintf(w, "          (expects %s)\n", t)
+			_, _ = fmt.Fprintf(w, "          (expects %s)\n", t)
 		}
 	case strings.HasPrefix(msg, "bad flag syntax"):
 		errorf(w, "%s.", strings.TrimSpace(msg))
@@ -107,9 +107,9 @@ func HandleFlagError(w io.Writer, o Options) int {
 	}
 
 	if len(o.Examples) > 0 {
-		fmt.Fprintf(w, "\nExample:\n  %s\n", o.Examples[0])
+		_, _ = fmt.Fprintf(w, "\nExample:\n  %s\n", o.Examples[0])
 	}
-	fmt.Fprintf(w, "\nRun '%s --help' to see all flags and examples.\n", helpCommand(o))
+	_, _ = fmt.Fprintf(w, "\nRun '%s --help' to see all flags and examples.\n", helpCommand(o))
 	return 2
 }
 
@@ -125,9 +125,9 @@ func helpCommand(o Options) string {
 
 func errorf(w io.Writer, format string, a ...any) {
 	if IsColorable(w) {
-		fmt.Fprintf(w, "\x1b[1;31mError:\x1b[0m "+format+"\n", a...)
+		_, _ = fmt.Fprintf(w, "\x1b[1;31mError:\x1b[0m "+format+"\n", a...)
 	} else {
-		fmt.Fprintf(w, "Error: "+format+"\n", a...)
+		_, _ = fmt.Fprintf(w, "Error: "+format+"\n", a...)
 	}
 }
 
@@ -349,7 +349,7 @@ func PrintFlagList(w io.Writer, fs *flag.FlagSet) {
 		}
 	})
 	for _, e := range entries {
-		fmt.Fprintf(w, "  %-*s  %s\n", maxLeft, e.left, e.desc)
+		_, _ = fmt.Fprintf(w, "  %-*s  %s\n", maxLeft, e.left, e.desc)
 	}
 }
 
@@ -358,29 +358,29 @@ func PrintFlagList(w io.Writer, fs *flag.FlagSet) {
 // BoxHelp renders help in the same sectioned style as the top-level
 // `Sift --help`, with USAGE, FLAGS and EXAMPLES sections.
 func BoxHelp(w io.Writer, title string, usage []string, examples []string, fs *flag.FlagSet) {
-	fmt.Fprintf(w, "\n %s\n\n", title)
-	fmt.Fprintf(w, " USAGE\n")
+	_, _ = fmt.Fprintf(w, "\n %s\n\n", title)
+	_, _ = fmt.Fprintf(w, " USAGE\n")
 	for _, u := range usage {
-		fmt.Fprintf(w, "   %s\n", u)
+		_, _ = fmt.Fprintf(w, "   %s\n", u)
 	}
 	sep(w)
-	fmt.Fprintf(w, " FLAGS\n")
+	_, _ = fmt.Fprintf(w, " FLAGS\n")
 	sep(w)
 	PrintFlagList(w, fs)
 	if len(examples) > 0 {
-		fmt.Fprintf(w, "\n")
+		_, _ = fmt.Fprintf(w, "\n")
 		sep(w)
-		fmt.Fprintf(w, " EXAMPLES\n")
+		_, _ = fmt.Fprintf(w, " EXAMPLES\n")
 		sep(w)
 		for _, e := range examples {
-			fmt.Fprintf(w, "\n   %s\n", e)
+			_, _ = fmt.Fprintf(w, "\n   %s\n", e)
 		}
 	}
-	fmt.Fprintf(w, "\n")
+	_, _ = fmt.Fprintf(w, "\n")
 }
 
 func sep(w io.Writer) {
-	fmt.Fprintf(w, "\n═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, "\n═══════════════════════════════════════════════════════════════════\n")
 }
 
 // ── TTY / color detection ─────────────────────────────────────────────────

@@ -145,19 +145,19 @@ func targetDisplay(scenario *config.Scenario) string {
 // two-dash style as the top-level help, with real examples.
 func printRunHelp(fs *flag.FlagSet) {
 	w := os.Stderr
-	fmt.Fprintf(w, "\n Sift run — HTTP/gRPC/WebSocket load test\n\n")
-	fmt.Fprintf(w, " USAGE\n")
-	fmt.Fprintf(w, "   Sift run --url https://api.example.com --users 100 --duration 60\n")
-	fmt.Fprintf(w, "   Sift run --url https://api.example.com --target-rps 1000 --duration 30\n")
-	fmt.Fprintf(w, "   Sift run --url https://api.example.com --profile burst --users 500\n")
-	fmt.Fprintf(w, "   Sift run --config scenario.yaml\n\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
-	fmt.Fprintf(w, " FLAGS\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, "\n Sift run — HTTP/gRPC/WebSocket load test\n\n")
+	_, _ = fmt.Fprintf(w, " USAGE\n")
+	_, _ = fmt.Fprintf(w, "   Sift run --url https://api.example.com --users 100 --duration 60\n")
+	_, _ = fmt.Fprintf(w, "   Sift run --url https://api.example.com --target-rps 1000 --duration 30\n")
+	_, _ = fmt.Fprintf(w, "   Sift run --url https://api.example.com --profile burst --users 500\n")
+	_, _ = fmt.Fprintf(w, "   Sift run --config scenario.yaml\n\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, " FLAGS\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
 	cliux.PrintFlagList(w, fs)
-	fmt.Fprintf(w, "\n═══════════════════════════════════════════════════════════════════\n")
-	fmt.Fprintf(w, " EXAMPLES\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, "\n═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, " EXAMPLES\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
 	for _, e := range []string{
 		"# Simple load test",
 		"Sift run --url https://api.example.com --users 100 --duration 60",
@@ -195,9 +195,9 @@ func printRunHelp(fs *flag.FlagSet) {
 		"# Real-time web dashboard output",
 		"Sift run --url https://api.example.com --users 100 --duration 60 --mode dashboard",
 	} {
-		fmt.Fprintf(w, "\n   %s\n", e)
+		_, _ = fmt.Fprintf(w, "\n   %s\n", e)
 	}
-	fmt.Fprintf(w, "\n")
+	_, _ = fmt.Fprintf(w, "\n")
 }
 
 func fatal(err error) {

@@ -34,8 +34,8 @@ func StartLive(t *metrics.Telemetry, total time.Duration, out io.Writer) func() 
 		for {
 			select {
 			case <-stop:
-				fmt.Fprintf(out, "\r\x1b[%dA\x1b[J", liveLines)
-				fmt.Fprintf(out, "\r%s\r", strings.Repeat(" ", 120))
+				_, _ = fmt.Fprintf(out, "\r\x1b[%dA\x1b[J", liveLines)
+				_, _ = fmt.Fprintf(out, "\r%s\r", strings.Repeat(" ", 120))
 				return
 			case <-ticker.C:
 				// Live percentiles, read straight from the buckets. A full
@@ -75,30 +75,30 @@ func StartLive(t *metrics.Telemetry, total time.Duration, out io.Writer) func() 
 				if first {
 					first = false
 				} else {
-					fmt.Fprintf(out, "\r\x1b[%dA\x1b[J", liveLines)
+					_, _ = fmt.Fprintf(out, "\r\x1b[%dA\x1b[J", liveLines)
 				}
 
 				// Line 1 — headline progress.
-				fmt.Fprint(out, "\r")
-				fmt.Fprint(out, colorize(colorCyan, true, "⚡ "))
-				fmt.Fprint(out, colorize(rc, true, bar))
-				fmt.Fprintf(out, " %5.1f%% ", pct)
-				fmt.Fprintln(out, colorize(colorCyan, true,
+				_, _ = fmt.Fprint(out, "\r")
+				_, _ = fmt.Fprint(out, colorize(colorCyan, true, "⚡ "))
+				_, _ = fmt.Fprint(out, colorize(rc, true, bar))
+				_, _ = fmt.Fprintf(out, " %5.1f%% ", pct)
+				_, _ = fmt.Fprintln(out, colorize(colorCyan, true,
 					fmt.Sprintf("[%s/%s]", formatDuration(elapsed), formatDuration(total))))
 
 				// Line 2 — throughput and errors, with an RPS sparkline.
-				fmt.Fprint(out, "\r")
-				fmt.Fprintf(out, "  rps=%s ", colorize(colorBold, true, formatRPS(rps)))
-				fmt.Fprintf(out, "%s │ ", sparkline(rpsHistory))
-				fmt.Fprintf(out, "req=%s ", formatCount(reqs))
-				fmt.Fprintln(out, colorize(rc, true,
+				_, _ = fmt.Fprint(out, "\r")
+				_, _ = fmt.Fprintf(out, "  rps=%s ", colorize(colorBold, true, formatRPS(rps)))
+				_, _ = fmt.Fprintf(out, "%s │ ", sparkline(rpsHistory))
+				_, _ = fmt.Fprintf(out, "req=%s ", formatCount(reqs))
+				_, _ = fmt.Fprintln(out, colorize(rc, true,
 					fmt.Sprintf("err=%d (%.2f%%)", errs, errPct)))
 
 				// Line 3 — latency percentiles and active users.
-				fmt.Fprint(out, "\r")
-				fmt.Fprintf(out, "  p50=%s p95=%s p99=%s",
+				_, _ = fmt.Fprint(out, "\r")
+				_, _ = fmt.Fprintf(out, "  p50=%s p95=%s p99=%s",
 					lat.Percentile(0.50), lat.Percentile(0.95), lat.Percentile(0.99))
-				fmt.Fprintln(out, colorize(colorCyan, true,
+				_, _ = fmt.Fprintln(out, colorize(colorCyan, true,
 					fmt.Sprintf(" │ active=%d", t.ActiveUsers.Load())))
 			}
 		}

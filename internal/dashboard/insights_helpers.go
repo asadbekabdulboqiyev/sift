@@ -26,12 +26,12 @@ func copyFileTo(src, baseDir, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	out, err := os.OpenFile(cleanDst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 	n, err := io.Copy(out, io.LimitReader(in, bounty.MaxArtifactBytes+1))
 	if err != nil {
 		return err
@@ -51,7 +51,7 @@ func readUploadedText(r *http.Request, field string) string {
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	b, err := io.ReadAll(io.LimitReader(f, 4<<20))
 	if err != nil {
 		return ""
@@ -109,12 +109,12 @@ func saveMultipartFile(fh *multipart.FileHeader, baseDir, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 	out, err := os.OpenFile(cleanDst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 	n, err := io.Copy(out, io.LimitReader(src, bounty.MaxArtifactBytes+1))
 	if err != nil {
 		return err

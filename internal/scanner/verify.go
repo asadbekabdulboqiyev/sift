@@ -233,7 +233,7 @@ func (v *Verifier) fetch(rawURL string) (*verifyPage, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxVerifyBody))
 	if err != nil {

@@ -324,10 +324,10 @@ func simulateCompare(args []string) {
 	}
 
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "SCENARIO\tLOOP\tTARGET\tP99 P50\tP99 P95\tBREACH\tSATURATION\tRISK")
+	_, _ = fmt.Fprintln(tw, "SCENARIO\tLOOP\tTARGET\tP99 P50\tP99 P95\tBREACH\tSATURATION\tRISK")
 	for _, name := range twin.PresetNames() {
 		res := results[name]
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%.2f ms\t%.2f ms\t%.1f%%\t%s\t%s\n",
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%.2f ms\t%.2f ms\t%.1f%%\t%s\t%s\n",
 			name, res.Scenario.Mode, scenarioTarget(res.Scenario),
 			res.Summary.P99MS.P50, res.Summary.P99MS.P95,
 			res.Summary.SLAProbabilityBreach*100,

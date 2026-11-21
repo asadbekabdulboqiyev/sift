@@ -151,23 +151,23 @@ func oneLine(s string, max int) string {
 // printPortScanHelp renders `Sift portscan --help`.
 func printPortScanHelp(fs *flag.FlagSet) {
 	w := os.Stderr
-	fmt.Fprintf(w, "\n Sift portscan — TCP port & service scanner\n\n")
-	fmt.Fprintf(w, " USAGE\n")
-	fmt.Fprintf(w, "   Sift portscan --target https://example.com [--ports 80,443]\n\n")
-	fmt.Fprintf(w, " TCP connect scan with light banner grabbing over a curated common-port\n")
-	fmt.Fprintf(w, " list, or an explicit --ports set.\n\n")
-	fmt.Fprintf(w, " The scanner dials TCP directly, outside the probe gate: scope/rate/\n")
-	fmt.Fprintf(w, " budget are validated but not enforced on those sockets. The dial-time\n")
-	fmt.Fprintf(w, " address check still applies, so a socket cannot reach an address the\n")
-	fmt.Fprintf(w, " authorization decision did not approve. Use --dry-run to see the intent\n")
-	fmt.Fprintf(w, " without opening a connection.\n\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
-	fmt.Fprintf(w, " FLAGS\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, "\n Sift portscan — TCP port & service scanner\n\n")
+	_, _ = fmt.Fprintf(w, " USAGE\n")
+	_, _ = fmt.Fprintf(w, "   Sift portscan --target https://example.com [--ports 80,443]\n\n")
+	_, _ = fmt.Fprintf(w, " TCP connect scan with light banner grabbing over a curated common-port\n")
+	_, _ = fmt.Fprintf(w, " list, or an explicit --ports set.\n\n")
+	_, _ = fmt.Fprintf(w, " The scanner dials TCP directly, outside the probe gate: scope/rate/\n")
+	_, _ = fmt.Fprintf(w, " budget are validated but not enforced on those sockets. The dial-time\n")
+	_, _ = fmt.Fprintf(w, " address check still applies, so a socket cannot reach an address the\n")
+	_, _ = fmt.Fprintf(w, " authorization decision did not approve. Use --dry-run to see the intent\n")
+	_, _ = fmt.Fprintf(w, " without opening a connection.\n\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, " FLAGS\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
 	cliux.PrintFlagList(w, fs)
-	fmt.Fprintf(w, "\n═══════════════════════════════════════════════════════════════════\n")
-	fmt.Fprintf(w, " EXAMPLES\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, "\n═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, " EXAMPLES\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
 	for _, e := range []string{
 		"# Scan the built-in common ports",
 		"Sift portscan --target https://example.com",
@@ -178,7 +178,7 @@ func printPortScanHelp(fs *flag.FlagSet) {
 		"# Machine-readable output",
 		"Sift portscan --target example.com --ports 80,443 --json",
 	} {
-		fmt.Fprintf(w, "\n   %s\n", e)
+		_, _ = fmt.Fprintf(w, "\n   %s\n", e)
 	}
-	fmt.Fprintf(w, "\n")
+	_, _ = fmt.Fprintf(w, "\n")
 }

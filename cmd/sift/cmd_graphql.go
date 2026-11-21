@@ -90,19 +90,19 @@ func cmdGraphQL() {
 // printGraphQLHelp renders `Sift graphql --help`.
 func printGraphQLHelp(fs *flag.FlagSet) {
 	w := os.Stderr
-	fmt.Fprintf(w, "\n Sift graphql — GraphQL introspection scanner\n\n")
-	fmt.Fprintf(w, " USAGE\n")
-	fmt.Fprintf(w, "   Sift graphql --target https://example.com/graphql [flags]\n\n")
-	fmt.Fprintf(w, " Sends a standard introspection query and reports whether the schema is\n")
-	fmt.Fprintf(w, " exposed, along with types whose names suggest sensitive data. Every\n")
-	fmt.Fprintf(w, " request passes through the probe gate (scope, rate, budget, dry-run).\n\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
-	fmt.Fprintf(w, " FLAGS\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, "\n Sift graphql — GraphQL introspection scanner\n\n")
+	_, _ = fmt.Fprintf(w, " USAGE\n")
+	_, _ = fmt.Fprintf(w, "   Sift graphql --target https://example.com/graphql [flags]\n\n")
+	_, _ = fmt.Fprintf(w, " Sends a standard introspection query and reports whether the schema is\n")
+	_, _ = fmt.Fprintf(w, " exposed, along with types whose names suggest sensitive data. Every\n")
+	_, _ = fmt.Fprintf(w, " request passes through the probe gate (scope, rate, budget, dry-run).\n\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, " FLAGS\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
 	cliux.PrintFlagList(w, fs)
-	fmt.Fprintf(w, "\n═══════════════════════════════════════════════════════════════════\n")
-	fmt.Fprintf(w, " EXAMPLES\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, "\n═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, " EXAMPLES\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
 	for _, e := range []string{
 		"# Probe a GraphQL endpoint for introspection",
 		"Sift graphql --target https://example.com/graphql",
@@ -113,7 +113,7 @@ func printGraphQLHelp(fs *flag.FlagSet) {
 		"# Machine-readable output",
 		"Sift graphql --target https://example.com/graphql --json --output-json graphql.json",
 	} {
-		fmt.Fprintf(w, "\n   %s\n", e)
+		_, _ = fmt.Fprintf(w, "\n   %s\n", e)
 	}
-	fmt.Fprintf(w, "\n")
+	_, _ = fmt.Fprintf(w, "\n")
 }

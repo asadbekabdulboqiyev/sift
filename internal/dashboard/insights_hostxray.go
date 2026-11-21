@@ -60,7 +60,7 @@ func (s *Server) handleInsightsXRayCorrelate(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, insightsMaxBody)
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 
 	var req xrayCorrelateRequest
 	dec := json.NewDecoder(r.Body)
@@ -175,7 +175,7 @@ func (s *Server) handleInsightsResourceAssessment(w http.ResponseWriter, r *http
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, insightsMaxBody)
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 	var req resourceAssessmentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		insightsJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "invalid JSON: " + err.Error()})

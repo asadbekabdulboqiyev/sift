@@ -84,7 +84,7 @@ func (s *Server) handleInsightsTwinFit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, insightsMaxBody)
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 
 	var req twinFitRequest
 	dec := json.NewDecoder(r.Body)
@@ -124,7 +124,7 @@ func (s *Server) handleInsightsTwinSimulate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, insightsMaxBody)
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 
 	var req twinSimulateRequest
 	dec := json.NewDecoder(r.Body)
@@ -378,7 +378,7 @@ func (s *Server) handleInsightsTwinCompare(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, insightsMaxBody)
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 	var req twinCompareRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		insightsJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "invalid JSON: " + err.Error()})
@@ -502,7 +502,7 @@ func (s *Server) handleInsightsTwinSensitivity(w http.ResponseWriter, r *http.Re
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, insightsMaxBody)
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 	var req twinSensitivityRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		insightsJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "invalid JSON: " + err.Error()})
@@ -551,7 +551,7 @@ func (s *Server) handleInsightsTwinBacktest(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, insightsMaxBody)
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 	var req twinBacktestRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		insightsJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "invalid JSON: " + err.Error()})

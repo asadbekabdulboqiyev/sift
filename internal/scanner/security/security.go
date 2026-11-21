@@ -163,7 +163,7 @@ func ScanSecurityWithControl(target string, control func(network, address string
 	if err != nil {
 		return nil, fmt.Errorf("probe failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	info := &core.SecurityInfo{
 		Headers:        make(map[string]string),

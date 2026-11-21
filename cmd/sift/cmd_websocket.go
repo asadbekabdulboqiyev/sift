@@ -101,24 +101,24 @@ func cmdWebSocket() {
 // printWebSocketHelp renders `Sift websocket --help`.
 func printWebSocketHelp(fs *flag.FlagSet) {
 	w := os.Stderr
-	fmt.Fprintf(w, "\n Sift websocket — WebSocket security tester\n\n")
-	fmt.Fprintf(w, " USAGE\n")
-	fmt.Fprintf(w, "   Sift websocket --url wss://example.com/socket [flags]\n\n")
-	fmt.Fprintf(w, " Connects without an Origin header and reports structural weaknesses:\n")
-	fmt.Fprintf(w, " missing origin validation, absent subprotocol negotiation, and whether\n")
-	fmt.Fprintf(w, " the server answers an unsolicited probe.\n\n")
-	fmt.Fprintf(w, " The dial is performed by the WebSocket client, outside the probe\n")
-	fmt.Fprintf(w, " gate: scope/rate/budget are validated but not enforced on the socket.\n")
-	fmt.Fprintf(w, " The dial-time address check still applies, so the socket cannot reach\n")
-	fmt.Fprintf(w, " an address the authorization decision did not approve. Use --dry-run\n")
-	fmt.Fprintf(w, " to see the intent without opening a connection.\n\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
-	fmt.Fprintf(w, " FLAGS\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, "\n Sift websocket — WebSocket security tester\n\n")
+	_, _ = fmt.Fprintf(w, " USAGE\n")
+	_, _ = fmt.Fprintf(w, "   Sift websocket --url wss://example.com/socket [flags]\n\n")
+	_, _ = fmt.Fprintf(w, " Connects without an Origin header and reports structural weaknesses:\n")
+	_, _ = fmt.Fprintf(w, " missing origin validation, absent subprotocol negotiation, and whether\n")
+	_, _ = fmt.Fprintf(w, " the server answers an unsolicited probe.\n\n")
+	_, _ = fmt.Fprintf(w, " The dial is performed by the WebSocket client, outside the probe\n")
+	_, _ = fmt.Fprintf(w, " gate: scope/rate/budget are validated but not enforced on the socket.\n")
+	_, _ = fmt.Fprintf(w, " The dial-time address check still applies, so the socket cannot reach\n")
+	_, _ = fmt.Fprintf(w, " an address the authorization decision did not approve. Use --dry-run\n")
+	_, _ = fmt.Fprintf(w, " to see the intent without opening a connection.\n\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, " FLAGS\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
 	cliux.PrintFlagList(w, fs)
-	fmt.Fprintf(w, "\n═══════════════════════════════════════════════════════════════════\n")
-	fmt.Fprintf(w, " EXAMPLES\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, "\n═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, " EXAMPLES\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
 	for _, e := range []string{
 		"# Test a WebSocket endpoint",
 		"Sift websocket --url wss://example.com/socket",
@@ -129,7 +129,7 @@ func printWebSocketHelp(fs *flag.FlagSet) {
 		"# Machine-readable output",
 		"Sift websocket --url wss://example.com/socket --json",
 	} {
-		fmt.Fprintf(w, "\n   %s\n", e)
+		_, _ = fmt.Fprintf(w, "\n   %s\n", e)
 	}
-	fmt.Fprintf(w, "\n")
+	_, _ = fmt.Fprintf(w, "\n")
 }

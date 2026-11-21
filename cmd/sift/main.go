@@ -217,22 +217,22 @@ func resolveGroupAlias() {
 func unknownGroupSubcommand(group, sub string, g commandGroup) {
 	w := os.Stderr
 	if sub == "" {
-		fmt.Fprintf(w, "Error: group %q requires a subcommand.\n\n", group)
+		_, _ = fmt.Fprintf(w, "Error: group %q requires a subcommand.\n\n", group)
 	} else {
-		fmt.Fprintf(w, "Error: unknown command %q for group %q.\n\n", sub, group)
+		_, _ = fmt.Fprintf(w, "Error: unknown command %q for group %q.\n\n", sub, group)
 	}
 
-	fmt.Fprintf(w, "Available subcommands for 'Sift %s' (%s):\n", group, g.summary)
+	_, _ = fmt.Fprintf(w, "Available subcommands for 'Sift %s' (%s):\n", group, g.summary)
 	for _, c := range g.commands {
-		fmt.Fprintf(w, "   Sift %s %s\n", group, c)
+		_, _ = fmt.Fprintf(w, "   Sift %s %s\n", group, c)
 	}
 
-	fmt.Fprintf(w, "\nAll command groups:\n")
+	_, _ = fmt.Fprintf(w, "\nAll command groups:\n")
 	for _, name := range []string{"test", "secure", "evidence"} {
-		fmt.Fprintf(w, "   %-9s %s\n", name, commandGroups[name].summary)
+		_, _ = fmt.Fprintf(w, "   %-9s %s\n", name, commandGroups[name].summary)
 	}
-	fmt.Fprintf(w, "\nDirect commands still work, for example 'Sift %s ...'.\n", g.commands[0])
-	fmt.Fprintf(w, "Run 'Sift --help' for every command and flag.\n")
+	_, _ = fmt.Fprintf(w, "\nDirect commands still work, for example 'Sift %s ...'.\n", g.commands[0])
+	_, _ = fmt.Fprintf(w, "Run 'Sift --help' for every command and flag.\n")
 }
 
 // unknownCommand reports an unrecognized subcommand with a "did you mean"
@@ -241,18 +241,18 @@ func unknownGroupSubcommand(group, sub string, g commandGroup) {
 func unknownCommand(cmd string) {
 	w := os.Stderr
 	if cliux.IsColorable(w) {
-		fmt.Fprintf(w, "\x1b[1;31mError:\x1b[0m unknown command %q.\n\n", cmd)
+		_, _ = fmt.Fprintf(w, "\x1b[1;31mError:\x1b[0m unknown command %q.\n\n", cmd)
 	} else {
-		fmt.Fprintf(w, "Error: unknown command %q.\n\n", cmd)
+		_, _ = fmt.Fprintf(w, "Error: unknown command %q.\n\n", cmd)
 	}
 	if suggs := cliux.Suggestions(cmd, knownCommands, 3); len(suggs) > 0 {
-		fmt.Fprintf(w, "Did you mean: %s?\n\n", strings.Join(suggs, " | "))
+		_, _ = fmt.Fprintf(w, "Did you mean: %s?\n\n", strings.Join(suggs, " | "))
 	}
-	fmt.Fprintf(w, "Run '%s' with one of these commands:\n", filepath.Base(os.Args[0]))
+	_, _ = fmt.Fprintf(w, "Run '%s' with one of these commands:\n", filepath.Base(os.Args[0]))
 	for _, c := range knownCommands {
-		fmt.Fprintf(w, "   %s\n", c)
+		_, _ = fmt.Fprintf(w, "   %s\n", c)
 	}
-	fmt.Fprintf(w, "\nRun 'Sift --help' to see all commands, flags and examples.\n")
+	_, _ = fmt.Fprintf(w, "\nRun 'Sift --help' to see all commands, flags and examples.\n")
 }
 
 // shouldFailGate reports whether the measured error rate should trip the SLA

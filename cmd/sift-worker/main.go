@@ -309,7 +309,7 @@ func registrationLoop(masterAddr, id, advertised, token string, clientCreds cred
 		log.Printf("Failed to create client for master %s", masterAddr)
 		return
 	}
-	defer conn.Close()
+	defer func(c *grpc.ClientConn) { _ = c.Close() }(conn)
 
 	client := distproto.NewMasterWorkerClient(conn)
 	lastErr := ""

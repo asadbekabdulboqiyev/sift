@@ -133,7 +133,7 @@ func (d *CVEDetector) fingerprint() map[string]string {
 	if err != nil {
 		return tech
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 	bodyStr := string(body)
 	server := resp.Header.Get("Server")

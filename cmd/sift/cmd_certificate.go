@@ -541,7 +541,7 @@ func issueCertificate(from, out, format, keyPath, issuer string, quiet bool) {
 	}
 
 	if quiet {
-		fmt.Fprintln(os.Stdout, strings.Join(written, " "))
+		_, _ = fmt.Fprintln(os.Stdout, strings.Join(written, " "))
 		return
 	}
 

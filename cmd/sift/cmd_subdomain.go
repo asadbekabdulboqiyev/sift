@@ -99,22 +99,22 @@ func cmdSubdomain() {
 // printSubdomainHelp renders `Sift subdomain --help`.
 func printSubdomainHelp(fs *flag.FlagSet) {
 	w := os.Stderr
-	fmt.Fprintf(w, "\n Sift subdomain — passive subdomain enumeration\n\n")
-	fmt.Fprintf(w, " USAGE\n")
-	fmt.Fprintf(w, "   Sift subdomain --target https://example.com [flags]\n\n")
-	fmt.Fprintf(w, " Passive discovery from certificate transparency logs (crt.sh) and DNS\n")
-	fmt.Fprintf(w, " records, then local resolution of what it finds. No active probing of\n")
-	fmt.Fprintf(w, " the discovered hostnames is performed.\n\n")
-	fmt.Fprintf(w, " The enumeration dials DNS/crt.sh directly and bypasses the probe gate:\n")
-	fmt.Fprintf(w, " scope/rate/budget are validated but not enforced on those lookups.\n")
-	fmt.Fprintf(w, " Use --dry-run to see the intent without querying anything.\n\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
-	fmt.Fprintf(w, " FLAGS\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, "\n Sift subdomain — passive subdomain enumeration\n\n")
+	_, _ = fmt.Fprintf(w, " USAGE\n")
+	_, _ = fmt.Fprintf(w, "   Sift subdomain --target https://example.com [flags]\n\n")
+	_, _ = fmt.Fprintf(w, " Passive discovery from certificate transparency logs (crt.sh) and DNS\n")
+	_, _ = fmt.Fprintf(w, " records, then local resolution of what it finds. No active probing of\n")
+	_, _ = fmt.Fprintf(w, " the discovered hostnames is performed.\n\n")
+	_, _ = fmt.Fprintf(w, " The enumeration dials DNS/crt.sh directly and bypasses the probe gate:\n")
+	_, _ = fmt.Fprintf(w, " scope/rate/budget are validated but not enforced on those lookups.\n")
+	_, _ = fmt.Fprintf(w, " Use --dry-run to see the intent without querying anything.\n\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, " FLAGS\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
 	cliux.PrintFlagList(w, fs)
-	fmt.Fprintf(w, "\n═══════════════════════════════════════════════════════════════════\n")
-	fmt.Fprintf(w, " EXAMPLES\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, "\n═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, " EXAMPLES\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
 	for _, e := range []string{
 		"# Enumerate subdomains of a domain",
 		"Sift subdomain --target https://example.com",
@@ -125,7 +125,7 @@ func printSubdomainHelp(fs *flag.FlagSet) {
 		"# Machine-readable output",
 		"Sift subdomain --target https://example.com --json --output-json subdomains.json",
 	} {
-		fmt.Fprintf(w, "\n   %s\n", e)
+		_, _ = fmt.Fprintf(w, "\n   %s\n", e)
 	}
-	fmt.Fprintf(w, "\n")
+	_, _ = fmt.Fprintf(w, "\n")
 }

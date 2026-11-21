@@ -147,7 +147,7 @@ func Verify(path string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	prev := ""
 	n := 0
@@ -187,7 +187,7 @@ func ReadAll(path string) ([]Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var out []Entry
 	sc := bufio.NewScanner(f)
@@ -215,7 +215,7 @@ func lastEntry(path string) (*Entry, error) {
 		}
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	fi, err := f.Stat()
 	if err != nil {

@@ -31,7 +31,7 @@ func (s *Server) handleInsightsBountyValidate(w http.ResponseWriter, r *http.Req
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, insightsMaxBody)
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 
 	var req bountyValidateRequest
 	dec := json.NewDecoder(r.Body)
@@ -117,7 +117,7 @@ func (s *Server) handleInsightsBountyStatus(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, triageMaxBody)
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 
 	var req bountyStatusRequest
 	dec := json.NewDecoder(r.Body)
@@ -329,7 +329,7 @@ func (s *Server) handleInsightsBountyVerifyUpload(w http.ResponseWriter, r *http
 		insightsJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "error": "failed to create temp directory"})
 		return
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Persist all uploaded files into temp dir using sanitized relative paths.
 	saved := map[string]string{} // rel path as saved -> absolute path

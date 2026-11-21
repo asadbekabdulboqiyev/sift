@@ -421,7 +421,7 @@ func (n *Notifier) post(ctx context.Context, ev Event) (attemptResult, error) {
 	if err != nil {
 		return attemptResult{}, fmt.Errorf("siem: post: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
 
 	res := attemptResult{status: resp.StatusCode, retryAfterRaw: resp.Header.Get("Retry-After")}

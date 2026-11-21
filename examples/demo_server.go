@@ -72,7 +72,7 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(slowMillis)
 	}
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, "ok")
+	_, _ = fmt.Fprint(w, "ok")
 }
 
 func handleLogin(w http.ResponseWriter, r *http.Request) {

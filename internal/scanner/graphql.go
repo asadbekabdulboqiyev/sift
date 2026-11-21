@@ -70,7 +70,7 @@ func ScanGraphQL(ctx context.Context, target string, req core.Requester) *GraphQ
 		res.Duration = sinceSeconds(start)
 		return res
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	res.Reachable = true
 
 	var raw map[string]any

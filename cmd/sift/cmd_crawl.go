@@ -136,20 +136,20 @@ func cmdCrawl() {
 // printCrawlHelp renders `Sift crawl --help`.
 func printCrawlHelp(fs *flag.FlagSet) {
 	w := os.Stderr
-	fmt.Fprintf(w, "\n Sift crawl — site spider (endpoint discovery)\n\n")
-	fmt.Fprintf(w, " USAGE\n")
-	fmt.Fprintf(w, "   Sift crawl --target https://example.com [flags]\n\n")
-	fmt.Fprintf(w, " Breadth-first crawl that discovers links and forms and reports every\n")
-	fmt.Fprintf(w, " endpoint found. Information gathering (scope-enforced, not intrusive):\n")
-	fmt.Fprintf(w, " offsite links are never followed unless --offsite is given, and every\n")
-	fmt.Fprintf(w, " request passes through the probe gate.\n\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
-	fmt.Fprintf(w, " FLAGS\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, "\n Sift crawl — site spider (endpoint discovery)\n\n")
+	_, _ = fmt.Fprintf(w, " USAGE\n")
+	_, _ = fmt.Fprintf(w, "   Sift crawl --target https://example.com [flags]\n\n")
+	_, _ = fmt.Fprintf(w, " Breadth-first crawl that discovers links and forms and reports every\n")
+	_, _ = fmt.Fprintf(w, " endpoint found. Information gathering (scope-enforced, not intrusive):\n")
+	_, _ = fmt.Fprintf(w, " offsite links are never followed unless --offsite is given, and every\n")
+	_, _ = fmt.Fprintf(w, " request passes through the probe gate.\n\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, " FLAGS\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
 	cliux.PrintFlagList(w, fs)
-	fmt.Fprintf(w, "\n═══════════════════════════════════════════════════════════════════\n")
-	fmt.Fprintf(w, " EXAMPLES\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, "\n═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, " EXAMPLES\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
 	for _, e := range []string{
 		"# Crawl a site three levels deep",
 		"Sift crawl --target https://example.com --depth 3 --pages 200",
@@ -160,7 +160,7 @@ func printCrawlHelp(fs *flag.FlagSet) {
 		"# Machine-readable output (the endpoint list)",
 		"Sift crawl --target https://example.com --json --output-json crawl.json",
 	} {
-		fmt.Fprintf(w, "\n   %s\n", e)
+		_, _ = fmt.Fprintf(w, "\n   %s\n", e)
 	}
-	fmt.Fprintf(w, "\n")
+	_, _ = fmt.Fprintf(w, "\n")
 }

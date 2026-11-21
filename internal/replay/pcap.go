@@ -135,7 +135,7 @@ func (p *PCAPParser) ParseFile(path string) (*Capture, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open pcap: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	p.resetForCapture(path)
 
@@ -391,7 +391,7 @@ func ParseHAR(path string) (*Capture, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open har: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	data, err := io.ReadAll(io.LimitReader(f, maxCaptureFileBytes+1))
 	if err != nil {

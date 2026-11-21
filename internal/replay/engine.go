@@ -244,7 +244,7 @@ func (rw *ReplayWorker) replayPacket(pkt *Packet) error {
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Read response body (limit to 1MB)
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))

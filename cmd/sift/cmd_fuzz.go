@@ -165,19 +165,19 @@ func fuzzNormalizePaths(paths []string) []string {
 // printFuzzHelp renders `Sift fuzz --help`.
 func printFuzzHelp(fs *flag.FlagSet) {
 	w := os.Stderr
-	fmt.Fprintf(w, "\n Sift fuzz — coverage-aware HTTP fuzzer\n\n")
-	fmt.Fprintf(w, " USAGE\n")
-	fmt.Fprintf(w, "   Sift fuzz --target https://example.com --path /item/{id} [flags]\n\n")
-	fmt.Fprintf(w, " Honestly report what a fuzzing campaign touches: every request goes\n")
-	fmt.Fprintf(w, " through the probe gate (scope, rate, budget, dry-run) and the\n")
-	fmt.Fprintf(w, " authorization decision is recorded in the audit log.\n\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
-	fmt.Fprintf(w, " FLAGS\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, "\n Sift fuzz — coverage-aware HTTP fuzzer\n\n")
+	_, _ = fmt.Fprintf(w, " USAGE\n")
+	_, _ = fmt.Fprintf(w, "   Sift fuzz --target https://example.com --path /item/{id} [flags]\n\n")
+	_, _ = fmt.Fprintf(w, " Honestly report what a fuzzing campaign touches: every request goes\n")
+	_, _ = fmt.Fprintf(w, " through the probe gate (scope, rate, budget, dry-run) and the\n")
+	_, _ = fmt.Fprintf(w, " authorization decision is recorded in the audit log.\n\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, " FLAGS\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
 	cliux.PrintFlagList(w, fs)
-	fmt.Fprintf(w, "\n═══════════════════════════════════════════════════════════════════\n")
-	fmt.Fprintf(w, " EXAMPLES\n")
-	fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, "\n═══════════════════════════════════════════════════════════════════\n")
+	_, _ = fmt.Fprintf(w, " EXAMPLES\n")
+	_, _ = fmt.Fprintf(w, "═══════════════════════════════════════════════════════════════════\n")
 	for _, e := range []string{
 		"# Fuzz two endpoints, 200 mutations each",
 		"Sift fuzz --target https://example.com --path /search --path /item/{id} --mutations 200",
@@ -191,7 +191,7 @@ func printFuzzHelp(fs *flag.FlagSet) {
 		"# Machine-readable output",
 		"Sift fuzz --target https://example.com --path / --json --output-json fuzz.json",
 	} {
-		fmt.Fprintf(w, "\n   %s\n", e)
+		_, _ = fmt.Fprintf(w, "\n   %s\n", e)
 	}
-	fmt.Fprintf(w, "\n")
+	_, _ = fmt.Fprintf(w, "\n")
 }
