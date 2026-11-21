@@ -59,6 +59,23 @@ func TestMetadataAllowedOnlyByExactRule(t *testing.T) {
 	}
 }
 
+func TestLoadTestLoopbackDeniedByDefault(t *testing.T) {
+	tgt := target(t, "http://localhost:8080", fakeResolver{"localhost": {"127.0.0.1"}})
+	if d := DefaultPolicy().Check(tgt, OpLoadTest, time.Now()); d.Allowed {
+		t.Fatal("load test against loopback must be denied by default: a run sends high-rate traffic to the runner itself")
+	}
+	// Scanning the same host stays allowed - local scans are a valid workflow.
+	if d := DefaultPolicy().Check(tgt, OpScan, time.Now()); !d.Allowed {
+		t.Fatalf("local scan should still be allowed: %s", d.Reason)
+	}
+	// An operator can explicitly open it for a local lab.
+	p := DefaultPolicy()
+	p.AllowPrivate = true
+	if d := p.Check(tgt, OpLoadTest, time.Now()); !d.Allowed {
+		t.Fatalf("loopback load test should be allowed with allow_private: %s", d.Reason)
+	}
+}
+
 func TestPrivateDeniedByDefault(t *testing.T) {
 	tgt := target(t, "http://internal.local", fakeResolver{"internal.local": {"10.0.0.5"}})
 	d := DefaultPolicy().Check(tgt, OpLoadTest, time.Now())

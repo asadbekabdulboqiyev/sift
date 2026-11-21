@@ -129,6 +129,17 @@ report claims a verdict.
 - The `cmd/sift/cmd_pentest.go` badge caveat in `docs/OWASP-SCANNER.md` section 5
   is removed only when code and document agree; until then the caveat stays.
 
+## Completed - lint debt and CI quality gates
+
+- **Lint debt to zero (2026-11-21):** `golangci-lint run ./...` went from 738
+  issues to 0 (738 -> 510 -> 145 -> 0). The `only-new-issues` ratchet was
+  removed from CI, which now lints the whole repository on every run. See
+  `docs/LINT-DEBT-TRIAGE.md` section 9.
+- **Quality gates:** aggregate coverage is 76.2% overall (78.0% excluding
+  generated `.pb.go` files) with a 75% CI floor, and `govulncheck` reports 0
+  vulnerabilities in reachable code. Coverage history and commands are in
+  `docs/COVERAGE.md`.
+
 ## Scope note
 
 This document does not add new roadmap estimates: the numbers and limits quoted

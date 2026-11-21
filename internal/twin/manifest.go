@@ -136,6 +136,25 @@ func ValidateManifest(m DatasetManifest) (DatasetManifest, error) {
 }
 
 func normalizeAndValidateManifest(m DatasetManifest) (DatasetManifest, error) {
+	// DatasetManifest arrives by value, but Datasets is a slice and Split holds
+	// pointers: normalizing the IDs in place below would mutate the caller's
+	// nested data through the shared backing array / pointees. Copy every
+	// mutable layer first so this function truly returns a normalized copy.
+	if m.Datasets != nil {
+		m.Datasets = append([]ManifestDataset(nil), m.Datasets...)
+	}
+	if m.Split != nil {
+		split := *m.Split
+		if split.Train != nil {
+			train := *split.Train
+			split.Train = &train
+		}
+		if split.Validation != nil {
+			val := *split.Validation
+			split.Validation = &val
+		}
+		m.Split = &split
+	}
 	if strings.TrimSpace(m.SchemaVersion) == "" {
 		m.SchemaVersion = DatasetManifestSchemaVersion
 	}
@@ -642,8 +661,12 @@ func ApplyLeakageVerification(lg *LeakageGuard, ver LeakageVerification) *Leakag
 	}
 	reasonParts = append(reasonParts, ver.Reasons...)
 	if len(reasonParts) > 0 {
-		// keep explicit context but don't drop existing reason entirely
-		if strings.TrimSpace(lg.Reason) != "" && !strings.Contains(lg.Reason, ver.Summary) {
+		// Keep explicit context but do not duplicate it. Only test containment
+		// when a summary actually exists: strings.Contains(s, "") is always
+		// true, so with an empty summary the existing reason was silently
+		// dropped and prior audit context was lost.
+		summary := strings.TrimSpace(ver.Summary)
+		if strings.TrimSpace(lg.Reason) != "" && (summary == "" || !strings.Contains(lg.Reason, ver.Summary)) {
 			reasonParts = append([]string{lg.Reason}, reasonParts...)
 		}
 		lg.Reason = strings.Join(uniqueStrings(reasonParts), "; ")

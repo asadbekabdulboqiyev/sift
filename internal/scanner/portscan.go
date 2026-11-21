@@ -72,15 +72,18 @@ func ScanPortsWithControl(ctx context.Context, target string, ports []int, req c
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 64) // cap concurrent dials
 
+scanLoop:
 	for _, p := range ports {
+		// Acquire a slot before starting the goroutine. A cancelled scan then
+		// stops launching work instead of spawning one goroutine per port.
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			break scanLoop
+		}
 		wg.Add(1)
 		go func(port int) {
 			defer wg.Done()
-			select {
-			case sem <- struct{}{}:
-			case <-ctx.Done():
-				return
-			}
 			defer func() { <-sem }()
 
 			addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))

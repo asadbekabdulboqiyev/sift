@@ -5,6 +5,74 @@ All notable changes to Sift are documented here. This file follows
 versioning. Entries are taken from git tags and commit history; nothing here is
 a promise of future work.
 
+## [Unreleased]
+
+Repository-quality follow-up to v0.18.1. No release tag is assigned to these
+changes yet.
+
+### Changed
+
+- Cleared the lint backlog: `golangci-lint run ./...` reports **0 issues**. The
+  count went 738 -> 510 -> 145 -> 0 across three phases;
+  `docs/LINT-DEBT-TRIAGE.md` records the phases, fixes and justified suppressions.
+- CI now lints the whole repository on every run. The `only-new-issues` ratchet
+  and its `pull-requests: read` permission were removed from
+  `.github/workflows/ci.yml`; the workflow has 15 jobs, gated by a single
+  `ci-ok` aggregate that fails if any required job does not succeed.
+  `security.yml` and `codeql.yml` gained matching `security-ok` and
+  `codeql-ok` aggregates, so branch protection can require one named check
+  per workflow.
+- Every GitHub Action across all workflows is pinned to a 40-character commit
+  SHA with an exact semver comment (verified against the upstream tags);
+  Node is pinned to 26.13.1. The `bench` job now runs
+  eight samples and fails when any package sec/op median regresses more than
+  10% against the previous successful baseline. Fuzz targets run for 180s
+  with a stable cache key, and bench/fuzz/docker no longer wait serially on
+  `test`. Dockerfiles set `GOTOOLCHAIN=local`, use exact `1.26.11` builder
+  images and pin all base images by digest.
+- Aggregate test coverage is **76.2%** overall and **78.0%** excluding generated
+  `.pb.go` files. The CI coverage gate floor is now 75% (was 70%), and
+  `go mod tidy` reports no changes.
+- `govulncheck` reports **0 vulnerabilities** in reachable code; the one
+  remaining advisory is in a module that is not called by the build.
+
+### Security
+
+- The `load-run` endpoint now goes through the full authorization policy
+  (`OpLoadTest`) instead of a partial check, with a named authorization ticket
+  and an audit entry.
+- Loopback, private, CGNAT, multicast and reserved destinations are rejected.
+  Reserved-IP classification was corrected for documentation, benchmarking and
+  future-use blocks that Go reports as global-unicast.
+- OIDC claim values are no longer used directly as role names. A signed token
+  carrying `{"role":"admin"}` cannot grant admin; claim values must be mapped
+  to local roles with an operator-managed `oidc_role_map` (or the
+  `-auth-oidc-role-map` / `--dashboard-auth-oidc-role-map` flags). The map is
+  fail closed: unmapped claims are ignored and mapping to the built-in `admin`
+  role is refused. Deployments that relied on raw claim role names must add the
+  map or their OIDC users lose those roles.
+- VeriGate pass cookies are now `Secure` by default. Plain-HTTP deployments
+  must opt out explicitly with `SecureCookies: &false`; the standalone demo
+  does so. The previous behavior silently omitted `Secure` behind a
+  TLS-terminating proxy.
+
+### Performance
+
+- CVE signatures are compiled once and cached (including invalid patterns),
+  cutting a full-signature scan from ~214 us to ~72 us and allocations from
+  339 KB / 2,776 allocs to 14 KB / 217 allocs per call.
+- Port and directory scans now take the concurrency semaphore before spawning
+  a goroutine, removing tens of thousands of blocked goroutines on large ranges
+  (cancelled 65k-port scan: 2.58 ms -> 1.8 us).
+- Directory title extraction scans bytes in one case-insensitive pass instead
+  of lowercasing the whole document twice (5.5 ms -> 59 us on a 4 MB body).
+- Live telemetry totals (`TotalRequests`, `TotalErrors`, `RPS`) are O(1) atomic
+  reads instead of locking and summing all steps (11.4 us -> 0.3 us).
+- JSON path extraction uses direct scalar formatting (1.17 us -> 1.12 us).
+- Known limit: scanning a ~1 MB response body through all 94 CVE signatures
+  still takes ~1 s of regex work; this is bounded linear matching, not
+  catastrophic backtracking, but large bodies remain the dominant CVE cost.
+
 ## [v0.18.1] - 2026-11-20
 
 Repository-quality, release-hardening and security patch. Authentication and
@@ -71,12 +139,13 @@ user-visible and are called out under Security and Changed below.
 - Split protobuf generation into a pinned, byte-reproducible toolchain with a
   CI drift check; drop 13 dead helpers and no-op/import-pin code.
 - CI: add `-count=1` (and `-race`) to test jobs so cached results cannot mask
-  stale tests; raise the Codecov coverage floor from 45% to 70% with fail-closed
-  upload; single Go version source; repair GoReleaser 422 asset handling and
-  sign/verify checksums in the same run.
-- Document lint-gating decisions (739 pre-existing issues retained under the
-  `only-new-issues` ratchet), real DCO 1.1, and honest security/commercial
-  claims. Bus factor of 1 is stated explicitly — still an open risk.
+  stale tests; raise the in-workflow coverage gate floor from 45% to 70%; single
+  Go version source; repair GoReleaser 422 asset handling and sign/verify
+  checksums in the same run. No Codecov upload step is configured.
+- Document lint-gating decisions, real DCO 1.1, and honest security/commercial
+  claims. At release time 739 pre-existing issues were retained under the
+  `only-new-issues` ratchet; that ratchet has since been removed (see
+  [Unreleased]). Bus factor of 1 is stated explicitly - still an open risk.
 
 ### Added / Coverage
 
@@ -87,8 +156,8 @@ user-visible and are called out under Security and Changed below.
   README badge, install commands and winget manifests follow the release tag.
 
 Source: derived from `git log v0.18.0..HEAD` (16 DCO-signed commits) and local
-verification on 2026-11-20. Remote-only outcomes (CI status, Codecov gate,
-cosign same-run verification) are confirmed on the tagged run.
+verification on 2026-11-20. Remote-only outcomes (CI status, in-workflow
+coverage gate, cosign same-run verification) are confirmed on the tagged run.
 
 ## [v0.18.0] - 2026-11-19
 

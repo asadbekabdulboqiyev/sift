@@ -235,11 +235,55 @@ func ClassifyIP(ip net.IP) Class {
 		return ClassCGNAT
 	case ip.IsPrivate():
 		return ClassPrivate
+	case isSpecialPurposeV4(ip):
+		// Go's IsGlobalUnicast reports true for these blocks, but RFC 5737
+		// (documentation), RFC 2544 (benchmarking), RFC 1122/6890 (future-use
+		// and limited broadcast) and the IETF protocol-assignment range are
+		// not routable public hosts. Without this check a load generator
+		// would accept 240.0.0.1 / 192.0.2.5 as a "public" target.
+		return ClassReserved
 	case ip.IsGlobalUnicast():
 		return ClassPublic
 	default:
 		return ClassReserved
 	}
+}
+
+// specialPurposeV4 are IPv4 blocks reserved for documentation, benchmarking,
+// protocol assignments and future use. They are global-unicast by Go's
+// classification but must never be approved as real scan or load targets.
+var specialPurposeV4 = func() []*net.IPNet {
+	cidrs := []string{
+		"192.0.0.0/24",       // IETF protocol assignments
+		"192.0.2.0/24",       // TEST-NET-1 (documentation)
+		"198.18.0.0/15",      // benchmarking
+		"198.51.100.0/24",    // TEST-NET-2
+		"203.0.113.0/24",     // TEST-NET-3
+		"240.0.0.0/4",        // reserved for future use
+		"255.255.255.255/32", // limited broadcast
+	}
+	nets := make([]*net.IPNet, 0, len(cidrs))
+	for _, cidr := range cidrs {
+		_, block, err := net.ParseCIDR(cidr)
+		if err != nil {
+			panic("authz: invalid built-in CIDR " + cidr)
+		}
+		nets = append(nets, block)
+	}
+	return nets
+}()
+
+func isSpecialPurposeV4(ip net.IP) bool {
+	v4 := ip.To4()
+	if v4 == nil {
+		return false
+	}
+	for _, block := range specialPurposeV4 {
+		if block.Contains(v4) {
+			return true
+		}
+	}
+	return false
 }
 
 // inCGNAT reports whether ip is in 100.64.0.0/10.

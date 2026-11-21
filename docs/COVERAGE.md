@@ -12,15 +12,15 @@ This document tracks test coverage status and policy for Sift.
 | Uncovered/low-covered areas (real code) | `store/memstore` 0%, `tenant` 0%, `version` 0%, `auditdb` 0%, parts of `replay/pcap`, engine internals | Requires targeted tests |
 | CLI entrypoints (`cmd/*/main.go`) | 0.0% | Expected; `main()` is typically not exercised by unit tests |
 
-## Current measurement (2026-11-17)
+## Current measurement (2026-11-21)
 
 | Metric | Value | How it was measured |
 |---|---:|---|
-| Aggregate suite | **75.7%** | CI `Coverage gate` job, run [44087015007](https://github.com/asadbekabdulboqiyev/sift/actions/runs/44087015007) on commit `6e65195` |
+| Aggregate suite | **76.2%** overall; **78.0%** excluding generated `.pb.go` files | Full test suite with the aggregate mode below, measured 2026-11-21 |
 | Measurement mode | `-race -covermode=atomic -coverpkg=./...` | `test` job produces one profile per package; the gate merges them and runs `go tool cover -func` |
-| Floor enforced in CI | **70%** | `.github/workflows/ci.yml` — matches the `>=70%` target in `CONTRIBUTING.md` |
+| Floor enforced in CI | **75%** | `.github/workflows/ci.yml` — matches the `>=75%` target in `CONTRIBUTING.md` |
 
-The 70% CI gate is a minimum floor; measured coverage is higher (75.7% above),
+The 75% CI gate is a minimum floor; measured coverage is higher (76.2% above),
 so it is a regression alarm rather than a routine blocker. The project target
 is tracked in `CONTRIBUTING.md`.
 
@@ -32,8 +32,8 @@ race detector is skipped and `coverage.out` is copied from an earlier run.
 The 2026-11-05 baseline (58.7%) and this figure are not a like-for-like
 comparison of the same commit: tests were added between the two dates, and the
 CI gate merges per-package profiles instead of using a single `go test ./...`
-run. The number above is the one CI actually enforces against, so it is the
-number quoted when the project states its coverage.
+run. The number above uses the same aggregate mode as the CI gate, so it is the
+figure quoted when the project states its coverage.
 
 ## Local coverage commands
 
@@ -54,13 +54,13 @@ The `coverage` job in `.github/workflows/ci.yml`:
 
 1. Collects `coverage-*.out` artifacts produced by the `test` job (`-coverpkg=./...`).
 2. Computes aggregate coverage using `go tool cover -func`.
-3. Fails if coverage is below the configured floor (**70%**).
+3. Fails if coverage is below the configured floor (**75%**).
 
 The `test` job runs `go test -p 1 -race -count=1 -covermode=atomic -coverprofile=coverage.out -coverpkg=./... ./...`, so coverage artifacts and aggregate checks are based on the same measurement mode and always come from the current commit.
 
 ## Follow-up goals
 
-- Maintain and improve the baseline (58.7%) over time; document meaningful floor changes in this file.
+- Maintain and improve the current level (76.2% overall, 78.0% excluding generated `.pb.go` files) over time; document meaningful floor changes in this file.
 - Add unit/integration tests for currently uncovered real-code packages (e.g. `store/memstore`, `tenant`, `version`, `auditdb`) where practical.
 - Treat `main()` coverage gaps as expected unless an integration test strategy is added.
 - Monitor flaky behavior in race/coverage runs (especially `internal/engine`) and stabilize tests as needed.
@@ -88,11 +88,13 @@ tests, just with bounded package parallelism (`TEST_P`, default `1`). Use
 `-race` for a faster local loop.
 
 `make verify` runs the same bounded parallelism (it used to call a bare
-`go test ./...`, which reintroduced the very flake the target exists to catch)
-and ends with the gosec ratchet instead of "zero findings". The old check could
-never pass: the five remaining findings are MEDIUM `G304` file-inclusion hits,
-which the documented ratchet policy allowlists by design, so a clean tree was
-reported as a failure.
+`go test ./...`, which reintroduced the very flake the target exists to catch).
+It still ends with the gosec ratchet (`scripts/gosec-ratchet.sh`), which is also
+enforced in the `security.yml` workflow: known `G304` file-inclusion findings
+are baselined, and only new error-level findings fail the gate. This is a
+security scan, separate from the lint gate: the golangci-lint `only-new-issues`
+ratchet was removed and CI now lints the whole repository on every run, with
+zero current findings. See `docs/LINT-DEBT-TRIAGE.md` section 9.
 
 The coordinator was the last package that still failed at `-p 1`. Its
 master→worker dial is now a context dialer that retries only `EADDRNOTAVAIL`

@@ -25,6 +25,7 @@ func TestRunDashboardAuthFlagsRegistered(t *testing.T) {
 	for _, name := range []string{
 		"dashboard-auth-oidc",
 		"dashboard-auth-rbac",
+		"dashboard-auth-oidc-role-map",
 		"dashboard-auth-rbac-enabled",
 	} {
 		if fs.Lookup(name) == nil {
@@ -138,6 +139,22 @@ func TestDashboardAuthOptionsOIDCEntryParsing(t *testing.T) {
 					tc.issuer, tc.clientID, tc.roleClaim)
 			}
 		})
+	}
+}
+
+// TestDashboardAuthOptionsOIDCRoleMapWiring proves the --dashboard-auth-oidc-role-map
+// flag actually reaches AuthOptions. Without this the fail-closed OIDC role map
+// stays empty and every claim-derived role is silently ignored at runtime.
+func TestDashboardAuthOptionsOIDCRoleMapWiring(t *testing.T) {
+	o := parseRunAuthFlags(t,
+		"--dashboard-auth-oidc", "https://issuer.example.com:client-123",
+		"--dashboard-auth-oidc-role-map", "analyst=viewer",
+		"--dashboard-auth-oidc-role-map", "ops=operator",
+	)
+	got := dashboardAuthOptions(o)
+	want := map[string]string{"analyst": "viewer", "ops": "operator"}
+	if !reflect.DeepEqual(got.OIDCRoleMap, want) {
+		t.Fatalf("OIDCRoleMap = %v, want %v", got.OIDCRoleMap, want)
 	}
 }
 

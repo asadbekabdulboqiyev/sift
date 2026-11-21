@@ -11,18 +11,36 @@ import (
 	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 )
 
-// TestStartRunRefusesMetadataAndLinkLocal proves the dashboard load-test
-// endpoint cannot be used as a credential-theft SSRF: targets that resolve to a
-// cloud instance-metadata service or a link-local address are refused before the
-// engine bridge is called.
-func TestStartRunRefusesMetadataAndLinkLocal(t *testing.T) {
+// TestStartRunRefusesUnsafeTargets proves the dashboard load-test endpoint
+// runs the full authorization policy (OpLoadTest), not just a metadata/link-local
+// check. A load run sends arbitrary traffic, so private, loopback, CGNAT,
+// multicast and reserved targets must be refused before the engine bridge fires
+// - otherwise an authenticated tests:run caller gets an internal-network
+// prober and DoS primitive.
+func TestStartRunRefusesUnsafeTargets(t *testing.T) {
+	// Isolate from any operator policy on the test host: a local authz.json
+	// can legitimately allow 127.0.0.1, which would make this test depend on
+	// the developer machine instead of the default policy under test.
+	t.Setenv("SIFT_POLICY", filepath.Join(t.TempDir(), "no-policy.json"))
+	t.Setenv("SIFT_ALLOW", "")
 	targets := []string{
+		// Cloud instance metadata and link-local.
 		"http://169.254.169.254/latest/meta-data/iam/security-credentials/",
 		"http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
 		"http://169.254.170.2/v2/credentials",
 		"http://100.100.100.200/latest/meta-data/",
 		"http://[fe80::1]/",
 		"http://[fd00:ec2::254]/latest/meta-data/",
+		// RFC1918 private, loopback, CGNAT, multicast, reserved (the gap the
+		// old refuseRunTarget check left open).
+		"http://10.0.0.5:9200",
+		"http://192.168.1.1/",
+		"http://172.16.0.1/",
+		"http://127.0.0.1:6379",
+		"http://[::1]:6379/",
+		"http://100.64.0.1/",
+		"http://224.0.0.1/",
+		"http://240.0.0.1/",
 	}
 	for _, target := range targets {
 		s := NewServer()
@@ -49,12 +67,14 @@ func TestStartRunRefusesMetadataAndLinkLocal(t *testing.T) {
 	}
 }
 
-// TestStartRunAllowsOrdinaryTargets keeps normal load tests working: literal
-// loopback and public addresses are permitted (DNS-free, so the test does not
-// depend on network access).
+// TestStartRunAllowsOrdinaryTargets keeps normal load tests working: public
+// addresses are permitted (DNS-free, so the test does not depend on network
+// access). Loopback is intentionally no longer in this list - the full policy
+// gate refuses it, and TestStartRunRefusesUnsafeTargets asserts that.
 func TestStartRunAllowsOrdinaryTargets(t *testing.T) {
+	t.Setenv("SIFT_POLICY", filepath.Join(t.TempDir(), "no-policy.json"))
+	t.Setenv("SIFT_ALLOW", "")
 	targets := []string{
-		"http://127.0.0.1:9/health",
 		"http://93.184.216.34/",
 	}
 	for _, target := range targets {

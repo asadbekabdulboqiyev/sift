@@ -154,6 +154,16 @@ The dashboard includes quick actions for local demos: **Use VoltStore demo** (`h
 
 ---
 
+## Quality status (current)
+
+- **Lint:** 0 issues from `golangci-lint run ./...`; CI lints the whole repository on every run with no `only-new-issues` ratchet.
+- **Coverage:** 76.2% overall, 78.0% excluding generated `.pb.go` files; CI floor is 75%.
+- **Vulnerabilities:** 0 from `govulncheck` in reachable code.
+- **CI:** 15 jobs, including full-repo lint, the coverage gate and a single `ci-ok` aggregate; every action is SHA-pinned.
+- **Modules:** `go mod tidy` reports no changes.
+
+---
+
 ## What's Included in 0.18.1
 
 **Canonical finding model, code decomposition, and reliability**
@@ -917,6 +927,22 @@ multiple entries (the last valid OIDC pair wins). Rate limiting uses
 `--dashboard-auth-trust-proxy`; the last one is only for use behind a trusted
 proxy. See `sift run --help` and `sift dashboard --help` for the full list.
 
+OIDC claim values are **not** treated as role names. A signed token carrying
+`{"role":"admin"}` cannot grant admin by itself. To let an identity-provider
+claim select a local role, map the claim value explicitly with
+`--dashboard-auth-oidc-role-map claim=value` (or `-auth-oidc-role-map` on the
+standalone binary), repeatable:
+
+```bash
+  --dashboard-auth-oidc-role-map 'analyst=viewer' \
+  --dashboard-auth-oidc-role-map 'ops=operator'
+```
+
+An empty map ignores every claim-derived role (fail closed); unmapped claim
+values are ignored; and mapping any claim value to the built-in `admin` role is
+rejected. Subject-to-role assignments via `--dashboard-auth-rbac` remain the
+operator-controlled way to grant a specific user a role.
+
 ### Security Notes
 - Binding beyond loopback requires explicit credentials: `-auth-token` / `-auth-api-key` on `sift dashboard`, or `--dashboard-auth-token` / `--dashboard-auth-api-key` on `sift run --mode dashboard`. To acknowledge an unauthenticated non-loopback bind (demo only), pass `--insecure` to `sift dashboard` or `--dashboard-insecure` to `sift run --mode dashboard`.
 - Review `sift dashboard --help` and deployment settings before exposing the dashboard on a network.
@@ -1292,6 +1318,9 @@ See `docs/DEPLOYMENT-HARDENING.md` for detailed checklists and examples.
 - [Enterprise overview](docs/ENTERPRISE.md) - planning draft for an enterprise/support tier; no certification claims.
 - [Testing](docs/TESTING.md) - test tiers, commands, and build tags.
 - [Coverage](docs/COVERAGE.md) - measured coverage, CI floor, and local coverage commands.
+- [Lint debt triage](docs/LINT-DEBT-TRIAGE.md) - phase-by-phase lint backlog; final state is 0 issues with full-repo lint in CI.
+- [Security audit](docs/SECURITY-AUDIT-2026-11-20.md) - dated security review findings and verification status.
+- [90-day roadmap](docs/ROADMAP-90D.md) - current focus areas and acceptance checks.
 - [Invention disclosure](docs/INVENTION.md) - technical disclosure and vpmp/v1 claim boundaries.
 - [Legal and dual-use](docs/LEGAL-DUAL-USE.md) - authorized-use boundaries and dual-use considerations.
 - [One-pager](docs/ONE-PAGER.md) - short product summary and honest status.

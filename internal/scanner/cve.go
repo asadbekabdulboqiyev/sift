@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
@@ -282,12 +283,55 @@ func (d *CVEDetector) fingerprint() map[string]string {
 	return tech
 }
 
+var (
+	cvePatternOnce    sync.Once
+	cvePatternCacheMu sync.RWMutex
+	cvePatternCache   = make(map[string]*regexp.Regexp)
+	cvePatternInvalid = make(map[string]struct{})
+)
+
+// compileCVEPattern returns a shared compiled regex for expr. Invalid
+// expressions return nil and are cached as invalid so malformed signatures are
+// skipped without repeated compilation, matching the previous checkCVE behavior.
+func compileCVEPattern(expr string) *regexp.Regexp {
+	cvePatternCacheMu.RLock()
+	re := cvePatternCache[expr]
+	_, invalid := cvePatternInvalid[expr]
+	cvePatternCacheMu.RUnlock()
+	if re != nil || invalid {
+		return re
+	}
+
+	compiled, err := regexp.Compile(expr)
+	cvePatternCacheMu.Lock()
+	defer cvePatternCacheMu.Unlock()
+	if err != nil {
+		cvePatternInvalid[expr] = struct{}{}
+		return nil
+	}
+	cvePatternCache[expr] = compiled
+	return compiled
+}
+
+// initCVEPatternCache precompiles every database pattern once. Custom
+// signatures that are not in cveDatabase are still compiled on first use.
+func initCVEPatternCache() {
+	cvePatternOnce.Do(func() {
+		for _, sig := range cveDatabase {
+			for _, pat := range sig.Patterns {
+				compileCVEPattern(pat.Match)
+			}
+		}
+	})
+}
+
 func (d *CVEDetector) checkCVE(sig cveSignature, tech map[string]string) *CVEMatch {
+	initCVEPatternCache()
 	matched := false
 	evidence := make([]string, 0)
 	for _, pat := range sig.Patterns {
-		re, err := regexp.Compile(pat.Match)
-		if err != nil {
+		re := compileCVEPattern(pat.Match)
+		if re == nil {
 			continue
 		}
 		var value string

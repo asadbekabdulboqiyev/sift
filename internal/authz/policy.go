@@ -301,9 +301,23 @@ func (p Policy) Check(t Target, op Operation, now time.Time) Decision {
 	}
 
 	switch class {
-	case ClassPublic, ClassLoopback:
+	case ClassPublic:
 		d.Allowed = true
-		d.Reason = "public/loopback target"
+		d.Reason = "public target"
+		return d
+	case ClassLoopback:
+		// Scanning localhost is a legitimate developer workflow, so OpScan
+		// keeps its historical allow. A load run is different: it fires
+		// high-rate arbitrary-method/header/body traffic and must never point
+		// at the runner itself without an explicit operator approval. An exact
+		// authorization rule (handled above) or allow_private for a local lab
+		// still opens it; the default is deny.
+		if op == OpLoadTest && !p.AllowPrivate {
+			d.Reason = fmt.Sprintf("%s resolves to loopback; load-testing the local host requires an authorization entry or allow_private", t.Host)
+			return d
+		}
+		d.Allowed = true
+		d.Reason = "loopback target"
 		return d
 	case ClassPrivate:
 		if p.AllowPrivate {

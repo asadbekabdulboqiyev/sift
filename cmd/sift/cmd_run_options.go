@@ -64,6 +64,7 @@ type runOptions struct {
 	dashAuthOrigins     stringListFlags
 	dashAuthOIDC        stringListFlags
 	dashAuthRBAC        stringListFlags
+	dashAuthOIDCRoleMap stringListFlags
 	dashAuthRBACEnabled bool
 	dashAuthRateLimit   float64
 	dashAuthBurst       int
@@ -136,6 +137,7 @@ func addRunDashboardFlags(fs *flag.FlagSet, o *runOptions) {
 	fs.Var(&o.dashAuthOrigins, "dashboard-auth-origin", "allowed origin for state-changing requests (repeatable; CSRF)")
 	fs.Var(&o.dashAuthOIDC, "dashboard-auth-oidc", "OIDC issuer:client_id pairs for ID token verification (repeatable; last valid pair wins)")
 	fs.Var(&o.dashAuthRBAC, "dashboard-auth-rbac", "subject:role1,role2 role assignments (repeatable; requires --dashboard-auth-oidc)")
+	fs.Var(&o.dashAuthOIDCRoleMap, "dashboard-auth-oidc-role-map", "OIDC claim value=local role mapping for claim-derived roles (repeatable; admin targets refused; empty map ignores all claim roles)")
 	fs.Float64Var(&o.dashAuthRateLimit, "dashboard-auth-rate-limit", 0, "per-client-IP request rate limit (0 = disabled)")
 	fs.IntVar(&o.dashAuthBurst, "dashboard-auth-rate-burst", 0, "rate limiter bucket capacity (default 1)")
 	fs.BoolVar(&o.dashAuthProxy, "dashboard-auth-trust-proxy", false, "honor X-Forwarded-For / X-Real-IP for the limiter (only behind a trusted proxy)")

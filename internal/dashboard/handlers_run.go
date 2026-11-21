@@ -3,7 +3,6 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -71,19 +70,38 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "users, duration_seconds, or rate_limit exceeds allowed maximum", http.StatusBadRequest)
 		return
 	}
-	// The browser is not a back door around the CLI's authorization layer. Every
-	// other scan endpoint on this server goes through owaspGate; this one used to
-	// hand the target to the engine unchecked, which let a dashboard client make
-	// the host send arbitrary-method/header/body requests to the cloud instance
-	// metadata service (169.254.169.254, metadata.google.internal) and read back
-	// credentials. Metadata and link-local destinations are refused here.
-	if class, host, refused := refuseRunTarget(runCfg.TargetURL); refused {
+	// The browser is not a back door around the CLI's authorization layer. Use
+	// the same policy gate every scan endpoint uses, with OpLoadTest so the
+	// default policy denies private, loopback, CGNAT, multicast and reserved
+	// targets - not just metadata/link-local. An operator can still authorize a
+	// specific target with a named ticket, exactly like the CLI. A load run
+	// sends arbitrary-method/header/body traffic, so a weaker gate here would
+	// turn an authenticated tests:run caller into an internal-network prober.
+	decision, err := owaspGate(authz.OpLoadTest, runCfg.TargetURL, runCfg.Authorized)
+	if err != nil {
+		http.Error(w, "authorization check failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if auditErr := owaspAudit(authz.Entry{
+		Action:  authz.OpLoadTest.String(),
+		Targets: []string{runCfg.TargetURL},
+		IPs:     decision.IPs,
+		Class:   decision.Class,
+		Allowed: decision.Allowed,
+		Rule:    decision.Rule,
+		Reason:  decision.Reason,
+		Argv:    []string{"Sift dashboard", "POST /api/run/start"},
+	}); auditErr != nil {
+		// A broken audit trail must never turn a denied decision into an
+		// approved run, so fail closed and surface the incomplete trail.
+		http.Error(w, "authorization audit unavailable: "+auditErr.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !decision.Allowed {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		_ = json.NewEncoder(w).Encode(map[string]string{
-			"error": fmt.Sprintf(
-				"refusing to send traffic to %s (%s): cloud instance metadata and link-local addresses are the credential-theft path and cannot be load-tested from the dashboard",
-				host, class),
+			"error": decision.Reason,
 		})
 		return
 	}

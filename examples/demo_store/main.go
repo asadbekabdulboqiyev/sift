@@ -61,6 +61,10 @@ func main() {
 
 	store := NewStore()
 
+	// This demo listens on plain HTTP, so browsers will not return a Secure
+	// cookie. Opt out explicitly; production deployments must leave the
+	// default (Secure) intact or configure it behind a TLS terminator.
+	insecureCookies := false
 	gate, err := verigate.New(verigate.Options{
 		Enabled:       *protect,
 		RateLimit:     *rateLimit,
@@ -71,6 +75,7 @@ func main() {
 		ChallengeTTL:  *challengeTTL,
 		Secret:        []byte(*secret),
 		Adaptive:      adaptiveOptions(*adaptive, *adaptiveHigh, *adaptiveLow),
+		SecureCookies: &insecureCookies,
 		Exempt: func(r *http.Request) bool {
 			p := r.URL.Path
 			// Exact control-plane/probe paths only — a prefix match here

@@ -48,6 +48,7 @@ func dashboardAuthOptions(o *runOptions) dashboard.AuthOptions {
 		OIDCIssuer:     oidcIssuer,
 		OIDCClientID:   oidcClientID,
 		OIDCRoleClaim:  roleClaim,
+		OIDCRoleMap:    dashboard.ParseOIDCRoleMap(o.dashAuthOIDCRoleMap),
 		RBACEnabled:    o.dashAuthRBACEnabled,
 		RBACRole:       o.dashAuthRBAC,
 	}

@@ -275,5 +275,17 @@ func extractJSONPath(body []byte, path string) (string, error) {
 			return "", fmt.Errorf("path %q not found", path)
 		}
 	}
-	return fmt.Sprintf("%v", cur), nil
+	// fmt.Sprintf uses reflection for every scalar. These are the concrete
+	// types json.Unmarshal produces, so format them directly; maps and slices
+	// keep the original rendering.
+	switch v := cur.(type) {
+	case string:
+		return v, nil
+	case float64:
+		return strconv.FormatFloat(v, 'g', -1, 64), nil
+	case bool:
+		return strconv.FormatBool(v), nil
+	default:
+		return fmt.Sprintf("%v", cur), nil
+	}
 }

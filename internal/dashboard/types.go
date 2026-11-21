@@ -44,6 +44,7 @@ type RunConfig struct {
 	Body            string            `json:"body,omitempty"`
 	Profile         string            `json:"profile,omitempty"`
 	TLSFingerprint  string            `json:"tls_fingerprint,omitempty"`
+	Authorized      string            `json:"authorized,omitempty"`
 }
 
 // RunState is the current status and timing of a dashboard load run.

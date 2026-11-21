@@ -286,9 +286,16 @@ func TestBridgeSnapshotFromTelemetry(t *testing.T) {
 	}
 
 	tel := metrics.NewTelemetry()
+	// Mirror the engine: each request is recorded on a named step (which is
+	// wired through AddStep) and on Overall (the latency snapshot source).
+	// Overall is never a Step, so assigning it into Steps directly would
+	// double-count totals and bypass the aggregate counters.
+	step := metrics.NewStepStats("checkout")
+	step.Record(10*time.Millisecond, 200, "")
+	step.Record(30*time.Millisecond, 500, "server error")
+	tel.AddStep(step)
 	tel.Overall.Record(10*time.Millisecond, 200, "")
 	tel.Overall.Record(30*time.Millisecond, 500, "server error")
-	tel.Steps = []*metrics.StepStats{tel.Overall}
 	tel.ActiveUsers.Store(4)
 
 	snap := b.SnapshotFromTelemetry(tel)

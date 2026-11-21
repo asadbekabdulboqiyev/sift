@@ -7,6 +7,7 @@ package scanner
 // are enforced. Returns paths that respond with non-404 status codes.
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -79,15 +80,18 @@ func DirBust(ctx context.Context, base string, paths []string, req core.Requeste
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 40)
 
+bustLoop:
 	for _, p := range paths {
+		// Acquire the slot before dispatch so a cancelled run does not create
+		// one goroutine per candidate path.
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			break bustLoop
+		}
 		wg.Add(1)
 		go func(path string) {
 			defer wg.Done()
-			select {
-			case sem <- struct{}{}:
-			case <-ctx.Done():
-				return
-			}
 			defer func() { <-sem }()
 
 			u := strings.TrimRight(base, "/") + path
@@ -117,7 +121,7 @@ func DirBust(ctx context.Context, base string, paths []string, req core.Requeste
 			}
 
 			body, _ := ioReadAllLimit(resp.Body, 4<<20)
-			title := extractTitle(string(body))
+			title := extractTitle(body)
 
 			mu.Lock()
 			res.Found++
@@ -141,16 +145,41 @@ func ioReadAllLimit(r io.Reader, limit int64) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(r, limit))
 }
 
-func extractTitle(html string) string {
-	// naive <title> extraction
-	start := strings.Index(strings.ToLower(html), "<title>")
-	if start < 0 {
+var (
+	titleOpenTag  = []byte("<title>")
+	titleCloseTag = []byte("</title>")
+)
+
+// indexTagFold finds tag in html without lowercasing the whole document. Only
+// positions starting with '<' are compared, and bytes.EqualFold preserves the
+// case-insensitive behavior of the original ToLower-based search.
+func indexTagFold(html []byte, tag []byte) int {
+	if len(tag) == 0 {
+		return 0
+	}
+	for offset := 0; ; {
+		i := bytes.IndexByte(html[offset:], '<')
+		if i < 0 {
+			return -1
+		}
+		pos := offset + i
+		if pos+len(tag) <= len(html) && bytes.EqualFold(html[pos:pos+len(tag)], tag) {
+			return pos
+		}
+		offset = pos + 1
+	}
+}
+
+func extractTitle(html []byte) string {
+	// naive <title> extraction, case-insensitive
+	open := indexTagFold(html, titleOpenTag)
+	if open < 0 {
 		return ""
 	}
-	start += 7
-	end := strings.Index(strings.ToLower(html[start:]), "</title>")
+	start := open + len(titleOpenTag)
+	end := indexTagFold(html[start:], titleCloseTag)
 	if end < 0 {
-		return strings.TrimSpace(html[start:])
+		return strings.TrimSpace(string(html[start:]))
 	}
-	return strings.TrimSpace(html[start : start+end])
+	return strings.TrimSpace(string(html[start : start+end]))
 }

@@ -69,6 +69,14 @@ type Options struct {
 	// Default 5 minutes.
 	ChallengeTTL time.Duration
 
+	// SecureCookies controls the Secure attribute on the pass cookie. A nil
+	// value (the default) means true: cookies are Secure unless the operator
+	// explicitly opts out. Set it to false only for a plain-HTTP deployment
+	// such as a local demo. The old behavior keyed this attribute off
+	// r.TLS != nil, which silently dropped Secure behind a TLS-terminating
+	// proxy even though the client-facing connection was HTTPS.
+	SecureCookies *bool
+
 	// BlockAfter is the number of challenges served (or solve failures)
 	// after which an IP is blocked. Default 10.
 	BlockAfter int
@@ -198,6 +206,12 @@ func New(opts Options) (*VeriGate, error) {
 	}
 	if opts.BlockDuration <= 0 {
 		opts.BlockDuration = time.Minute
+	}
+	// Secure by default: only an explicit false disables the Secure flag.
+	// A pointer is required so an omitted option is distinct from false.
+	if opts.SecureCookies == nil {
+		secure := true
+		opts.SecureCookies = &secure
 	}
 	secret := opts.Secret
 	if len(secret) == 0 {
@@ -555,10 +569,15 @@ func (g *VeriGate) sign(payload string) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-func (g *VeriGate) makePassCookie(ip string, secure bool) *http.Cookie {
+func (g *VeriGate) makePassCookie(ip string) *http.Cookie {
 	exp := time.Now().Add(g.opts.ChallengeTTL).Unix()
 	payload := fmt.Sprintf("%d|%s", exp, ip)
 	val := hex.EncodeToString([]byte(payload + "|" + g.sign(payload)))
+	// Never infer transport security from r.TLS: a TLS-terminating proxy ends
+	// the connection before net/http sees it, so the flag must come from the
+	// operator's deployment setting. A nil value is treated as true as a
+	// second line of defense if the option ever bypasses New.
+	secure := g.opts.SecureCookies == nil || *g.opts.SecureCookies
 	return &http.Cookie{
 		Name:     cookieName,
 		Value:    val,
@@ -567,7 +586,7 @@ func (g *VeriGate) makePassCookie(ip string, secure bool) *http.Cookie {
 		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(g.opts.ChallengeTTL.Seconds()),
-	} // #nosec G124 -- Secure is set from the request TLS state; HttpOnly and SameSite are always enforced.
+	} // #nosec G124 -- Secure defaults to true and is controlled by Options.SecureCookies; HttpOnly and SameSite are always enforced.
 }
 
 // hasValidCookie verifies the challenge cookie: it must be HMAC-signed, not
@@ -639,7 +658,7 @@ func (g *VeriGate) handleSolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	g.solved.Add(1)
-	http.SetCookie(w, g.makePassCookie(ip, r.TLS != nil))
+	http.SetCookie(w, g.makePassCookie(ip))
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write([]byte(`{"ok":true}`))
 }

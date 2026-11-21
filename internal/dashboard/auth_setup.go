@@ -36,6 +36,12 @@ type AuthOptions struct {
 	// OIDCRoleClaim is the ID token claim name used to extract the user role.
 	OIDCRoleClaim string
 
+	// OIDCRoleMap maps OIDC claim values to local role names (claim value ->
+	// role). Unmapped values are ignored; an empty map ignores all claim roles,
+	// and mappings to the built-in admin role are rejected. JSON configs use
+	// the key "oidc_role_map".
+	OIDCRoleMap map[string]string `json:"oidc_role_map,omitempty"`
+
 	// RBACEnabled turns on role-based access control for state-changing
 	// endpoints.
 	RBACEnabled bool
@@ -86,6 +92,7 @@ func (s *Server) ApplyAuth(opt AuthOptions) *Auth {
 		OIDCIssuer:     opt.OIDCIssuer,
 		OIDCClientID:   opt.OIDCClientID,
 		OIDCRoleClaim:  opt.OIDCRoleClaim,
+		OIDCRoleMap:    opt.OIDCRoleMap,
 		RBACEnabled:    opt.RBACEnabled,
 		RBACRoles:      rbacRoles,
 	})

@@ -15,6 +15,12 @@ concurrency:
 permissions:
   contents: read
 
+# Supply-chain policy: every `uses:` in this file is pinned to a full 40-char
+# commit SHA with the semver tag in a trailing comment. Major tags (@v4, @v5,
+# ...) are mutable: a force-pushed tag can change the code this workflow runs
+# without any change in this repository. Dependabot reads the trailing `# vX`
+# comment and still proposes upgrades. Resolved with `git ls-remote --tags
+# <repo>`; do not replace a pin with a bare tag to "simplify" it.
 env:
   # Go is patch-pinned in ONE place: the `go 1.26.11` directive in go.mod, which
   # every setup-go step below reads via `go-version-file: go.mod`. A "1.26" pin
@@ -36,9 +42,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
@@ -57,7 +63,7 @@ jobs:
         run: go mod verify
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v7
+        uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7.0.1
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
           # Full-repo lint: the lint debt reached 0 in Phase 3, so every finding
@@ -70,12 +76,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Run shellcheck on all scripts
         # SHA-pinned: @master is a moving supply-chain surface. This is the
-        # v2.0.0 tag commit; `scandir` is still a supported input there.
-        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38 # v2.0.0
+        # 2.0.0 tag commit (the repo does not prefix tags with "v"); `scandir`
+        # is still a supported input there.
+        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38 # 2.0.0
         with:
           scandir: scripts deploy
 
@@ -88,7 +95,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Tool versions
         run: |
@@ -165,9 +172,9 @@ jobs:
         # the platforms CI actually supports well.
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
@@ -195,7 +202,7 @@ jobs:
           # Keep CI workers from being starved by the engine's own load tests.
           GOMAXPROCS: 4
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: coverage-${{ matrix.os }}
@@ -222,9 +229,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
@@ -246,9 +253,9 @@ jobs:
     env:
       GOFLAGS: -p=1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
@@ -274,9 +281,9 @@ jobs:
     env:
       GOFLAGS: -p=1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
@@ -303,9 +310,9 @@ jobs:
     timeout-minutes: 10
     needs: [test]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
@@ -318,7 +325,7 @@ jobs:
       # expected format" and then "couldn't find a before NumStmt" on a
       # truncated line. Merging by hand keeps exactly one header and gives
       # every line its own newline.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: coverage-*
           path: coverage-artifacts
@@ -342,17 +349,20 @@ jobs:
             exit 1
           fi
           echo "total coverage: ${total}%"
-          # CONTRIBUTING.md targets >=70%; CI must enforce the same number.
-          # A lower floor let a real regression (e.g. a cached/stale profile)
-          # stay green. Measured aggregate is ~75.7%, so 70 leaves headroom.
-          floor=70
+          # CONTRIBUTING.md documents >=70%; CI now enforces a stricter 75%.
+          # The merged, -coverpkg=./... aggregate measures about 76.2%, so the
+          # old 70% floor let a multi-point regression stay green. Keep raising
+          # this in small steps (75 -> 76 -> ...) as coverage grows; never lower
+          # it to turn a red build green. About one point of headroom is kept
+          # for measurement noise across the three runner OSes.
+          floor=75
           ok=$(awk -v t="$total" -v f="$floor" 'BEGIN{print (t+0 >= f+0) ? "true" : "false"}')
           if [ "$ok" != "true" ]; then
             echo "::error::coverage ${total}% is below the ${floor}% floor"
             exit 1
           fi
 
-      # Deliberately no Codecov upload step. The 70% floor above is the gate:
+      # Deliberately no Codecov upload step. The 75% floor above is the gate:
       # it runs offline, is deterministic, and cannot be broken by an external
       # service changing its tokenless-upload policy. In 2026 Codecov began
       # rejecting tokenless uploads from public repos; with no CODECOV_TOKEN
@@ -373,9 +383,9 @@ jobs:
         os: [linux, darwin, windows]
         arch: [amd64, arm64]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
@@ -423,47 +433,155 @@ jobs:
         if: matrix.os == 'linux' && matrix.arch == 'amd64'
         run: ./out/Sift --version && ./out/Sift --help > /dev/null
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: bins-${{ matrix.os }}-${{ matrix.arch }}
           path: out/*
           retention-days: 7
 
-  # ── benchmarks: published, not gating ─────────────────────────────────────
+  # ── benchmarks: published AND gated against the previous run ──────────────
+  # Publishing alone was not a gate: the job could never fail, regardless of
+  # what the numbers said. This job keeps the artifact, downloads the newest
+  # earlier `benchmarks` artifact from a successful CI run, and fails when any
+  # benchmark median is more than 10% slower than that baseline. benchstat does
+  # the parsing; the threshold is applied to its machine-readable sec/op output
+  # so the gate does not depend on benchstat's significance display.
   bench:
     name: Benchmarks
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [test]
+    permissions:
+      contents: read
+      actions: read
+    env:
+      BENCH_REGRESSION_PCT: "10"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
 
-      - name: Run benchmarks
-        run: go test -run '^$' -bench=. -benchmem -benchtime=1s ./... 2>&1 | tee bench.txt
+      - name: Install benchstat
+        # Pinned pseudo-version of golang.org/x/perf. `go install pkg@version`
+        # runs outside the main module, so go.mod and go.sum stay untouched.
+        run: go install golang.org/x/perf/cmd/benchstat@v0.0.0-20261117185222-4febdb082b2c
 
-      - uses: actions/upload-artifact@v4
+      - name: Run benchmarks
+        # -count=8 gives benchstat enough samples for a real confidence
+        # interval; -benchtime=200ms keeps the 21 benchmarks inside the budget.
+        # A single 1s sample per benchmark could not support any comparison.
+        run: |
+          set -euo pipefail
+          go test -run '^$' -bench=. -benchmem -benchtime=200ms -count=8 ./... 2>&1 | tee bench.txt
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: benchmarks
           path: bench.txt
+          if-no-files-found: error
           retention-days: 30
+
+      - name: Download the previous benchmark baseline
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          run_ids="$(gh run list --workflow ci.yml --status success --limit 30 --json databaseId --jq '.[].databaseId')"
+          baseline_file=""
+          for id in $run_ids; do
+            [ "$id" = "$RUN_ID" ] && continue
+            # An expired or missing artifact is a normal outcome; try the next
+            # run. The failed download is handled by the `if` condition, not by
+            # an error-suppression suffix. If no run has a usable artifact,
+            # this run publishes the first baseline and says so explicitly.
+            if gh run download "$id" --name benchmarks --dir baseline >/dev/null 2>&1; then
+              baseline_file="$(find baseline -type f -name bench.txt -print -quit)"
+              if [ -n "$baseline_file" ]; then
+                echo "baseline: run $id ($baseline_file)"
+                break
+              fi
+            fi
+          done
+          if [ -z "$baseline_file" ]; then
+            echo "::notice::no earlier benchmarks artifact found; this run only publishes a baseline"
+            exit 0
+          fi
+          echo "$baseline_file" > baseline-path.txt
+
+      - name: Compare with the baseline (10% threshold)
+        if: hashFiles('baseline-path.txt') != ''
+        run: |
+          set -euo pipefail
+          baseline_file="$(cat baseline-path.txt)"
+          benchstat -format=csv "$baseline_file" bench.txt > benchstat.csv
+          cat benchstat.csv
+
+          python3 - benchstat.csv <<'PY'
+          import csv
+          import os
+          import sys
+
+          pct_limit = float(os.environ["BENCH_REGRESSION_PCT"])
+          limit = 1.0 + pct_limit / 100.0
+          with open(sys.argv[1], newline="", encoding="utf-8") as fh:
+              rows = list(csv.reader(fh))
+
+          # benchstat emits one sec/op table per package/configuration. Check
+          # all of them; looking only at the first would miss a regression in
+          # every other package.
+          regressions = []
+          compared = 0
+          tables = 0
+          in_table = False
+          for row in rows:
+              if len(row) > 1 and row[1] == "sec/op":
+                  tables += 1
+                  in_table = True
+                  continue
+              if not in_table:
+                  continue
+              if not row or not row[0].strip():
+                  in_table = False
+                  continue
+              name = row[0].strip()
+              try:
+                  old = float(row[1])
+                  new = float(row[3])
+              except (ValueError, IndexError):
+                  continue
+              if old <= 0:
+                  continue
+              compared += 1
+              ratio = new / old
+              if ratio > limit:
+                  regressions.append((name, old, new, (ratio - 1) * 100))
+
+          if tables == 0 or compared == 0:
+              sys.exit("::error::benchstat produced no comparable sec/op rows; refusing to pass an empty gate")
+          print("compared %d medians across %d table(s) against +%g%%" % (compared, tables, pct_limit))
+          if regressions:
+              for name, old, new, pct in regressions:
+                  print("::error::%s: %.9f -> %.9f sec/op (+%.1f%%)" % (name, old, new, pct))
+              sys.exit(1)
+          print("no benchmark regressed by more than %g%%" % pct_limit)
+          PY
 
   # ── fuzz: every parser that reads untrusted bytes, on every push ──────────
   # A security scanner's input is hostile by construction, and the replay tool
   # parses capture files and TCP streams nobody controls. Table tests sample
-  # those parsers; this job explores them. Each target runs for a bounded time
-  # so the job stays inside the budget; go-archives the corpus across runs, so
-  # coverage keeps growing instead of restarting from the seed set.
+  # those parsers; this job explores them. Each target runs for 180s (three
+  # minutes; 45s mostly re-ran the seed corpus). The five targets run in
+  # parallel, so the job still fits in its 20-minute budget. The corpus is
+  # cached across runs instead of restarting from the seed set.
   fuzz:
     name: Fuzz ${{ matrix.target }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [test]
     strategy:
       fail-fast: false
       matrix:
@@ -484,36 +602,40 @@ jobs:
             package: ./internal/scanner/
             corpus: internal/scanner
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
 
       # Restore the corpus this target accumulated on earlier runs. Without it
-      # every run re-discovers the same inputs and the 30s budget is wasted.
+      # every run re-discovers the same inputs and most of the 180s is wasted.
       #
       # Go keeps a fuzz corpus in $GOCACHE/fuzz/<import path>/<target>, and
       # GOCACHE is ~/.cache/go-build on the ubuntu runner. This step used to
-      # cache ~/.cache/go-fuzz, which Go never writes, so it restored nothing and
-      # every run did start from the seed set — the comment above was true for
-      # the wrong reason.
+      # cache ~/.cache/go-fuzz, which Go never writes, so it restored nothing.
+      #
+      # The old primary key ended in github.run_id, which is unique to this
+      # run: the save key never matched an existing cache, so only the broad
+      # restore key ever helped. The primary key is now stable for a given ref
+      # and module graph, with stepwise restore-keys for older corpora.
       - name: Restore corpus
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/go-build/fuzz/github.com/asadbekabdulboqiyev/sift/${{ matrix.corpus }}/${{ matrix.target }}
-          key: fuzz-${{ matrix.target }}-${{ github.run_id }}
+          key: fuzz-${{ matrix.target }}-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}-${{ github.ref_name }}
           restore-keys: |
-            fuzz-${{ matrix.target }}-
+            fuzz-${{ matrix.target }}-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}-
+            fuzz-${{ matrix.target }}-${{ runner.os }}-
 
       - name: Fuzz ${{ matrix.target }}
         run: |
-          go test -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime 45s ${{ matrix.package }}
+          go test -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime 180s ${{ matrix.package }}
 
       - name: Upload crashers
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: fuzz-crash-${{ matrix.target }}
           path: '**/testdata/fuzz/${{ matrix.target }}/'
@@ -526,7 +648,9 @@ jobs:
     name: Docker ${{ matrix.dockerfile }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    needs: [test]
+    # No `needs: [test]`: this builds the three Dockerfiles from source and
+    # shares no state with the 45-minute, 3-OS race matrix. Waiting for it only
+    # delayed image failures and serialized independent work.
     strategy:
       fail-fast: false
       matrix:
@@ -538,12 +662,12 @@ jobs:
           - dockerfile: Dockerfile.worker
             image: Sift-worker
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Build (no push)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: ./${{ matrix.dockerfile }}
@@ -574,9 +698,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
@@ -733,16 +857,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: "26"
+          # Exact patch, not "26": a moving major can pick up a Node patch with
+          # a WebCrypto/Ed25519 regression, and this job is the parity gate for
+          # exactly that code path. 26.13.1 is the current 26.x LTS (Lithium).
+          node-version: "26.13.1"
 
       - name: Unit tests for the JavaScript verifier
         run: node --test web/verifier/vpmp.test.mjs
@@ -755,8 +882,58 @@ jobs:
 
       - name: Upload the offline verifier page
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: verifier-page
           path: docs/VERIFIER.html
           if-no-files-found: error
+
+  # ── one required status check ─────────────────────────────────────────────
+  # Configure branch protection to require only `ci-ok` from this workflow.
+  # Without an aggregate, a green subset of checks could still merge a build
+  # whose lint or fuzz leg was red. `if: always()` is required: with the default
+  # condition GitHub marks this job "skipped" when a needed job fails, and a
+  # skipped required check does not give branch protection a clear failure.
+  #
+  # Scope note: security.yml and codeql.yml are separate workflows and have
+  # their own checks; GitHub cannot put their jobs in this workflow's `needs`.
+  # Their own aggregate jobs (or a workflow_run meta gate) belong in those
+  # files. This job is the single required gate for everything defined here.
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs:
+      - lint
+      - shellcheck
+      - deploy-validate
+      - test
+      - test-unit
+      - test-integration
+      - test-integration-focused
+      - coverage
+      - build
+      - bench
+      - fuzz
+      - docker
+      - verifiable-evidence
+      - verifier
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every CI job must have succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          results = json.loads(os.environ["NEEDS"])
+          bad = {name: item["result"] for name, item in results.items() if item["result"] != "success"}
+          if bad:
+              for name, result in sorted(bad.items()):
+                  print("::error::job %s finished with result %s" % (name, result))
+              sys.exit(1)
+          print("all %d CI jobs passed" % len(results))
+          PY

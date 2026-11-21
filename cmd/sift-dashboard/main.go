@@ -81,12 +81,14 @@ func main() {
 		authOrigins flagStrings
 		authOIDC    flagStrings
 		authRBAC    flagStrings
+		authRoleMap flagStrings
 	)
 	flag.Var(&authTokens, "auth-token", "Bearer token required for the control API (repeatable)")
 	flag.Var(&authAPIKeys, "auth-api-key", "SHA-256 hex of an accepted API key (repeatable)")
 	flag.Var(&authOrigins, "auth-origin", "Allowed origin for state-changing requests (repeatable; CSRF)")
 	flag.Var(&authOIDC, "auth-oidc", "OIDC issuer:client_id pairs for ID token verification (repeatable)")
 	flag.Var(&authRBAC, "auth-rbac", "Subject:role1,role2 role assignments (repeatable; requires -auth-oidc)")
+	flag.Var(&authRoleMap, "auth-oidc-role-map", "OIDC claim value=local role mapping for claim-derived roles (repeatable; admin targets refused; empty map ignores all claim roles)")
 	authRateLimit := flag.Float64("auth-rate-limit", 0, "Per-client-IP request rate limit (0 = disabled)")
 	authRateBurst := flag.Int("auth-rate-burst", 0, "Rate limiter bucket capacity (default 1)")
 	authTrustProxy := flag.Bool("auth-trust-proxy", false, "Honor X-Forwarded-For / X-Real-IP for the limiter (only behind a trusted proxy)")
@@ -176,6 +178,7 @@ Examples:
 		OIDCIssuer:     oidcIssuer,
 		OIDCClientID:   oidcClientID,
 		OIDCRoleClaim:  "role",
+		OIDCRoleMap:    dashboard.ParseOIDCRoleMap(authRoleMap),
 		RBACEnabled:    *authRBACEnabled,
 		RBACRole:       authRBAC,
 	}

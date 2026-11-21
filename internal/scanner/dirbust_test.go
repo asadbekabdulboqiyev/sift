@@ -106,16 +106,19 @@ func TestIoReadAllLimit(t *testing.T) {
 }
 
 func TestExtractTitle(t *testing.T) {
-	if got := extractTitle(`<html><title>Hello World</title></html>`); got != "Hello World" {
+	if got := extractTitle([]byte(`<html><title>Hello World</title></html>`)); got != "Hello World" {
 		t.Errorf("extractTitle = %q, want Hello World", got)
 	}
-	if got := extractTitle(`<html><body>no title</body></html>`); got != "" {
+	if got := extractTitle([]byte(`<html><body>no title</body></html>`)); got != "" {
 		t.Errorf("extractTitle = %q, want empty", got)
 	}
-	if got := extractTitle(`<title>Only start</html>`); got != "Only start</html>" {
+	if got := extractTitle([]byte(`<title>Only start</html>`)); got != "Only start</html>" {
 		t.Errorf("extractTitle = %q, want Only start</html>", got)
 	}
-	if got := extractTitle(""); got != "" {
+	if got := extractTitle([]byte("")); got != "" {
 		t.Errorf("extractTitle(empty) = %q, want empty", got)
+	}
+	if got := extractTitle([]byte(`<HTML><TiTlE>  Mixed Case  </tItLe></HTML>`)); got != "Mixed Case" {
+		t.Errorf("extractTitle = %q, want Mixed Case", got)
 	}
 }

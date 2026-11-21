@@ -66,6 +66,17 @@ Dashboard integration: **Insights** view and APIs for fit/simulate, capability d
 - **Independent security review:** pursue third-party security review/red-team assessment for additional assurance.
 - **Open-core boundaries:** keep core capabilities open while defining any future commercial/support tier clearly.
 
+## Completed - lint debt and CI lint gating
+
+- **Lint debt cleared (2026-11-21):** `golangci-lint run ./...` went from 738
+  issues to 0 across three phases (738 -> 510 -> 145 -> 0). The
+  `only-new-issues` ratchet was removed from CI, so every lint finding now fails
+  the full-repository lint job. Details, real fixes and justified suppressions
+  are in `docs/LINT-DEBT-TRIAGE.md` section 9.
+- **Quality gates:** aggregate coverage is 76.2% overall (78.0% excluding
+  generated `.pb.go` files) against a 75% CI floor, and `govulncheck` reports 0
+  vulnerabilities in reachable code.
+
 ## Suggested planning timeline (illustrative)
 
 | Window | Focus |

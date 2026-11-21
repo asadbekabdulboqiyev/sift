@@ -163,3 +163,17 @@ func TestDashboardStartRunInstallsDialControl(t *testing.T) {
 		t.Error("dial control is not derived from the start-run target classification")
 	}
 }
+
+// TestDashboardWiresOIDCRoleMap proves the standalone dashboard registers the
+// role-map flag and passes it through the shared parser. An unwired map fails
+// closed (safe) but silently disables every claim-derived role, so the wiring
+// itself must be asserted.
+func TestDashboardWiresOIDCRoleMap(t *testing.T) {
+	src := cleanSource(t, "main.go")
+	if !strings.Contains(src, "auth-oidc-role-map") {
+		t.Error("-auth-oidc-role-map flag is not registered")
+	}
+	if !strings.Contains(src, "dashboard.ParseOIDCRoleMap(authRoleMap)") {
+		t.Error("OIDCRoleMap is not populated in AuthOptions via the shared parser")
+	}
+}

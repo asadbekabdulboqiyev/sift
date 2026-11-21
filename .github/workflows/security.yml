@@ -26,16 +26,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           # Single source of truth: the patch-pinned directive in go.mod.
           go-version-file: go.mod
           cache: true
 
       - name: govulncheck ./...
-        uses: golang/govulncheck-action@v1
+        uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # v1.1.0
         with:
           # The action's own setup-go step reads the same pinned go.mod.
           go-version-file: go.mod
@@ -50,15 +50,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
 
       - name: Run gosec
-        uses: securego/gosec@v2.29.0
+        uses: securego/gosec@deb54465fea23d19a77f037e11e6589021f8501d # v2.29.0
         with:
           # -no-fail: the gate is the ratchet step below, which can tell a new
           # finding from one that predates this branch; a bare gosec failure
@@ -101,12 +101,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
       - name: Scan history
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -135,12 +135,12 @@ jobs:
             tag: sift-worker
             dockerfile: Dockerfile.worker
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Build image to scan
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: ./${{ matrix.dockerfile }}
@@ -174,7 +174,7 @@ jobs:
       # being available. On a private repository that means GitHub Advanced
       # Security (paid), and an unguarded upload would fail the job and hide
       # the scan result.
-      - uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@d2aacf54c2fbc910db8d7ec338fdb54ea48c692d # v3.39.4
         if: always() && github.event.repository.visibility == 'public'
         with:
           sarif_file: trivy-${{ matrix.tag }}.sarif
@@ -206,12 +206,12 @@ jobs:
             tag: sift-worker
             dockerfile: Dockerfile.worker
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: Build image to scan
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: ./${{ matrix.dockerfile }}
@@ -255,7 +255,7 @@ jobs:
       # enforcing gate, and it must stay red only for a real finding, not for a
       # missing GHAS licence on a private repository.
       - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@d2aacf54c2fbc910db8d7ec338fdb54ea48c692d # v3.39.4
         if: always() && github.event.repository.visibility == 'public'
         with:
           sarif_file: trivy-image-${{ matrix.tag }}.sarif
@@ -274,9 +274,60 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/dependency-review-action@v4
+      - uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
         with:
           fail-on-severity: high
           comment-summary-in-pr: on-failure
+
+  # ── one required status check ─────────────────────────────────────────────
+  # Configure branch protection to require only `security-ok` from this
+  # workflow. Without an aggregate, a green subset of checks could still
+  # merge a build whose image gate was red. `if: always()` is required: with
+  # the default condition GitHub marks this job "skipped" when a needed job
+  # fails, and a skipped required check does not give branch protection a
+  # clear failure.
+  #
+  # MAY_SKIP holds the one job with a deliberate job-level `if:`.
+  # `dependency-review` applies only to pull requests on public repositories,
+  # so a push reports it as "skipped" in `needs`; that is a no-run by design,
+  # not a failure. Every other result must be "success", and a failure or a
+  # cancellation fails this gate.
+  security-ok:
+    name: security-ok
+    if: always()
+    needs:
+      - govulncheck
+      - gosec
+      - gitleaks
+      - trivy
+      - trivy-image
+      - dependency-review
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every security job must have succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          MAY_SKIP: '["dependency-review"]'
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          results = json.loads(os.environ["NEEDS"])
+          may_skip = set(json.loads(os.environ["MAY_SKIP"]))
+          bad = {
+              name: item["result"]
+              for name, item in results.items()
+              if item["result"] != "success"
+              and not (name in may_skip and item["result"] == "skipped")
+          }
+          if bad:
+              for name, result in sorted(bad.items()):
+                  print("::error::job %s finished with result %s" % (name, result))
+              sys.exit(1)
+          print("all %d security jobs passed" % len(results))
+          PY

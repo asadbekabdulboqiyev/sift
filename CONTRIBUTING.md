@@ -27,11 +27,11 @@ go vet ./...
 go test -count=1 ./...
 ```
 
-Coverage target: maintain **>=70%** aggregate coverage. The most recent CI
-measurement is **75.7%** (2026-11-17; see `docs/COVERAGE.md`). CI currently
-enforces a lower **45%** floor in `.github/workflows/ci.yml`; that floor is a
-minimum, not the project target. New changes should not reduce coverage for the
-areas they touch.
+Coverage target: maintain **>=75%** aggregate coverage. The most recent
+measurement is **76.2%** overall (78.0% excluding generated `.pb.go` files;
+see `docs/COVERAGE.md`). CI enforces the same **75%** floor in
+`.github/workflows/ci.yml`; that floor is a minimum, not the project target.
+New changes should not reduce coverage for the areas they touch.
 
 ## 4. Security
 

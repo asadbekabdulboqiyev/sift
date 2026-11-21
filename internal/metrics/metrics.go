@@ -27,6 +27,11 @@ type StepStats struct {
 	errCount atomic.Uint64
 	errors   map[string]*atomic.Uint64
 	mu       sync.Mutex
+	// aggMu serializes wiring a step to a Telemetry with Record, so a sample
+	// is counted exactly once: either in AddStep's snapshot or by the direct
+	// aggregate increment after the pointer is installed.
+	aggMu     sync.RWMutex
+	aggregate *Telemetry
 }
 
 // NewStepStats creates an empty StepStats with the given name.
@@ -41,6 +46,10 @@ func NewStepStats(name string) *StepStats {
 
 // Record adds one observation: its latency, status code and optional error name.
 func (s *StepStats) Record(latency time.Duration, status int, errName string) {
+	// Hold the read lock for the whole sample: AddStep takes the write lock
+	// while it snapshots the counts and installs the aggregate pointer.
+	s.aggMu.RLock()
+	agg := s.aggregate
 	s.Latency.Add(latency)
 	if status > 0 {
 		if status < statusArraySize {
@@ -70,6 +79,13 @@ func (s *StepStats) Record(latency time.Duration, status int, errName string) {
 		s.mu.Unlock()
 		c.Add(1)
 	}
+	if agg != nil {
+		agg.requestsTotal.Add(1)
+		if errName != "" {
+			agg.errorsTotal.Add(1)
+		}
+	}
+	s.aggMu.RUnlock()
 }
 
 // StatusCodes returns a copy of the per-status-code counts.
@@ -121,8 +137,12 @@ type Telemetry struct {
 	ActiveUsers atomic.Int64
 	PeakUsers   atomic.Int64
 	Timeline    Timeline
-	mu          sync.Mutex // guards Steps (read by StepsSnapshot/TotalRequests/Errors/StatusCodes/RPS while AddStep appends)
+	mu          sync.Mutex // guards Steps (read by StepsSnapshot/StatusCodes/Errors while AddStep appends)
 	warmupUntil atomic.Int64
+	// requestsTotal/errorsTotal are maintained directly by wired StepStats
+	// records, so TotalRequests/TotalErrors and RPS are O(1) atomic reads.
+	requestsTotal atomic.Uint64
+	errorsTotal   atomic.Uint64
 	// finished/elapsedNanos let Elapsed() read a finished run's duration
 	// without a lock, so it stays safe to call concurrently with Finish().
 	//
@@ -166,9 +186,20 @@ func (t *Telemetry) Recording() bool {
 // AddStep appends a step's statistics to the run. It is safe to call while
 // readers are taking snapshots.
 func (t *Telemetry) AddStep(stats *StepStats) {
+	// Snapshot samples recorded before this call while blocking new Record
+	// calls, then install the aggregate pointer. Samples recorded afterwards
+	// update the aggregate directly and are not added twice.
+	stats.aggMu.Lock()
+	if stats.aggregate == nil {
+		t.requestsTotal.Add(stats.Requests())
+		t.errorsTotal.Add(stats.ErrorCount())
+		stats.aggregate = t
+	}
+	stats.aggMu.Unlock()
+
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	t.Steps = append(t.Steps, stats)
+	t.mu.Unlock()
 }
 
 // StepsSnapshot returns a copy of the step list so readers can iterate it
@@ -199,26 +230,17 @@ func (t *Telemetry) Elapsed() time.Duration {
 	return time.Since(t.Start)
 }
 
-// TotalRequests returns the sum of requests across all recorded steps.
+// TotalRequests returns the sum of requests across all recorded steps. It is
+// a single atomic read; AddStep snapshots pre-existing samples and later
+// Record calls update the same counter directly.
 func (t *Telemetry) TotalRequests() uint64 {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	var n uint64
-	for _, s := range t.Steps {
-		n += s.Requests()
-	}
-	return n
+	return t.requestsTotal.Load()
 }
 
-// TotalErrors returns the sum of errored requests across all steps.
+// TotalErrors returns the sum of errored requests across all steps. It is a
+// single atomic read maintained the same way as TotalRequests.
 func (t *Telemetry) TotalErrors() uint64 {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	var n uint64
-	for _, s := range t.Steps {
-		n += s.ErrorCount()
-	}
-	return n
+	return t.errorsTotal.Load()
 }
 
 // RPS returns the average requests per second over the run's elapsed time.

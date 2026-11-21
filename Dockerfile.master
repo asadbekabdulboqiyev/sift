@@ -10,7 +10,12 @@
 #     -e SS_TOKEN="$TOKEN" \
 #     ghcr.io/asadbekabdulboqiyev/sift-master:0.18.1
 
-FROM golang:1.26 AS builder
+# Exact Go patch + digest, matching the `go 1.26.11` directive in go.mod.
+# GOTOOLCHAIN=local makes a mismatch a hard build error instead of a silent
+# toolchain download from the network during `go mod download`.
+FROM golang:1.26.11@sha256:4165ee6bf3b7811fd7b40373290405c83d0167dcb87ee5f29c427cdcef45ff8f AS builder
+
+ENV GOTOOLCHAIN=local
 
 ARG VERSION=dev
 ARG REVISION=""
@@ -33,7 +38,8 @@ RUN CGO_ENABLED=0 GOOS="${TARGETOS:-linux}" GOARCH="${TARGETARCH:-amd64}" \
 
 RUN /out/Sift-master --version
 
-FROM gcr.io/distroless/static-debian12:nonroot
+# Manifest-list digest for the multi-arch :nonroot index (amd64 + arm64).
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 
 ARG VERSION=dev
 ARG REVISION=""

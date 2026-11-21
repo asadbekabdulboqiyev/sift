@@ -22,7 +22,15 @@
 ###############################################################################
 
 # ── Stage 1: build ──────────────────────────────────────────────────────────
-FROM golang:1.26-alpine AS builder
+# Exact Go patch + digest, matching the `go 1.26.11` directive in go.mod.
+# The old `golang:1.26-alpine` tag floated to any 1.26.x; with GOTOOLCHAIN=auto
+# a lower patch made the builder silently download a toolchain during the
+# build. Pinning both sides removes that hidden network/supply-chain step.
+FROM golang:1.26.11-alpine@sha256:ecb67f987aa1a57794c91d19ade7ae0209f2f0f5496aaef9e6ae85ddf92d02ab AS builder
+
+# Fail loudly if go.mod ever moves ahead of the pinned builder instead of
+# pulling a different compiler behind the build's back.
+ENV GOTOOLCHAIN=local
 
 # VERSION is stamped by CI (docker/metadata-action). Never hardcode it here.
 ARG VERSION=dev
@@ -81,7 +89,9 @@ RUN /out/Sift --version
 # `Trivy gate (Sift)` job correctly failed on. `apk upgrade` is kept
 # so the runtime layer always takes the newest patched packages for the
 # pinned minor even before the tag itself is refreshed.
-FROM alpine:3.24
+# alpine:3.24, pinned to the manifest-list digest so a tag move cannot change
+# the runtime base. `apk upgrade` below still applies package-level patches.
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 
 ARG VERSION=dev
 ARG REVISION=""

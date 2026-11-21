@@ -43,9 +43,9 @@ jobs:
         # script is not a blind spot.
         language: [go, javascript-typescript]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         if: matrix.language == 'go'
         with:
           # Single source of truth: the patch-pinned directive in go.mod.
@@ -53,7 +53,7 @@ jobs:
           cache: true
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@d2aacf54c2fbc910db8d7ec338fdb54ea48c692d # v3.39.4
         with:
           # `languages`, not `language`. The action's input is plural; with the
           # singular spelling it is silently ignored ("Unexpected input(s)
@@ -72,6 +72,51 @@ jobs:
         run: go build ./...
 
       - name: Analyze
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@d2aacf54c2fbc910db8d7ec338fdb54ea48c692d # v3.39.4
         with:
           category: /language:${{ matrix.language }}
+
+  # ── one required status check ─────────────────────────────────────────────
+  # Configure branch protection to require only `codeql-ok` from this
+  # workflow. Without an aggregate, a green subset of matrix legs could still
+  # merge a build whose other language leg was red. `if: always()` is
+  # required: with the default condition GitHub marks this job "skipped"
+  # when a needed job fails, and a skipped required check does not give
+  # branch protection a clear failure.
+  #
+  # MAY_SKIP holds the one job with a deliberate job-level `if:`. `analyze`
+  # skips on private repositories, where SARIF upload needs a paid add-on;
+  # that is a no-run by design, not a failure. Every other result must be
+  # "success", and a failure or a cancellation fails this gate.
+  codeql-ok:
+    name: codeql-ok
+    if: always()
+    needs:
+      - analyze
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every CodeQL job must have succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          MAY_SKIP: '["analyze"]'
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          results = json.loads(os.environ["NEEDS"])
+          may_skip = set(json.loads(os.environ["MAY_SKIP"]))
+          bad = {
+              name: item["result"]
+              for name, item in results.items()
+              if item["result"] != "success"
+              and not (name in may_skip and item["result"] == "skipped")
+          }
+          if bad:
+              for name, result in sorted(bad.items()):
+                  print("::error::job %s finished with result %s" % (name, result))
+              sys.exit(1)
+          print("all %d codeql jobs passed" % len(results))
+          PY

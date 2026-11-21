@@ -1,8 +1,11 @@
 # LINT DEBT TRIAGE — sift
 
-**Measurement:** 2026-11-20, HEAD `773fa56` (main), golangci-lint v2.14.0 (go1.26.11).
-**Total:** 738 issues, 138 `.go` files. The tool ran, and the numbers are taken from the actual report output.
-**Update (2026-11-21):** After Phase 1, **510** issues remain — see §7.
+> **Status: resolved.** Sections 1-8 are historical; final state is 0 issues (see section 9).
+> The `only-new-issues` ratchet was removed, and CI now lints the whole repository on every run.
+
+**Initial measurement:** 2026-11-20, HEAD `773fa56` (main), golangci-lint v2.14.0 (go1.26.11).
+**Initial total:** 738 issues, 138 `.go` files. The tool ran, and the numbers are taken from the actual report output.
+**Final state (2026-11-21):** **0 issues** after Phase 3 (§9); 738 -> 510 -> 145 -> 0.
 
 ## 1. Measurement method and configuration
 
@@ -18,10 +21,11 @@ golangci-lint run ./... \
 - `--issues-exit-code 0` only changes the exit code; it does not affect the number of issues.
 - `max-issues-per-linter: 0`, `max-same-issues: 0` — nothing was truncated;
   `uniq-by-line` is at its default. The JSON report contains exactly 738 objects.
-- Clarification: the comment at `.golangci.yml:73-78` records **755** for HEAD `605dc57`;
-  the current HEAD has **738** (-17). The `only-new-issues: true` ratchet is actually
-  in `.github/workflows/ci.yml:71` (`golangci-lint-action@v7`); in `.golangci.yml`
-  only a comment exists.
+- Clarification (historical): the `.golangci.yml` comment at the time recorded **755**
+  for HEAD `605dc57`; the measured HEAD had **738** (-17). At that time the
+  `only-new-issues: true` ratchet was configured in `.github/workflows/ci.yml`
+  (`golangci-lint-action@v7`); `.golangci.yml` held only a comment. The ratchet was
+  removed in Phase 3 (§9), and the comment now describes full-repository lint.
 
 ## 2. By linter
 
@@ -82,17 +86,22 @@ golangci-lint run ./... \
 | revive / exported-comment (152) | 152 | 20.6% | add doc comments to 33 files — **~0.5-1 person-days** | negligible (comments only) |
 | QF1012 (72) | 72 | 9.8% | in 6 files, `WriteString(fmt.Sprintf(...))` → `fmt.Fprintf(&b, ...)`; can try with `--fix` (on a scratch branch) — **~0.5 person-days** | low |
 
-**Total: 589 / 738 = 79.8%** of issues will be eliminated; 149 remain (20.2%).
-Recommended execution order: QF1012 → revive comment → errcheck (the largest, but touches the most files).
+**Historical Phase 1 estimate: 589 / 738 = 79.8%** of the initial issues were
+planned for elimination, with 149 expected to remain (20.2%). In the final state
+(§9) the entire backlog is at 0.
+Recommended execution order was: QF1012 → revive comment → errcheck (the largest, but touches the most files).
 
-## 6. Why the `only-new-issues` ratchet was kept during cleanup (resolved in §9)
+## 6. Why the `only-new-issues` ratchet was kept during cleanup (historical; resolved in §9)
 
-1. The 738 existing findings are spread across 138 files; without the ratchet, **every** PR would be red in the lint job,
+This section records the reasoning at the time of the initial measurement. The
+ratchet is no longer in CI: see the resolution note below and §9.
+
+1. The 738 existing findings were spread across 138 files; without the ratchet, **every** PR would be red in the lint job,
    and the CI signal is lost because of debt unrelated to the change.
-2. The ratchet surfaces **all** new issues (CI used `only-new-issues: true`), so regressions are not hidden —
-   only old debt does not block.
-3. The 755 → 738 dynamic recorded in the `.golangci.yml` comment shows that the debt is decreasing, but still far from 0;
-   even if Phase 1 alone covers 79.8%, 149 remain.
+2. The ratchet surfaced **all** new issues (CI used `only-new-issues: true`), so regressions were not hidden —
+   only old debt did not block.
+3. The 755 → 738 dynamic recorded in the `.golangci.yml` comment showed that the debt was decreasing, but was still far from 0 at that point;
+   even if Phase 1 alone covered 79.8%, 149 were expected to remain.
 4. Removal criteria: `golangci-lint run ./...` yields **0 issues** (or explicit, documented suppressions for all debt
    rules) and several consecutive CI runs pass green.
 
@@ -102,7 +111,8 @@ repository on every run.
 
 ## 7. Phase 1 completed (2026-11-21)
 
-4 parallel agents worked across 44 files. Result: **735 → 510** issues (-225, -30.6%).
+4 parallel agents worked across 44 files. Result: **735 → 510** issues (-225, -30.6%),
+an intermediate state; the final count is 0 (§9).
 
 | Linter | Before | After | Notes |
 |---|---:|---:|---|
@@ -114,12 +124,14 @@ repository on every run.
 Verification: `gofmt`, `go vet ./...`, `go build ./...`, `go test`, `go test -race`, integration,
 `gitleaks`, `actionlint`, `helm lint`, `goreleaser check` — all PASS.
 
-**Ratchet not removed yet:** 510 debt issues remain (the §6 criteria are not met).
+**Historical state after Phase 1:** 510 debt issues remained and the ratchet was still in
+place. Both were resolved in Phase 3 (§9).
 
 ## 8. Phase 2 completed (2026-11-21): errcheck
 
-4 parallel agents worked across all 48 files with errcheck findings. Result: **510 → 145** issues (-365),
-with **errcheck 365 → 0**. No other linter count changed, so no new issues were introduced.
+4 parallel agents worked across all 48 files with errcheck findings. Result: **510 → 145**
+issues (-365), an intermediate state; the final count is 0 (§9). With
+**errcheck 365 → 0**, no other linter count changed, so no new issues were introduced.
 
 | Agent scope | Files | Findings fixed |
 |---|---:|---:|
@@ -143,8 +155,9 @@ Handling breakdown across the whole phase:
 Verification: `gofmt`, `go vet ./...`, `go build ./...`, `go test`, `go test -race`, integration tests,
 `gitleaks` (no leaks), `actionlint`, `git diff --check`, and English-only / absent-term scans — all PASS.
 
-Remaining: **145** issues (gocritic 31, staticcheck 44, unused 28, revive 19, goimports 8,
-ineffassign 6, gosec 5, unconvert 4). **Ratchet not removed yet:** the §6 criteria are not met.
+**Historical state after Phase 2:** **145** issues remained (gocritic 31, staticcheck 44,
+unused 28, revive 19, goimports 8, ineffassign 6, gosec 5, unconvert 4), and the ratchet
+was still in place. All were resolved in Phase 3 (§9).
 
 ## 9. Phase 3 completed (2026-11-21): lint debt to zero
 

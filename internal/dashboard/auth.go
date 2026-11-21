@@ -97,6 +97,15 @@ type AuthConfig struct {
 	// (default: "role"). Only used when OIDCIssuer is set.
 	OIDCRoleClaim string
 
+	// OIDCRoleMap maps OIDC claim VALUES to local role names, for example
+	// {"analyst": "viewer"}. It is the only bridge from an external identity
+	// provider to a Role.Name: raw claim values are never treated as role
+	// names. A value not present in this map is ignored (fail closed), an empty
+	// map ignores every claim role, and a mapping to the built-in "admin" role
+	// is rejected during normalization. Only the operator controls this map,
+	// so a token cannot grant itself privileges by choosing a claim value.
+	OIDCRoleMap map[string]string `json:"oidc_role_map,omitempty"`
+
 	// RBACEnabled turns on role-based access control for state-changing
 	// endpoints. Requires OIDCIssuer to be set.
 	RBACEnabled bool
@@ -144,6 +153,7 @@ func NewAuth(cfg AuthConfig) *Auth {
 	normalized.AllowedMTLSCNs = compactStrings(cfg.AllowedMTLSCNs)
 	normalized.AllowedOrigins = normalizeOrigins(cfg.AllowedOrigins)
 	normalized.OIDCRoleClaim = compactRoleClaim(cfg.OIDCRoleClaim)
+	normalized.OIDCRoleMap = compactOIDCRoleMap(cfg.OIDCRoleMap)
 	normalized.RBACRoles = compactRBACRoles(cfg.RBACRoles)
 
 	var oidcClient *oidc.Client
@@ -293,22 +303,8 @@ func (a *Auth) authenticate(r *http.Request) (string, []string, bool) {
 				if sub == "" {
 					sub, _ = claims["email"].(string)
 				}
-				roleClaim := a.cfg.OIDCRoleClaim
-				if roleClaim == "" {
-					roleClaim = "role"
-				}
-				var roles []string
-				if rl, ok := claims[roleClaim].(string); ok && rl != "" {
-					roles = []string{rl}
-				} else if rl, ok := claims[roleClaim].([]any); ok {
-					for _, r := range rl {
-						if rs, ok := r.(string); ok {
-							roles = append(roles, rs)
-						}
-					}
-				}
 				if sub != "" {
-					return sub, roles, true
+					return sub, a.rolesFromClaims(claims), true
 				}
 			}
 		}
@@ -317,6 +313,64 @@ func (a *Auth) authenticate(r *http.Request) (string, []string, bool) {
 		return cn, nil, true
 	}
 	return "", nil, false
+}
+
+// rolesFromClaims is the single conversion point from an OIDC ID token to
+// local role names. The claim values are identifiers controlled by the identity
+// provider, so they must pass through the operator-managed allowlist before
+// anything downstream can treat them as a Role.Name. This keeps a signed token
+// carrying {"role":"admin"} from manufacturing universal access.
+func (a *Auth) rolesFromClaims(claims map[string]any) []string {
+	roleClaim := a.cfg.OIDCRoleClaim
+	if roleClaim == "" {
+		roleClaim = "role"
+	}
+	var values []string
+	switch value := claims[roleClaim].(type) {
+	case string:
+		if value != "" {
+			values = []string{value}
+		}
+	case []any:
+		for _, item := range value {
+			if s, ok := item.(string); ok {
+				values = append(values, s)
+			}
+		}
+	}
+	return mapOIDCRoleClaimRoles(values, a.cfg.OIDCRoleMap)
+}
+
+// mapOIDCRoleClaimRoles translates claim values into local role names using
+// only entries the operator configured. It fails closed: an empty map grants
+// no roles, an unmapped value is dropped, and a mapping to the built-in admin
+// role is never honored even if it survived config normalization.
+func mapOIDCRoleClaimRoles(values []string, roleMap map[string]string) []string {
+	if len(roleMap) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		local, ok := roleMap[value]
+		if !ok {
+			continue
+		}
+		local = strings.TrimSpace(local)
+		if local == "" || strings.EqualFold(local, rbac.RoleAdmin) {
+			continue
+		}
+		if _, duplicate := seen[local]; duplicate {
+			continue
+		}
+		seen[local] = struct{}{}
+		out = append(out, local)
+	}
+	return out
 }
 
 // matchBearer compares token against every configured bearer token in constant
@@ -422,6 +476,54 @@ func compactRoleClaim(s string) string {
 		return "role"
 	}
 	return s
+}
+
+// compactOIDCRoleMap validates the operator's claim-to-role allowlist. Blank
+// entries are dropped and no mapping may resolve to the built-in admin role:
+// a stray config value must not reopen the privilege escalation this map
+// exists to close.
+func compactOIDCRoleMap(in map[string]string) map[string]string {
+	out := make(map[string]string, len(in))
+	for claim, local := range in {
+		claim = strings.TrimSpace(claim)
+		local = strings.TrimSpace(local)
+		if claim == "" || local == "" || strings.EqualFold(local, rbac.RoleAdmin) {
+			continue
+		}
+		out[claim] = local
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// ParseOIDCRoleMap parses repeated "claim=value" CLI entries into the
+// operator-managed claim-to-role map consumed by AuthOptions. It is the flag
+// counterpart to the JSON key "oidc_role_map". Both dashboard entry points
+// (sift-dashboard and `sift run --dashboard`) call this helper so a flag can
+// never be interpreted differently between them. Entries are trimmed, blank
+// pairs are skipped, and the last occurrence of a claim wins. The Auth config
+// normalization still rejects blank and admin-target mappings, so a malformed
+// entry cannot become a privilege-bearing role name.
+func ParseOIDCRoleMap(entries []string) map[string]string {
+	var out map[string]string
+	for _, entry := range entries {
+		idx := strings.IndexByte(entry, '=')
+		if idx <= 0 || idx == len(entry)-1 {
+			continue
+		}
+		claim := strings.TrimSpace(entry[:idx])
+		local := strings.TrimSpace(entry[idx+1:])
+		if claim == "" || local == "" {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]string, len(entries))
+		}
+		out[claim] = local
+	}
+	return out
 }
 
 // compactRBACRoles drops blank entries from role assignments.
