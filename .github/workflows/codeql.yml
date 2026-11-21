@@ -43,9 +43,9 @@ jobs:
         # script is not a blind spot.
         language: [go, javascript-typescript]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         if: matrix.language == 'go'
         with:
           # Single source of truth: the patch-pinned directive in go.mod.
