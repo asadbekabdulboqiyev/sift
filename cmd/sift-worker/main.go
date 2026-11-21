@@ -36,7 +36,7 @@ var (
 	workerID   = flag.String("id", "", "Worker ID (auto-generated)")
 	maxUsers   = flag.Int("max-users", 100000, "Max virtual users this worker will accept")
 	maxRuns    = flag.Int("max-runs", 4, "Max concurrent runs this worker will accept")
-	token      = flag.String("token", "", "Shared control-plane token (must match master)")
+	token      = flag.String("token", tokenDefault(), "Shared control-plane token (must match master; default: SIFT_WORKER_TOKEN env)")
 	tlsCert    = flag.String("tls-cert", "", "TLS server certificate (serve over TLS; pair with -tls-key)")
 	tlsKey     = flag.String("tls-key", "", "TLS server private key (pair with -tls-cert)")
 	tlsCA      = flag.String("tls-ca", "", "CA bundle used to verify the master this worker registers with")
@@ -44,6 +44,13 @@ var (
 	httpAddr   = flag.String("http-addr", "0.0.0.0:9091", "HTTP health/metrics listen address (/healthz /readyz /metrics); empty disables")
 	attestKey  = flag.String("attest-key", "", "Ed25519 keypair PEM (from `Sift keygen`); signs telemetry so an attested master accepts it")
 )
+
+// tokenDefault resolves the -token default from the environment. systemd loads
+// /etc/Sift/worker.env into the service environment, so the secret never has to
+// appear in the process argv. An explicit -token flag still overrides it.
+func tokenDefault() string {
+	return os.Getenv("SIFT_WORKER_TOKEN")
+}
 
 func main() {
 	// Container HEALTHCHECK / Kubernetes exec probe entry point. Handled before
@@ -61,6 +68,13 @@ func main() {
 	// Friendly flag errors + consistent help (exit 2 on usage errors).
 	flag.CommandLine.Init("Sift-worker", flag.ContinueOnError)
 	flag.CommandLine.SetOutput(io.Discard)
+	// cliux.PrintFlagList prints non-zero defaults in --help (and on flag
+	// errors). The env-sourced token default is a secret: hide the value while
+	// leaving the registered default intact so -token omitted still falls back
+	// to SIFT_WORKER_TOKEN.
+	if f := flag.CommandLine.Lookup("token"); f != nil {
+		f.DefValue = ""
+	}
 	workerHelp := func() {
 		cliux.BoxHelp(os.Stderr,
 			"Sift worker — distributed load-test worker node",

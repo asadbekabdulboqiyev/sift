@@ -182,6 +182,20 @@ run_retry() {
   return 1
 }
 
+# run_retry_stdin PAYLOAD BIN ARGS... — like run_retry, but feeds PAYLOAD on
+# stdin on EVERY attempt. stdin is one-shot: piping the token only once would
+# lose it after the first failed ssh, so each retry must re-send the payload.
+# PAYLOAD is never part of "$@", so it cannot leak into argv or `ps` output.
+run_retry_stdin() {
+  local payload="$1" i
+  shift
+  for ((i = 1; i <= 3; i++)); do
+    if printf '%s\n' "$payload" | "$@"; then return 0; fi
+    [[ $i -lt 3 ]] && sleep 3
+  done
+  return 1
+}
+
 if [[ -z "$(ssh_retry "$HOST" 'uname -m' 2>/dev/null || true)" ]]; then
   fail "cannot SSH to ${HOST} (key not authorized? host down?). fix: ssh-copy-id ${HOST}"
 fi
@@ -205,10 +219,24 @@ fi
 
 ENV="SS_ID=worker-${IDX}"
 [[ $STATIC -eq 1 ]] || ENV="${ENV} SS_MASTER=${MASTER_ADDR}"
-[[ -z "$TOKEN" ]]  || ENV="${ENV} SS_TOKEN=${TOKEN}"
+# Only a non-secret opt-in marker goes into the remote argv. The token itself
+# travels over ssh stdin, so `ps` on the host cannot see it in `sudo env` or in
+# the worker's systemd command line.
+[[ -z "$TOKEN" ]]  || ENV="${ENV} SS_TOKEN_STDIN=1"
 
-if ! run_retry ssh "$HOST" "cd /tmp && sudo env ${ENV} bash bootstrap-worker.sh ${TB##*/} worker-${IDX}"; then
-  fail "bootstrap on ${HOST} failed"
+# -n makes a password-prompting sudo fail instead of consuming the token line
+# from stdin as its password. Passwordless sudo (a documented prerequisite)
+# is unaffected.
+REMOTE_CMD="cd /tmp && sudo -n env ${ENV} bash bootstrap-worker.sh ${TB##*/} worker-${IDX}"
+if [[ -n "$TOKEN" ]]; then
+  # Bootstrap reads exactly one line from stdin and exports it as SS_TOKEN.
+  if ! run_retry_stdin "$TOKEN" ssh "$HOST" "$REMOTE_CMD"; then
+    fail "bootstrap on ${HOST} failed"
+  fi
+else
+  if ! run_retry ssh "$HOST" "$REMOTE_CMD"; then
+    fail "bootstrap on ${HOST} failed"
+  fi
 fi
 
 echo "OK|${IDX}|${HOST}|${HOST#*@}:50061" > "${RESULT_DIR}/${IDX}"

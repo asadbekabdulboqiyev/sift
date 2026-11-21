@@ -15,6 +15,8 @@
 #   SS_ADVERTISE   address announced to master (defaults to SS_LISTEN)
 #   SS_MASTER      master to self-register with (empty => static fleet)
 #   SS_TOKEN       shared control-plane token ("" disables auth)
+#   SS_TOKEN_STDIN set to 1 to read SS_TOKEN from stdin (deploy-fleet.sh does
+#                  this so the secret never enters the remote argv)
 #   SS_MAX_USERS   max virtual users        [200000]
 #   SS_MAX_RUNS    max concurrent runs      [4]
 #
@@ -41,6 +43,14 @@ fi
 if [[ $# -lt 1 ]]; then
   echo "usage: $0 <worker.tar.gz> [HOST_ID]" >&2
   exit 2
+fi
+
+# deploy-fleet.sh pipes the token on stdin; never put it on the remote
+# argv (`ps` on the host would expose it). Opt-in flag keeps manual runs
+# from blocking on read.
+if [[ "${SS_TOKEN_STDIN:-0}" == "1" ]]; then
+  IFS= read -r SS_TOKEN || true
+  export SS_TOKEN
 fi
 
 TARBALL="$1"
@@ -82,16 +92,17 @@ fi
 if [[ -n "$SS_MASTER" ]]; then
   ARGS="${ARGS} -master ${SS_MASTER}"
 fi
-# cmd/sift-worker defines a `-token` FLAG and never reads a TOKEN env var; the
-# systemd unit only expands $WORKER_ARGS into ExecStart. The token must
-# therefore be part of WORKER_ARGS — a separate `TOKEN=` line was ignored.
-if [[ -n "${SS_TOKEN:-}" ]]; then
-  ARGS="${ARGS} -token ${SS_TOKEN}"
-fi
-
-cat > /etc/Sift/worker.env <<EOF
-WORKER_ARGS=${ARGS}
-EOF
+# Keep the token OUT of WORKER_ARGS: systemd expands that variable into
+# ExecStart, which would put the secret in the worker's argv and expose it via
+# `ps`. cmd/sift-worker now falls back to SIFT_WORKER_TOKEN when -token is
+# omitted, and the unit already loads this file via EnvironmentFile, so a
+# plain KEY=value line is enough. An explicit -token still wins over the env.
+{
+  printf 'WORKER_ARGS=%s\n' "$ARGS"
+  if [[ -n "${SS_TOKEN:-}" ]]; then
+    printf 'SIFT_WORKER_TOKEN=%s\n' "$SS_TOKEN"
+  fi
+} > /etc/Sift/worker.env
 chmod 600 /etc/Sift/worker.env
 chown root:Sift /etc/Sift/worker.env
 log_ok "wrote /etc/Sift/worker.env"

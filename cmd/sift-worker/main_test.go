@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"net"
 	"net/http"
 	"strconv"
@@ -10,6 +11,44 @@ import (
 	"testing"
 	"time"
 )
+
+// TestTokenDefaultFromEnv proves the -token default comes from
+// SIFT_WORKER_TOKEN, so systemd can carry the secret in an EnvironmentFile
+// without putting it in the process argv.
+func TestTokenDefaultFromEnv(t *testing.T) {
+	t.Setenv("SIFT_WORKER_TOKEN", "env-token")
+	if got := tokenDefault(); got != "env-token" {
+		t.Errorf("tokenDefault() = %q, want env-token", got)
+	}
+	t.Setenv("SIFT_WORKER_TOKEN", "")
+	if got := tokenDefault(); got != "" {
+		t.Errorf("tokenDefault() with empty env = %q, want empty", got)
+	}
+}
+
+// TestTokenFlagOverridesEnv uses a fresh FlagSet so the global
+// flag.CommandLine owned by main() is never mutated. An explicit -token must
+// win over the env-sourced default.
+func TestTokenFlagOverridesEnv(t *testing.T) {
+	t.Setenv("SIFT_WORKER_TOKEN", "env-token")
+
+	parseToken := func(args ...string) string {
+		t.Helper()
+		fs := flag.NewFlagSet("worker-token-test", flag.ContinueOnError)
+		tok := fs.String("token", tokenDefault(), "shared control-plane token")
+		if err := fs.Parse(args); err != nil {
+			t.Fatalf("Parse(%v): %v", args, err)
+		}
+		return *tok
+	}
+
+	if got := parseToken(); got != "env-token" {
+		t.Errorf("default from env = %q, want env-token", got)
+	}
+	if got := parseToken("-token", "flag-token"); got != "flag-token" {
+		t.Errorf("explicit -token = %q, want flag-token", got)
+	}
+}
 
 // TestIsVersionArg covers the flag Dockerfile.worker runs at build time; without
 // it the image build logged "Unknown flag --version".
