@@ -181,6 +181,7 @@ func ScanTLSWithOptions(host string, port int, control func(network, address str
 	// resumed a previous session/ticket, not merely when a second connect succeeds.
 	resumeCfg := &tls.Config{
 		InsecureSkipVerify: !opts.TLSVerify, // #nosec G402 -- only when explicitly disabled for an authorized lab
+		MinVersion:         tls.VersionTLS12,
 		ClientSessionCache: tls.NewLRUClientSessionCache(1),
 	}
 	conn1, err := tls.DialWithDialer(dialer, "tcp", addr, resumeCfg)

@@ -103,6 +103,7 @@ func quicTLSConfig(host string, opts ProbeOptions) *tls.Config {
 	return &tls.Config{
 		ServerName:         host,
 		InsecureSkipVerify: opts.InsecureSkipVerify, // #nosec G402 -- caller opts in for self-signed lab targets
+		MinVersion:         tls.VersionTLS12,
 		NextProtos:         []string{"h3"},
 	}
 }
@@ -144,6 +145,7 @@ func checkAltSvc(host string, port int, insecure bool) (bool, error) {
 	cfg := &tls.Config{
 		ServerName:         host,
 		InsecureSkipVerify: insecure, // #nosec G402 -- caller opts in for self-signed lab targets
+		MinVersion:         tls.VersionTLS12,
 	}
 	conn, err := tls.DialWithDialer(dialer, "tcp", addr, cfg)
 	if err != nil {

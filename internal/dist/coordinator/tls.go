@@ -25,7 +25,7 @@ import (
 //
 // When CertFile/KeyFile are empty the server stays plaintext; when CAFile and
 // InsecureSkipVerify are both empty outgoing dials stay plaintext. A fleet
-// must agree on TLS or not — a TLS client dialing a plaintext server (or the
+// must agree on TLS or not -- a TLS client dialing a plaintext server (or the
 // reverse) fails fast with a handshake error, which is intentional. Setting
 // RequireTLS closes that silent fallback: without -tls-ca or -tls-skip-verify
 // ClientCreds fails, so a production fleet cannot accidentally dial plaintext.
@@ -58,7 +58,7 @@ func (o TLSOptions) ServerCreds() (credentials.TransportCredentials, error) {
 
 // ClientCreds builds transport credentials for outgoing dials. It returns nil
 // (plaintext) when neither -tls-ca nor -tls-skip-verify is configured, unless
-// RequireTLS is set — then that combination is a configuration error.
+// RequireTLS is set -- then that combination is a configuration error.
 func (o TLSOptions) ClientCreds() (credentials.TransportCredentials, error) {
 	if o.RequireTLS && o.CAFile == "" && !o.InsecureSkipVerify {
 		return nil, fmt.Errorf("coordinator: TLS required for outgoing dials but neither -tls-ca nor -tls-skip-verify is configured")
@@ -75,7 +75,10 @@ func (o TLSOptions) ClientCreds() (credentials.TransportCredentials, error) {
 		return credentials.NewClientTLSFromCert(pool, ""), nil
 	}
 	if o.InsecureSkipVerify {
-		return credentials.NewTLS(&tls.Config{InsecureSkipVerify: true}), nil // #nosec G402 — documented self-signed-demo escape hatch
+		return credentials.NewTLS(&tls.Config{
+			InsecureSkipVerify: true, // #nosec G402 -- documented self-signed-demo escape hatch
+			MinVersion:         tls.VersionTLS12,
+		}), nil
 	}
 	return nil, nil
 }

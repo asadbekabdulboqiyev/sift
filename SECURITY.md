@@ -55,7 +55,7 @@ control plane.
 | 1 | **SSRF** | A scenario or a malicious redirect could make the tool fetch internal/cloud-metadata/private resources. Since the operator controls config, the main residual risk is *unattended CI* or *third-party-supplied scenario files* that point at unexpected hosts. | `internal/engine/client.go` |
 | 2 | **Resource exhaustion (self-DoS)** | Absurd `users`, `duration`, `timeout`, or `rps` values could exhaust sockets, memory, or CPU on the test machine. | `internal/config/scenario.go`, `internal/engine/engine.go` |
 | 3 | **Path traversal** | A scenario `name` with `../`, `/`, NUL, etc. could escape the report directory or overwrite arbitrary files. | `internal/report/report.go` |
-| 4 | **Secret leakage** | Tokens, passwords, headers, and request bodies may exist in scenario files; they must never appear in reports. The opt-in debug capture (`--capture N`, ≤100 entries, bodies ≤2KB) stores *response* data only — request headers/bodies (credentials) are never captured; the capture file is private (`0600`) and disabled by default. | `internal/report/report.go`, `internal/engine/engine.go`, `internal/engine/capture.go` |
+| 4 | **Secret leakage** | Tokens, passwords, headers, and request bodies may exist in scenario files; they must never appear in reports. The opt-in debug capture (`--capture N`, <=100 entries, bodies <=2KB) stores *response* data only -- request headers/bodies (credentials) are never captured; the capture file is private (`0600`) and disabled by default. | `internal/report/report.go`, `internal/engine/engine.go`, `internal/engine/capture.go` |
 | 5 | **Transport downgrade / MITM** | Redirect to a plaintext or different host, or disabling certificate verification, would weaken TLS protection. | `internal/engine/client.go` |
 | 6 | **Denial of service (target side)** | The tool is, by definition, a load generator. Misuse against third-party systems is illegal (DDoS) and is mitigated by operator warnings, not technical controls. | `cmd/sift/main.go` |
 | 7 | **Malicious config parsing** | `yaml.v3` alias/entity expansion ("billion laughs", alias bombs) on untrusted scenario files. | `internal/config/scenario.go` |
@@ -66,8 +66,11 @@ control plane.
 
 Verified against the codebase during the audit:
 
-- **TLS floor and verification:** transports enforce `MinVersion:
-  tls.VersionTLS12`, and certificate verification is the default policy.
+- **TLS floor and verification:** all production transports set an explicit
+  `MinVersion: tls.VersionTLS12` floor, and certificate verification is the
+  default policy. Version-probe configurations intentionally set lower minimums
+  (down to TLS 1.0) to detect legacy protocol support; those are scanners, not
+  production transports.
   `InsecureSkipVerify` is not a global default: its intentional uses are
   explicit operator opt-ins - the worker/master `--tls-skip` flag, replay
   skip-verify, scanner and TLS-lab opt-out flags, and coordinator TLS options
@@ -79,29 +82,29 @@ Verified against the codebase during the audit:
   `internal/scanner/core/transport.go`, `internal/dist/coordinator/tls.go`,
   `internal/http3/h3.go`)
 - **Connection bounds:** `MaxConnsPerHost`, `MaxIdleConnsPerHost` clamped to
-  `[256, 20 000]`; `DisableKeepAlives` configurable.
+  `[256, 100000]`; `DisableKeepAlives` configurable.
   (`internal/engine/client.go`)
 - **Redirect policy:** at most **10** hops; redirects that change either the
   **host** or the **scheme** are rejected (`http.ErrUseLastResponse`), so an
-  https→http downgrade on the same host cannot send cookies and auth headers in
+  https -> http downgrade on the same host cannot send cookies and auth headers in
   cleartext. This closes the SSRF/transport-downgrade redirect path.
   (`internal/engine/client.go`)
 - **Concurrency cap:** `users` and `spike_users` are capped at **100,000**.
   (`internal/config/scenario.go`)
-- **Duration/timeout caps (added in this audit):** profile `duration` ≤ **7 days**;
-  profile and per-step `timeout` ≤ **5 minutes**; spike `warmup+hold` ≤ **7 days**.
+- **Duration/timeout caps (added in this audit):** profile `duration` <= **7 days**;
+  profile and per-step `timeout` <= **5 minutes**; spike `warmup+hold` <= **7 days**.
   (`internal/config/scenario.go`)
 - **Response body cap:** responses are read through `io.LimitReader(..., 8 MiB)`.
   (`internal/engine/engine.go`)
 - **Per-request timeout:** default 5 s; applied to the whole request lifecycle.
   (`internal/engine/client.go`, `internal/engine/engine.go`)
 - **Report file permissions:** report files are created with mode **0600**;
-  directories with **0755**. (`internal/report/report.go`)
+  directories with **0750**. (`internal/report/report.go`)
 - **Filename sanitization:** scenario names are sanitized (`..`, `/`, `\`, `:`,
   NUL, control chars, etc. removed), truncated to 64 chars, so a malicious name
   cannot escape the report directory. Verified by tests.
   (`internal/report/report.go`)
-- **No secrets in reports:** reports contain only metric aggregates — step name,
+- **No secrets in reports:** reports contain only metric aggregates -- step name,
   request/error counts, status-code and error-class distributions, latency
   percentiles (min/avg/max/p50/p95/p99). Scenario `variables`, request headers,
   bodies, and extracted values (e.g. auth tokens) are **never** serialized.
@@ -151,10 +154,10 @@ Findings from the review, ordered by risk.
   effectively endless test, and `timeout` of hours would pin worker goroutines
   open. **Fixed** by adding hard caps in `scenario.go`:
   `maxDuration = 7 days`, `maxTimeout = 5 minutes` (profile level and per-step
-  `timeout`), spike `warmup+hold` total ≤ 7 days. Out-of-range values now fail
+  `timeout`), spike `warmup+hold` total <= 7 days. Out-of-range values now fail
   fast with a descriptive error instead of misbehaving.
 - **[Low] `.env` / `*.env` not ignored by git.** A scenario or helper script
-  with credentials could have been committed accidentally. **Fixed** — added
+  with credentials could have been committed accidentally. **Fixed** -- added
   `*.env` / `.env` to `.gitignore` (and to `.dockerignore`, so secrets cannot
   leak into a Docker build context).
 - **[Info] `dist/` build output not git-ignored.** Added `dist/` to
@@ -163,7 +166,7 @@ Findings from the review, ordered by risk.
 ### 4.2 Confirmed safe (no change needed)
 
 - Cross-host and cross-scheme redirects are blocked (SSRF redirect chains and
-  https→http downgrades covered; see section 3).
+  https -> http downgrades covered; see section 3).
 - TLS >= 1.2 enforced; verification is the default policy, including the
   HTTP/3 probes. All skip-verify paths are explicit opt-ins (see section 3).
 - Filename sanitization prevents path traversal from scenario `name`.
@@ -172,7 +175,7 @@ Findings from the review, ordered by risk.
 - 8 MiB response body cap present.
 - Report files written 0600.
 - Secret-keyword scan of the Go sources found **only test/demo** references
-  (`password`, `token`, etc.) — no hardcoded API keys, no secrets in the
+  (`password`, `token`, etc.) -- no hardcoded API keys, no secrets in the
   repository.
 
 ### 4.3 Accepted residual risks (documented, not "fixed" by design)
@@ -206,15 +209,15 @@ Findings from the review, ordered by risk.
    `.env`-style files are git-ignored; treat scenario YAML the same way.
 3. **Review scenario files before use**, and prefer running in CI only against
    dedicated test environments, not production.
-4. **Pin limits in every profile** (`duration`, `timeout`, `rps`) — the tool now
+4. **Pin limits in every profile** (`duration`, `timeout`, `rps`) -- the tool now
    rejects unreasonable values, but explicit small values avoid accidents.
 5. **Raise `ulimit -n`** before large concurrency runs (e.g. `ulimit -n 65535`);
    the tool warns when the limit looks too low.
 6. **If you must inject secrets at runtime** (tokens returned by the target):
    they live only in memory (`vars` extraction) and never reach reports. Do not
    enable verbose logging of request content in wrappers around this tool.
-7. **Treat reports as potentially sensitive** — they are written 0600, but the
-   directory itself is 0755. Keep the reports directory private if the target
+7. **Treat reports as potentially sensitive** -- they are written 0600, but the
+   directory itself is 0750. Keep the reports directory private if the target
    URL reveals internal hostnames.
 8. **Air-gapped CI or restricted network:** run from a host with network access
    limited to the target, so a malicious redirect already can't reach internal
@@ -224,22 +227,21 @@ Findings from the review, ordered by risk.
 
 ## 6. YAML parser security (`gopkg.in/yaml.v3`)
 
-Scenario files are parsed with `gopkg.in/yaml.v3 v3.x`.
+Scenario files are parsed with `gopkg.in/yaml.v3 v3.0.1`.
 
-- The Go YAML package has **no built-in depth/alias expansion budget**. A
-  crafted file with deeply or exponentially nested anchors and aliases (e.g.
-  `&a`/`*a` references) can cause CPU and memory spikes during `Unmarshal` — a
-  classic **alias bomb**.
+- `yaml.v3 v3.0.1` includes a **built-in alias-ratio guard**: documents whose
+  alias expansion is excessive are rejected during `Unmarshal` with an
+  `excessive aliasing` error. This is a library default, not a control
+  configured by Sift; Sift does not override it.
 - Scenario files are an **explicitly trusted input** (they are written by the
-  operator running the tool). This makes exploitation unlikely. But:
-  - **Do not load scenario files from untrusted sources** (e.g. URLs, user
-    uploads, shared parsing services). If you must, pre-validate or sandbox the
-    parsing step.
-  - Keep the binary and its config channel private; do not expose scenario
-    parsing as a remotely reachable service.
-- If unauthenticated input ever becomes a use case, mitigate at the parser
-  level (e.g. enforce a node-depth limit or pre-scan the document). The current
-  design intentionally keeps parsing simple and trusted.
+  operator running the tool), so alias bombs are unlikely in practice. Do not
+  load scenario files from untrusted sources (e.g. URLs, user uploads, or
+  shared parsing services); if you must, pre-validate or sandbox the parsing
+  step, and do not expose scenario parsing as a remotely reachable service.
+- Scenario files are also size-bounded: reads are capped at **8 MiB**, which
+  bounds the raw input the parser must process. The alias-ratio guard is the
+  parser-level defense; if unauthenticated input ever becomes a use case, add
+  an explicit node-depth limit as defense in depth.
 
 ---
 

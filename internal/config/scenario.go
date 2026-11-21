@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -34,6 +35,11 @@ const (
 	MaxDurationSeconds = 7 * 24 * 60 * 60 // 7 days
 	// MaxTimeoutSeconds caps per-request/per-step timeouts accepted by Normalize and public APIs.
 	MaxTimeoutSeconds = 5 * 60 // 5 minutes
+
+	// maxScenarioFileBytes caps how much of a scenario file Load will read into
+	// memory. One extra byte is read so an oversized file can be detected and
+	// reported without ever materializing the whole file.
+	maxScenarioFileBytes = 8 << 20 // 8 MiB
 )
 
 // Profile is the load-shape configuration of a scenario: user count,
@@ -361,6 +367,9 @@ func (p *Profile) Normalize() error {
 			p.RampUp = 1
 		}
 	}
+	if p.RampUp > MaxDurationSeconds {
+		return fmt.Errorf("ramp_up (%d) exceeds maximum of %d seconds", p.RampUp, MaxDurationSeconds)
+	}
 	if p.RPS < 0 {
 		return fmt.Errorf("rps (%d) must be non-negative", p.RPS)
 	}
@@ -379,6 +388,9 @@ func (p *Profile) Normalize() error {
 		}
 		if p.WavePeriod < 1 {
 			p.WavePeriod = 1
+		}
+		if p.WavePeriod > MaxDurationSeconds {
+			return fmt.Errorf("wave_period (%d) exceeds maximum of %d seconds", p.WavePeriod, MaxDurationSeconds)
 		}
 	}
 	if p.Type == ProfileSpike {
@@ -435,6 +447,14 @@ func (s *Scenario) Normalize() error {
 	}
 	if err := s.Profile.Normalize(); err != nil {
 		return err
+	}
+	// pre_warm_connections drives make([]*prewarmClient, count) in the engine;
+	// bound it here so an untrusted value cannot trigger a huge allocation.
+	if s.PreWarmConnections < 0 {
+		return fmt.Errorf("pre_warm_connections (%d) must be non-negative", s.PreWarmConnections)
+	}
+	if s.PreWarmConnections > MaxUsers {
+		return fmt.Errorf("pre_warm_connections (%d) exceeds maximum of %d", s.PreWarmConnections, MaxUsers)
 	}
 	if err := s.SLA.Normalize(); err != nil {
 		return err
@@ -507,6 +527,9 @@ func normalizeStep(st *Step, depth int) error {
 	}
 	if st.Type == "http" && !strings.Contains(st.URL, "://") && !strings.HasPrefix(st.URL, "/") {
 		st.URL = "http://" + st.URL
+	}
+	if st.Timeout < 0 {
+		return fmt.Errorf("step %q: timeout (%d) must be non-negative", st.Name, st.Timeout)
 	}
 	if st.Timeout > MaxTimeoutSeconds {
 		return fmt.Errorf("step %q: timeout (%d) exceeds maximum of %d seconds (%d minutes)", st.Name, st.Timeout, MaxTimeoutSeconds, MaxTimeoutSeconds/60)
@@ -593,11 +616,23 @@ func normalizeControlFlow(st *Step) error {
 	return nil
 }
 
-// Load reads a YAML scenario from path and normalizes it.
+// Load reads a YAML scenario from path and normalizes it. Reads are bounded to
+// maxScenarioFileBytes so a malformed or oversized file cannot exhaust memory.
 func Load(path string) (*Scenario, error) {
-	data, err := os.ReadFile(filepath.Clean(path)) // #nosec G304 -- path is an operator-selected scenario file
+	cleanPath := filepath.Clean(path) // #nosec G304 -- path is an operator-selected scenario file
+	f, err := os.Open(cleanPath)
 	if err != nil {
 		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+
+	// Read one byte past the cap so an oversized file is detectable.
+	data, err := io.ReadAll(io.LimitReader(f, maxScenarioFileBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxScenarioFileBytes {
+		return nil, fmt.Errorf("scenario file %s exceeds maximum size of %d bytes", path, maxScenarioFileBytes)
 	}
 	sc := &Scenario{}
 	if err := yaml.Unmarshal(data, sc); err != nil {

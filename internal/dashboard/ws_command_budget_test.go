@@ -48,29 +48,30 @@ func TestWSCommandBudgetBurstDenied(t *testing.T) {
 	defer conn.Close()
 	_ = readWSCommandFrame(t, conn) // init
 
-	// The first bucket-full of starts clears the gate and reaches the handler.
-	// (Budget-denied starts skip the gate entirely, so only these 16 pay for
-	// the audit fsync; the whole burst stays far below the 1s refill window.)
+	// Exhaust the budget with stops: they are metered but skip the audit
+	// fsync, so the setup stays inside the 1s refill window even on slow CI.
+	// Starts would each pay for an fsync and could let a token refill midway.
 	for i := 0; i < wsRunCommandBurst; i++ {
-		wsStartJSON(t, conn, budgetTestTarget)
+		if err := conn.WriteJSON(map[string]any{"type": "stop"}); err != nil {
+			t.Fatalf("write stop: %v", err)
+		}
 	}
-	waitFor(t, "the in-budget starts to dispatch", func() bool {
+	waitFor(t, "the in-budget stops to dispatch", func() bool {
 		return len(dispatched()) == wsRunCommandBurst
 	})
 
-	// Beyond the budget each start gets the same command_error frame shape as
-	// an authorization denial, with the budget reason, and dispatches nothing.
-	for i := 0; i < 3; i++ {
-		wsStartJSON(t, conn, budgetTestTarget)
-		frame := readWSCommandFrame(t, conn)
-		assertCommandError(t, frame, "start")
-		if got, want := frame["error"], wsRunCommandLimited; got != want {
-			t.Errorf("budget error = %v, want %q", got, want)
-		}
+	// Just over the budget the start gets the same command_error frame shape
+	// as an authorization denial, but with the budget reason, and dispatches
+	// nothing.
+	wsStartJSON(t, conn, budgetTestTarget)
+	frame := readWSCommandFrame(t, conn)
+	assertCommandError(t, frame, "start", wsRunCommandLimited)
+	if got, want := frame["error"], wsRunCommandLimited; got != want {
+		t.Errorf("budget error = %v, want %q", got, want)
 	}
 
 	if got := len(dispatched()); got != wsRunCommandBurst {
-		t.Fatalf("dispatched = %d, want %d (over-budget starts must not dispatch)", got, wsRunCommandBurst)
+		t.Fatalf("dispatched = %d, want %d (over-budget start must not dispatch)", got, wsRunCommandBurst)
 	}
 }
 
@@ -96,7 +97,7 @@ func TestWSCommandBudgetReadLoopSurvivesExhaustion(t *testing.T) {
 	if err := conn.WriteJSON(map[string]any{"type": "stop"}); err != nil {
 		t.Fatalf("write overflow stop: %v", err)
 	}
-	assertCommandError(t, readWSCommandFrame(t, conn), "stop")
+	assertCommandError(t, readWSCommandFrame(t, conn), "stop", wsRunCommandLimited)
 
 	// The read loop kept running: a non-run command on the same socket still
 	// dispatches even though the run budget is exhausted.
@@ -108,27 +109,30 @@ func TestWSCommandBudgetReadLoopSurvivesExhaustion(t *testing.T) {
 		return len(got) == wsRunCommandBurst+1 && got[wsRunCommandBurst] == "ping"
 	})
 
-	// After one refill interval the very same socket can drive a run command
-	// again: exhaustion never kills the connection.
-	refillWait := time.Duration(float64(time.Second) / float64(wsRunCommandRefill) * 1.5)
-	time.Sleep(refillWait)
-	if err := conn.WriteJSON(map[string]any{"type": "stop"}); err != nil {
-		t.Fatalf("write stop after refill: %v", err)
-	}
+	// After a refill the very same socket can drive a run command again:
+	// exhaustion never kills the connection. Retry the write inside waitFor
+	// rather than sleeping a fixed interval, so the test waits only as long
+	// as the refill actually needs. Premature stops are budget-denied and
+	// dispatch nothing; the first one accepted after the token lands does.
 	waitFor(t, "a run command after refill", func() bool {
+		if err := conn.WriteJSON(map[string]any{"type": "stop"}); err != nil {
+			return false
+		}
 		got := dispatched()
-		return len(got) == wsRunCommandBurst+2 && got[wsRunCommandBurst+1] == "stop"
+		return len(got) >= wsRunCommandBurst+2 && got[wsRunCommandBurst+1] == "stop"
 	})
 
 	// A fresh socket starts with a full budget, so one client's burst cannot
-	// throttle another dashboard tab.
+	// throttle another dashboard tab. Measure from the post-refill count so a
+	// slow runner that lets a second token land cannot skew the index.
+	afterRefill := len(dispatched())
 	other := dialDashboardWS(t, srv)
 	defer other.Close()
 	_ = readWSCommandFrame(t, other) // init
 	wsStartJSON(t, other, budgetTestTarget)
 	waitFor(t, "a run command on a fresh socket", func() bool {
 		got := dispatched()
-		return len(got) == wsRunCommandBurst+3 && got[wsRunCommandBurst+2] == "start"
+		return len(got) == afterRefill+1 && got[afterRefill] == "start"
 	})
 }
 
@@ -149,8 +153,15 @@ func TestWSCommandBudgetNonRunCommandsNotCharged(t *testing.T) {
 			t.Fatalf("write unknown: %v", err)
 		}
 	}
-	waitFor(t, "all non-run commands to dispatch", func() bool {
-		return len(dispatched()) == n
+	// Ordered processing makes a sentinel a dispatch barrier: once it lands,
+	// every earlier non-run command has been handled and any erroneous frame
+	// would already be queued for the read check below.
+	if err := conn.WriteJSON(map[string]any{"type": "sentinel"}); err != nil {
+		t.Fatalf("write sentinel: %v", err)
+	}
+	waitFor(t, "the non-run flood and sentinel to dispatch", func() bool {
+		got := dispatched()
+		return len(got) == n+1 && got[n] == "sentinel"
 	})
 
 	if err := conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
@@ -165,6 +176,6 @@ func TestWSCommandBudgetNonRunCommandsNotCharged(t *testing.T) {
 	wsStartJSON(t, conn, budgetTestTarget)
 	waitFor(t, "a run command after the non-run flood", func() bool {
 		got := dispatched()
-		return len(got) == n+1 && got[n] == "start"
+		return len(got) == n+2 && got[n+1] == "start"
 	})
 }

@@ -164,6 +164,7 @@ func NewOWASPCheckerWithOptions(target string, opts Options) *OWASPChecker {
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: !opts.TLSVerify, // #nosec G402 -- only when explicitly disabled for an authorized lab
+			MinVersion:         tls.VersionTLS12,
 		},
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 10 * time.Second,

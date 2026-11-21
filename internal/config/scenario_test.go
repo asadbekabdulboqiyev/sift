@@ -373,3 +373,131 @@ func TestWarmupValidation(t *testing.T) {
 		t.Errorf("negative warmup = %d, want clamped to 0", p.Warmup)
 	}
 }
+
+// TestNormalizePreWarmConnectionsBounds pins the bound on the value that drives
+// make([]*prewarmClient, count) in the engine. An unbounded value panics/OOMs.
+func TestNormalizePreWarmConnectionsBounds(t *testing.T) {
+	newScenario := func(n int) *Scenario {
+		return &Scenario{
+			Profile:            Profile{Users: 10},
+			Steps:              []Step{{URL: "/x"}},
+			PreWarm:            true,
+			PreWarmConnections: n,
+		}
+	}
+
+	// At the cap the value is accepted.
+	if err := newScenario(MaxUsers).Normalize(); err != nil {
+		t.Fatalf("at-cap pre_warm_connections rejected: %v", err)
+	}
+	// Just over the cap is rejected.
+	if err := newScenario(MaxUsers + 1).Normalize(); err == nil {
+		t.Error("expected error for pre_warm_connections above cap")
+	}
+	// The crafted max-int value must be rejected before any allocation.
+	if err := newScenario(int(^uint(0) >> 1)).Normalize(); err == nil {
+		t.Error("expected error for max-int pre_warm_connections")
+	}
+	// Negative values are rejected (rather than silently treated as "auto").
+	if err := newScenario(-1).Normalize(); err == nil {
+		t.Error("expected error for negative pre_warm_connections")
+	}
+}
+
+// TestNormalizeDurationFieldBounds pins the upper bounds on ramp_up and
+// wave_period. Both are converted to time.Duration seconds in the engine, so an
+// oversized value would wrap; wave_period is also used as a divisor.
+func TestNormalizeDurationFieldBounds(t *testing.T) {
+	sc := &Scenario{
+		Profile: Profile{Type: ProfileLinearRamp, Users: 10, Duration: 60, RampUp: MaxDurationSeconds + 1},
+		Steps:   []Step{{URL: "/x"}},
+	}
+	if err := sc.Normalize(); err == nil {
+		t.Error("expected error for ramp_up above cap")
+	}
+
+	sc = &Scenario{
+		Profile: Profile{Type: ProfileWave, Users: 10, Duration: 60, WavePeriod: MaxDurationSeconds + 1},
+		Steps:   []Step{{URL: "/x"}},
+	}
+	if err := sc.Normalize(); err == nil {
+		t.Error("expected error for wave_period above cap")
+	}
+
+	// A max-int wave_period must be rejected, not wrapped into a small divisor.
+	sc = &Scenario{
+		Profile: Profile{Type: ProfileWave, Users: 10, Duration: 60, WavePeriod: int(^uint(0) >> 1)},
+		Steps:   []Step{{URL: "/x"}},
+	}
+	if err := sc.Normalize(); err == nil {
+		t.Error("expected error for max-int wave_period")
+	}
+
+	// Missing/zero/negative values keep the existing defaulting behavior.
+	sc = &Scenario{
+		Profile: Profile{Type: ProfileLinearRamp, Users: 10, Duration: 60, RampUp: -1},
+		Steps:   []Step{{URL: "/x"}},
+	}
+	if err := sc.Normalize(); err != nil {
+		t.Fatalf("negative ramp_up should default: %v", err)
+	}
+	if sc.Profile.RampUp != 30 {
+		t.Errorf("defaulted ramp_up = %d, want 30", sc.Profile.RampUp)
+	}
+
+	sc = &Scenario{
+		Profile: Profile{Type: ProfileWave, Users: 10, Duration: 60, WavePeriod: 0},
+		Steps:   []Step{{URL: "/x"}},
+	}
+	if err := sc.Normalize(); err != nil {
+		t.Fatalf("zero wave_period should default: %v", err)
+	}
+	if sc.Profile.WavePeriod != 20 {
+		t.Errorf("defaulted wave_period = %d, want 20", sc.Profile.WavePeriod)
+	}
+}
+
+// TestNormalizeNegativeStepTimeout pins the lower bound on per-step timeouts.
+func TestNormalizeNegativeStepTimeout(t *testing.T) {
+	sc := &Scenario{
+		Profile: Profile{Users: 10},
+		Steps:   []Step{{URL: "/x", Timeout: -1}},
+	}
+	if err := sc.Normalize(); err == nil {
+		t.Error("expected error for negative step timeout")
+	}
+
+	// Zero still means "use the profile-level default".
+	sc = &Scenario{
+		Profile: Profile{Users: 10},
+		Steps:   []Step{{URL: "/x", Timeout: 0}},
+	}
+	if err := sc.Normalize(); err != nil {
+		t.Fatalf("zero step timeout should be allowed: %v", err)
+	}
+}
+
+// TestLoadRejectsOversizedFile pins the bounded read in Load. The sparse file
+// costs almost no disk space, but Load still sees a file above the cap.
+func TestLoadRejectsOversizedFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "huge.yaml")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(int64(maxScenarioFileBytes) + 1); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Load(path)
+	if err == nil {
+		t.Fatal("expected error for oversized scenario file")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum size") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

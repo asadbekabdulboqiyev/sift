@@ -29,6 +29,10 @@ import (
 func isolateWSGateEnv(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
+	// adminlock.Active() reads ~/.Sift/admin.json through ConfigHome(). An
+	// active unlock on the test host would allow private targets and turn
+	// these denials into spurious failures, so isolate that path too.
+	t.Setenv("SIFT_HOME", dir)
 	t.Setenv("SIFT_POLICY", filepath.Join(dir, "no-policy.json"))
 	t.Setenv("SIFT_ALLOW", "")
 	audit := filepath.Join(dir, "audit.jsonl")
@@ -52,7 +56,10 @@ func readWSCommandFrame(t *testing.T, conn *websocket.Conn) map[string]any {
 	return frame
 }
 
-func assertCommandError(t *testing.T, frame map[string]any, command string) {
+// assertCommandError checks WHICH denial happened, not just that some error
+// string exists. Without the reason match, a regression that refuses every
+// command for the wrong reason would still pass this suite.
+func assertCommandError(t *testing.T, frame map[string]any, command, wantReason string) {
 	t.Helper()
 	if frame["type"] != "command_error" {
 		t.Errorf("frame type = %v, want command_error (frame: %v)", frame["type"], frame)
@@ -60,8 +67,12 @@ func assertCommandError(t *testing.T, frame map[string]any, command string) {
 	if frame["command"] != command {
 		t.Errorf("frame command = %v, want %q", frame["command"], command)
 	}
-	if msg, _ := frame["error"].(string); msg == "" {
+	msg, _ := frame["error"].(string)
+	if msg == "" {
 		t.Errorf("command_error has no reason: %v", frame)
+	}
+	if !strings.Contains(msg, wantReason) {
+		t.Errorf("command_error reason = %q, want it to contain %q (frame: %v)", msg, wantReason, frame)
 	}
 }
 
@@ -109,7 +120,10 @@ func TestWSStartRefusesUnsafeTargets(t *testing.T) {
 	}
 	for _, target := range targets {
 		wsStartJSON(t, conn, target)
-		assertCommandError(t, readWSCommandFrame(t, conn), "start")
+		// Reasons differ per target (metadata vs. policy class), but every
+		// gate refusal wraps ErrRunCommandDenied, so this pins the branch
+		// without depending on one classifier's wording.
+		assertCommandError(t, readWSCommandFrame(t, conn), "start", "run command denied")
 	}
 
 	mu.Lock()
@@ -147,13 +161,14 @@ func TestWSStartRequiresExplicitTarget(t *testing.T) {
 	defer srv.Close()
 
 	cases := []struct {
-		name string
-		args map[string]any
+		name       string
+		args       map[string]any
+		wantReason string
 	}{
-		{"no args", nil},
-		{"legacy target field is not authoritative", map[string]any{"target": "http://93.184.216.34/"}},
-		{"empty target", map[string]any{"config": map[string]any{"target_url": "  "}}},
-		{"non-http scheme", map[string]any{"config": map[string]any{"target_url": "file:///etc/passwd"}}},
+		{"no args", nil, "config.target_url"},
+		{"legacy target field is not authoritative", map[string]any{"target": "http://93.184.216.34/"}, "config.target_url"},
+		{"empty target", map[string]any{"config": map[string]any{"target_url": "  "}}, "config.target_url"},
+		{"non-http scheme", map[string]any{"config": map[string]any{"target_url": "file:///etc/passwd"}}, "http(s) URL"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -163,7 +178,7 @@ func TestWSStartRequiresExplicitTarget(t *testing.T) {
 			if err := conn.WriteJSON(map[string]any{"type": "start", "args": tc.args}); err != nil {
 				t.Fatalf("write start: %v", err)
 			}
-			assertCommandError(t, readWSCommandFrame(t, conn), "start")
+			assertCommandError(t, readWSCommandFrame(t, conn), "start", tc.wantReason)
 		})
 	}
 
@@ -219,11 +234,11 @@ func TestWSRunCommandRequiresPermRun(t *testing.T) {
 	defer viewer.Close()
 	_ = readWSCommandFrame(t, viewer) // init
 	wsStartJSON(t, viewer, "http://93.184.216.34/")
-	assertCommandError(t, readWSCommandFrame(t, viewer), "start")
+	assertCommandError(t, readWSCommandFrame(t, viewer), "start", "tests:run permission required")
 	if err := viewer.WriteJSON(map[string]any{"type": "stop"}); err != nil {
 		t.Fatalf("viewer write stop: %v", err)
 	}
-	assertCommandError(t, readWSCommandFrame(t, viewer), "stop")
+	assertCommandError(t, readWSCommandFrame(t, viewer), "stop", "tests:run permission required")
 
 	mu.Lock()
 	got := append([]string(nil), commands...)
@@ -323,8 +338,24 @@ func TestRunStartAuditConcurrentHTTPAndWS(t *testing.T) {
 				return
 			}
 			defer conn.Close()
-			_ = readWSCommandFrame(t, conn) // init
-			wsStartJSON(t, conn, "http://93.184.216.34/")
+			// Report dial/read/write failures through errs: t.Fatalf from a
+			// goroutine only exits that goroutine and can mask the real
+			// audit-chain failure from the test body.
+			if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+				errs <- fmt.Errorf("set ws read deadline: %w", err)
+				return
+			}
+			if _, _, err := conn.ReadMessage(); err != nil {
+				errs <- fmt.Errorf("read ws init frame: %w", err)
+				return
+			}
+			if err := conn.WriteJSON(map[string]any{
+				"type": "start",
+				"args": map[string]any{"config": map[string]any{"target_url": "http://93.184.216.34/"}},
+			}); err != nil {
+				errs <- fmt.Errorf("write ws start: %w", err)
+				return
+			}
 			// The handler sends no reply frame, so wait on the dispatch
 			// barrier instead of a second read.
 			select {
@@ -347,6 +378,32 @@ func TestRunStartAuditConcurrentHTTPAndWS(t *testing.T) {
 	}
 	if n != starts*2 {
 		t.Fatalf("verified %d audit entries, want %d", n, starts*2)
+	}
+	// A valid chain with the right count could still hold the wrong events.
+	// Every entry must be a run decision naming the target both entry points
+	// were told to start.
+	entries, err := authz.ReadAll(audit)
+	if err != nil {
+		t.Fatalf("read audit entries: %v", err)
+	}
+	if len(entries) != starts*2 {
+		t.Fatalf("audit entries = %d, want %d", len(entries), starts*2)
+	}
+	const wantTarget = "http://93.184.216.34/"
+	for i, entry := range entries {
+		if entry.Action != "run" {
+			t.Errorf("audit entry %d action = %q, want run (OpLoadTest)", i, entry.Action)
+		}
+		found := false
+		for _, target := range entry.Targets {
+			if target == wantTarget {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("audit entry %d targets = %v, want %q", i, entry.Targets, wantTarget)
+		}
 	}
 }
 
@@ -381,11 +438,11 @@ func TestWSRunDeniedWithCustomAuthMiddleware(t *testing.T) {
 	_ = readWSCommandFrame(t, conn) // init
 
 	wsStartJSON(t, conn, "http://93.184.216.34/")
-	assertCommandError(t, readWSCommandFrame(t, conn), "start")
+	assertCommandError(t, readWSCommandFrame(t, conn), "start", "run authorization unavailable for custom auth middleware")
 	if err := conn.WriteJSON(map[string]any{"type": "stop"}); err != nil {
 		t.Fatalf("write stop: %v", err)
 	}
-	assertCommandError(t, readWSCommandFrame(t, conn), "stop")
+	assertCommandError(t, readWSCommandFrame(t, conn), "stop", "run authorization unavailable for custom auth middleware")
 
 	mu.Lock()
 	got := append([]string(nil), commands...)

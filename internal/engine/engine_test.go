@@ -269,3 +269,19 @@ func TestRawUDPClient(t *testing.T) {
 		t.Errorf("udp body = %q, want empty (fire-and-forget)", body)
 	}
 }
+
+// TestNewRejectsUnboundedPreWarmConnections verifies that the engine's entry
+// point rejects an oversized pre_warm_connections via Normalize before it can
+// ever reach preWarmConnections' make([]*prewarmClient, count) allocation.
+func TestNewRejectsUnboundedPreWarmConnections(t *testing.T) {
+	for _, count := range []int{config.MaxUsers + 1, int(^uint(0) >> 1), -1} {
+		sc := &config.Scenario{
+			Steps:              []config.Step{{URL: "/x"}},
+			PreWarm:            true,
+			PreWarmConnections: count,
+		}
+		if _, err := New(sc); err == nil {
+			t.Errorf("New accepted pre_warm_connections=%d", count)
+		}
+	}
+}
