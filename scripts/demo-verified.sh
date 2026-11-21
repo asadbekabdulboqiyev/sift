@@ -29,7 +29,7 @@
 #
 # Env overrides:
 #   SIFT_BIN   path to the binary to probe
-#   DEMO_URL            target URL                (default http://127.0.0.1:8090/)
+#   DEMO_URL            target URL                (default http://127.0.0.1:8090/health)
 #   DEMO_DURATION       seconds, "10s" also works (default 10s)
 #   DEMO_RPS            LIVE pacing cap, rps       (default 300)
 #   DEMO_USERS          LIVE concurrent users     (default 30)

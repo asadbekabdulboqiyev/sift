@@ -7,8 +7,9 @@ a promise of future work.
 
 ## [v0.18.1] - 2026-11-20
 
-Repository-quality and release-hardening patch. No new user-facing features;
-behaviour is preserved unless noted below.
+Repository-quality, release-hardening and security patch. Authentication and
+certificate-verification defaults changed in this release; those changes are
+user-visible and are called out under Security and Changed below.
 
 ### Security
 
@@ -27,6 +28,16 @@ behaviour is preserved unless noted below.
   CWE-295); raw IdP token error bodies are redacted (CWE-532).
 - Invalid `--target` ports now fail at parse time with exit 2; unknown
   fingerprint profiles no longer panic in `NewDialer`.
+- Dashboard authentication (F-01): `sift run --mode dashboard` now accepts
+  `--dashboard-auth-oidc`, `--dashboard-auth-rbac` and
+  `--dashboard-auth-rbac-enabled`, matching the standalone `sift-dashboard`
+  flags. OIDC `issuer:client_id` pairs split on the last colon, so an issuer URL
+  with a port works. OIDC and RBAC remain off by default.
+- Trust anchor policy (F-02): `sift verify` and `sift certificate` now require a
+  trust anchor by default; an unpinned signer is INVALID (exit 1) unless
+  `--allow-unpinned` is passed. Conflicting `--require-anchor` /
+  `--allow-unpinned` combinations are rejected as usage errors instead of being
+  silently weakened.
 
 ### Fixed
 
@@ -43,6 +54,15 @@ behaviour is preserved unless noted below.
 
 ### Changed
 
+- Breaking (F-02): `sift verify` / `sift certificate` without an enrolled trust
+  store now exit 1 instead of reporting a successful `IssuerUnpinned` verdict.
+  The old behavior is available only through the explicit `--allow-unpinned`
+  opt-out; self-signed fixtures in `scripts/demo-verified.sh` and
+  `scripts/verify-html-parity.sh` pass it deliberately.
+- Dashboard OIDC/RBAC can now be configured from `sift run --mode dashboard`
+  with `--dashboard-auth-oidc`, `--dashboard-auth-rbac` and
+  `--dashboard-auth-rbac-enabled` (previously only `sift-dashboard` exposed
+  them).
 - Centralize atomic file publication in `internal/shared/atomicfile.Write`
   across 14 writers, preserving each site's durability level, and delegate
   duplicated finding/risk, OWASP, severity and loopback rules to `internal/shared`.

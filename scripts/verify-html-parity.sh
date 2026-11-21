@@ -3,14 +3,17 @@
 # verify-html-parity.sh — prove that the independent JavaScript verifier and the
 # Go verifier agree on the same evidence, case by case.
 #
-# The browser page in docs/VERIFIER.html is a second, independent implementation
-# of the vpmp/v1 verification algorithm. Agreement between two implementations
-# is the whole point of a format: it is what turns "trust our tool" into "anyone
-# can check". This script builds both verifiers, produces a real signed bundle
-# with the CLI, tamper with it in four different ways, and asserts that both
-# verifiers reach the same verdict — the same `valid` flag, the same number of
-# checks run and failed, the same bundle digest, and the same list of failing
-# check names.
+# The JavaScript verifier in web/verifier/ is a second, independent implementation
+# of the vpmp/v1 verification algorithm. This script exercises it through
+# web/verifier/verify-cli.mjs (a CLI front end over vpmp.mjs); docs/VERIFIER.html
+# is that same module inlined into a page by web/verifier/build-html.mjs
+# (make verifier-page), not a third implementation. Agreement between two
+# implementations is the whole point of a format: it is what turns "trust our
+# tool" into "anyone can check". This script builds both verifiers, produces a
+# real signed bundle with the CLI, tamper with it in four different ways, and
+# asserts that both verifiers reach the same verdict — the same `valid` flag,
+# the same number of checks run and failed, the same bundle digest, and the same
+# list of failing check names.
 #
 # It then runs four *hardening* cases: structurally hostile inputs (a worker or a
 # sidecar record hidden behind a "__proto__" key, a record padded past the 16 KiB

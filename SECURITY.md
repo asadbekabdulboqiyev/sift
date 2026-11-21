@@ -10,6 +10,10 @@ in place, findings from the security audit, and recommendations for safe use.
 > Scope: this is a point-in-time **internal** review, not a third-party
 > penetration test, a certification, or a production-readiness guarantee. No
 > `production-ready` claim is made for Sift.
+>
+> This guide was refreshed with the v0.18.1 security changes: dashboard
+> OIDC/RBAC, default CSRF and rate limiting, dial-time authorization, and
+> trust-anchor defaults. `CHANGELOG.md` (v0.18.1) has the release summary.
 
 ---
 
@@ -77,9 +81,10 @@ Verified against the codebase during the audit:
 - **Connection bounds:** `MaxConnsPerHost`, `MaxIdleConnsPerHost` clamped to
   `[256, 20 000]`; `DisableKeepAlives` configurable.
   (`internal/engine/client.go`)
-- **Redirect policy:** at most **10** hops; **cross-host redirects are rejected**
-  (`req.URL.Host != via[0].URL.Host` → `http.ErrUseLastResponse`), preventing
-  SSRF-style redirect chains to other origins.
+- **Redirect policy:** at most **10** hops; redirects that change either the
+  **host** or the **scheme** are rejected (`http.ErrUseLastResponse`), so an
+  https→http downgrade on the same host cannot send cookies and auth headers in
+  cleartext. This closes the SSRF/transport-downgrade redirect path.
   (`internal/engine/client.go`)
 - **Concurrency cap:** `users` and `spike_users` are capped at **100,000**.
   (`internal/config/scenario.go`)
@@ -106,6 +111,32 @@ Verified against the codebase during the audit:
   planned concurrency. (`cmd/sift/main.go`)
 - **Graceful shutdown:** `SIGINT`/`SIGTERM` drain in-flight requests; a second
   signal exits immediately. (`cmd/sift/main.go`)
+- **Dashboard authentication (v0.18.1):** both entry points accept bearer
+  tokens, SHA-256 API-key hashes, allowed origins, OIDC issuer/client pairs,
+  RBAC role assignments and per-IP rate limits. `sift dashboard` uses
+  `-auth-*` flags; `sift run --mode dashboard` uses `--dashboard-auth-*`.
+  RBAC is path-first and fail-closed on every authenticated request, including
+  GET, with admin/audit endpoints requiring the matching permission. OIDC and
+  RBAC are off by default.
+  (`cmd/sift-dashboard/main.go`, `cmd/sift/cmd_run_options.go`,
+  `internal/dashboard/auth.go`)
+- **CSRF and rate limiting (v0.18.1):** same-origin enforcement is on by default
+  for state-changing requests; the dashboard control API rate limit defaults to
+  **20 RPS / burst 40** per client IP when no value is supplied.
+  `--dashboard-auth-trust-proxy` (`-auth-trust-proxy` on `sift-dashboard`) is
+  needed to honor forwarded IP headers and must only be used behind a trusted
+  proxy. (`internal/dashboard/auth.go`, `internal/dashboard/security.go`)
+- **Dial-time authorization (v0.18.1):** socket-level `authz.DialControl` is
+  installed on CLI and dashboard run paths; proxy destinations are rechecked
+  via `authz.CheckDialTarget`, closing the DNS-rebinding SSRF path.
+  (`internal/authz`, `internal/engine/client.go`)
+- **Trust anchors (v0.18.1):** `sift verify` and `sift certificate` require a
+  trust anchor by default; an unpinned signer is INVALID (exit 1) unless
+  `--allow-unpinned` is given. Unsigned v1 envelope fields are rejected,
+  `CertificateID` is derived from signed fields only, `issuerTrust` is exposed
+  in the attest result, and `VerifyChain` supports multi-certificate paths.
+  (`cmd/sift/cmd_verify.go`, `cmd/sift/cmd_certificate.go`,
+  `internal/certificate`, `internal/attest`)
 
 ---
 
@@ -131,7 +162,8 @@ Findings from the review, ordered by risk.
 
 ### 4.2 Confirmed safe (no change needed)
 
-- Cross-host redirects are blocked (SSRF redirect chains covered).
+- Cross-host and cross-scheme redirects are blocked (SSRF redirect chains and
+  https→http downgrades covered; see section 3).
 - TLS >= 1.2 enforced; verification is the default policy, including the
   HTTP/3 probes. All skip-verify paths are explicit opt-ins (see section 3).
 - Filename sanitization prevents path traversal from scenario `name`.
@@ -156,10 +188,6 @@ Findings from the review, ordered by risk.
   will send traffic wherever the scenario points. There is no allowlist for the
   *initial* target (only redirects are restricted). Keep the tool confined to
   the network where the target lives.
-- **[Info] Same-host scheme downgrade.** A redirect from `https://host` to
-  `http://host` (same host) is currently allowed. The host is operator-owned,
-  but if hardening is desired later, reject redirects that change scheme from
-  HTTPS to HTTP.
 - **[Info] Proxy environment variables.** `http.Transport` honors
   `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`. Confirm your proxy configuration before
   running tests that involve sensitive data.

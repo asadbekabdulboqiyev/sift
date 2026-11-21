@@ -887,8 +887,38 @@ sift run --url https://api.example.com --users 50 --duration 60 --mode dashboard
 - After upgrading binaries, restart the dashboard process and hard refresh the browser (`Cmd+Shift+R` on macOS).
 - Common shortcuts: **Report** (`4`), **Insights** (`5`, 5th section — new features) in the dashboard UI.
 
+### Dashboard authentication
+
+Both dashboard entry points take bearer tokens, SHA-256 API-key hashes, allowed
+origins (CSRF), OIDC issuer/client pairs, RBAC role assignments and per-IP rate
+limits. The standalone `sift dashboard` binary uses `-auth-*` flags;
+`sift run --mode dashboard` uses `--dashboard-auth-*`. OIDC and RBAC are off by
+default.
+
+```bash
+# OIDC + RBAC from the run command (RBAC needs --dashboard-auth-oidc):
+sift run --url https://api.example.com --users 50 --duration 60 \
+  --mode dashboard -listen 127.0.0.1:8888 \
+  --dashboard-auth-oidc 'https://issuer.example.com:8443:client-id' \
+  --dashboard-auth-rbac 'alice@example.com:admin' \
+  --dashboard-auth-rbac-enabled
+
+# The same controls on the standalone binary:
+sift dashboard -listen 0.0.0.0:8888 \
+  -auth-oidc 'https://issuer.example.com:8443:client-id' \
+  -auth-rbac 'alice@example.com:admin' -auth-rbac-enabled \
+  -auth-origin https://team.example.com
+```
+
+The `issuer:client_id` value splits on the last colon, so an issuer URL with a
+port works. Repeat `--dashboard-auth-oidc` / `--dashboard-auth-rbac` for
+multiple entries (the last valid OIDC pair wins). Rate limiting uses
+`--dashboard-auth-rate-limit`, `--dashboard-auth-rate-burst` and
+`--dashboard-auth-trust-proxy`; the last one is only for use behind a trusted
+proxy. See `sift run --help` and `sift dashboard --help` for the full list.
+
 ### Security Notes
-- Binding beyond loopback may require explicit credentials or `--insecure` acknowledgement depending on flags/configuration.
+- Binding beyond loopback requires explicit credentials: `-auth-token` / `-auth-api-key` on `sift dashboard`, or `--dashboard-auth-token` / `--dashboard-auth-api-key` on `sift run --mode dashboard`. To acknowledge an unauthenticated non-loopback bind (demo only), pass `--insecure` to `sift dashboard` or `--dashboard-insecure` to `sift run --mode dashboard`.
 - Review `sift dashboard --help` and deployment settings before exposing the dashboard on a network.
 - Insights and control endpoints include request validation/size limits and origin/method checks where applicable; still deploy behind proper auth/network controls.
 

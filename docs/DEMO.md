@@ -15,14 +15,22 @@ trust and evidence you can verify."*
 cd /path/to/Sift
 bash -n scripts/demo-verified.sh     # syntax gate
 chmod +x scripts/demo-verified.sh    # if needed
-NO_COLOR=1 ./scripts/demo-verified.sh   # dry run: must exit 0
+NO_COLOR=1 ./scripts/demo-verified.sh   # plain output; LIVE mode needs a live target (see below)
 ```
 
-You should see `RESULT` with `intact → PASS`, `one byte changed → FAIL`,
-`byte restored → PASS`.
+With a reachable target you should see `RESULT` with `intact → PASS`,
+`one byte changed → FAIL`, `byte restored → PASS`.
 
-**What the script needs:** `bash`, `perl`, and `python3` (3.8+). No network, no
-credentials, no target server required. Runtime ≈ 2 seconds.
+**What the script needs:** `bash` and `perl`, plus `curl` for the LIVE-mode
+reachability preflight and a **reachable target** in LIVE mode (the default
+whenever a usable Sift binary is found or built). Set `DEMO_URL` to an endpoint
+that answers (default `http://127.0.0.1:8090/health`); if nothing answers, the
+preflight prints `FAIL no target reachable` and exits `3` before any evidence is
+generated. Start one first, e.g. `go run ./examples/demo_server.go 127.0.0.1:8090 &`,
+then pass
+`DEMO_URL=http://127.0.0.1:8090/health`. No credentials are needed. `python3`
+(3.8+) is required only in REFERENCE mode, which needs no target and sends no
+traffic. Runtime ≈ 2 seconds once the target is up.
 
 > **Read this before you speak.** The demo script auto-detects the binary capability:
 > - **LIVE** (default on v0.18.1+): runs real traffic, seals a bundle with the real
@@ -68,8 +76,10 @@ self-narrating and takes 2 seconds.
 
 # The three-command product surface it drives (the frozen contract):
 Sift keygen --out /tmp/veribench.key
-Sift run    --url http://127.0.0.1:8090/ --duration 10s \
-                     --emit-bundle /tmp/veribench-bundle.json
+Sift run    --url http://127.0.0.1:8090/health --duration 10 \
+                     --rps 300 --users 30 --allow-private \
+                     --emit-bundle /tmp/veribench-bundle.json \
+                     --bundle-key /tmp/veribench.key
 Sift verify --bundle  /tmp/veribench-bundle.json \
                      --samples /tmp/veribench-bundle.samples.jsonl
 ```
@@ -107,7 +117,7 @@ key_id (public fingerprint): 63989b7e96cf7e9e…
 authorization: ok (class=loopback)
 WARNING: Sift is a load testing tool. Only run it against systems you own or
 have explicit written permission to test. Unauthorized load floods are illegal (DDoS).
-Sift v0.18.1 | target: http://127.0.0.1:8090/health | profile: steady | duration: 10s
+Sift vdev | target: http://127.0.0.1:8090/health | profile: steady | duration: 10s
 
 Verifiable evidence written:
   …/veribench-bundle.json
@@ -158,6 +168,12 @@ RESULT
 ```
 
 The `…` elisions above are the transcript's own convention: paths, the worker hostname, and — since `keygen` mints a fresh keypair on every run — the public key, its fingerprint and the coordinator key, which are the same 32 bytes printed three ways. Nothing secret is elided: the private key is written mode 0600, never leaves the host, and never appears in a transcript.
+
+The `Sift v…` line prints the version baked into the binary. The plain
+`go build` that the script itself performs leaves it at `Sift vdev`, as shown
+above; release artifacts set it with `-ldflags "-X github.com/asadbekabdulboqiyev/sift/internal/version.Version=0.18.1"`,
+which is why they print `Sift v0.18.1`. `sift --version` additionally appends
+`[unofficial build]` while the version is `dev`.
 
 On a build without Go available, `── 1/5 Mode ──` reads:
 
