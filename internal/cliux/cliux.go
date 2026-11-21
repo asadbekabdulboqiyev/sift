@@ -143,9 +143,8 @@ func parseInvalidValue(msg string) (name, val string) {
 	rest = strings.TrimSpace(rest)
 	if idx := strings.Index(rest, `"`); idx >= 0 {
 		rest = rest[idx+1:]
-		if end := strings.Index(rest, `"`); end >= 0 {
-			val = rest[:end]
-			rest = rest[end+1:]
+		if v, after, found := strings.Cut(rest, `"`); found {
+			val, rest = v, after
 		}
 	}
 	if i := strings.Index(rest, "for flag -"); i >= 0 {

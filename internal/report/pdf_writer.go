@@ -164,7 +164,6 @@ func pdfWrap(s string, f pdfFont, size, maxW float64) []string {
 			}
 			if cur != "" {
 				lines = append(lines, cur)
-				cur = ""
 			}
 			for pdfTextWidth(w, f, size) > maxW && len(w) > 1 {
 				lo, hi := 1, len(w)
@@ -510,7 +509,7 @@ func GeneratePDF(report *PentestReport) []byte {
 		d.finding(i+1, &r.Findings[i])
 	}
 
-	if r.OWASPCompliance != nil && len(r.OWASPCompliance) > 0 {
+	if len(r.OWASPCompliance) > 0 {
 		d.heading("OWASP Top 10 (2021) Compliance Matrix")
 		for _, cat := range owaspOrder() {
 			status, scolor := "PASS", pdfColOKGreen
@@ -531,7 +530,7 @@ func GeneratePDF(report *PentestReport) []byte {
 		}
 	}
 
-	if r.Compliance != nil && len(r.Compliance) > 0 {
+	if len(r.Compliance) > 0 {
 		pdfCompliance(d, r.Compliance)
 	}
 

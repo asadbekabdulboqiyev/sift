@@ -11,6 +11,8 @@ import (
 )
 
 // WAFSignature describes a WAF detection signature.
+//
+//nolint:revive // reason: renaming exported identifier would break the public API
 type WAFSignature struct {
 	Name        string
 	Vendor      string

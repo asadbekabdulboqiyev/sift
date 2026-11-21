@@ -36,12 +36,6 @@ func runCLIInProcess(t *testing.T, args ...string) cliRunResult {
 	return driveCommand(t, "", main, args...)
 }
 
-// runCLIInProcessStdin is runCLIInProcess with stdin fed from a string.
-func runCLIInProcessStdin(t *testing.T, stdin string, args ...string) cliRunResult {
-	t.Helper()
-	return driveCommand(t, stdin, main, args...)
-}
-
 // runCommandFn drives one command function directly, bypassing main()'s
 // dispatch. argv is what the command sees in os.Args (index 2 onward are its
 // flags).

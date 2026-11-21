@@ -191,10 +191,7 @@ func percentileOf(sorted []int64, ppm int) int64 {
 // travel together — the bundle alone proves what was committed to, the sidecar
 // proves what was committed.
 func SidecarPath(bundlePath string) string {
-	base := bundlePath
-	if strings.HasSuffix(base, ".json") {
-		base = strings.TrimSuffix(base, ".json")
-	}
+	base := strings.TrimSuffix(bundlePath, ".json")
 	return base + ".samples.jsonl"
 }
 

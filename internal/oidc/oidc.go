@@ -576,10 +576,21 @@ func (k jwkKey) publicKey() (crypto.PublicKey, error) {
 		if err != nil {
 			return nil, fmt.Errorf("oidc: jwk EC y: %w", err)
 		}
-		if !elliptic.P256().IsOnCurve(x, y) {
+		// ParseUncompressedPublicKey performs the on-curve and coordinate-range
+		// checks of the old IsOnCurve call and returns a fully parsed key, so no
+		// deprecated low-level curve or raw-coordinate API is needed.
+		if x.BitLen() > 256 || y.BitLen() > 256 {
 			return nil, errors.New("oidc: jwk EC point is not on P-256")
 		}
-		return &ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}, nil
+		point := make([]byte, 65)
+		point[0] = 0x04
+		x.FillBytes(point[1:33])
+		y.FillBytes(point[33:65])
+		pub, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), point)
+		if err != nil {
+			return nil, errors.New("oidc: jwk EC point is not on P-256")
+		}
+		return pub, nil
 	default:
 		return nil, fmt.Errorf("oidc: unsupported jwk key type %q", k.Kty)
 	}

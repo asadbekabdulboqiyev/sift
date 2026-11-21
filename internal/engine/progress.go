@@ -185,11 +185,6 @@ func (pt *ProgressTracker) render() {
 		errPct = float64(errs) / float64(reqs) * 100
 	}
 
-	remaining := pt.duration - elapsed
-	if remaining < 0 {
-		remaining = 0
-	}
-
 	c := pt.isTerminal
 
 	if !pt.first {

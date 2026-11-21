@@ -21,7 +21,7 @@ import (
 )
 
 // ReplayWorker replays a single captured packet stream at configured rate
-type ReplayWorker struct {
+type ReplayWorker struct { //nolint:revive // reason: renaming exported identifier would break the public API
 	id        int
 	config    *ReplayConfig
 	capture   *Capture
@@ -320,7 +320,7 @@ func (rw *ReplayWorker) GetErrors() []error {
 // --- Replay Engine ----------------------------------------------------------
 
 // ReplayEngine orchestrates multiple workers
-type ReplayEngine struct {
+type ReplayEngine struct { //nolint:revive // reason: renaming exported identifier would break the public API
 	config     *ReplayConfig
 	capture    *Capture
 	numWorkers int

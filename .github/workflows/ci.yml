@@ -14,9 +14,6 @@ concurrency:
 
 permissions:
   contents: read
-  # Read access to PRs is required by golangci-lint-action's only-new-issues
-  # option (it fetches the change diff from the GitHub API).
-  pull-requests: read
 
 env:
   # Go is patch-pinned in ONE place: the `go 1.26.11` directive in go.mod, which
@@ -63,11 +60,9 @@ jobs:
         uses: golangci/golangci-lint-action@v7
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
+          # Full-repo lint: the lint debt reached 0 in Phase 3, so every finding
+          # now fails CI (no `only-new-issues` ratchet). See docs/LINT-DEBT-TRIAGE.md.
           args: --timeout=10m
-          # Ratchet: only fail on issues introduced by the change under test, so
-          # the job is green while the repo's pre-existing lint debt is paid down
-          # incrementally. Drop this line once `golangci-lint run ./...` is clean.
-          only-new-issues: true
 
   # ── shellcheck: lint all shell scripts ──────────────────────────────────────
   shellcheck:

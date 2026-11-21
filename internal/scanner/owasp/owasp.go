@@ -48,6 +48,8 @@ func TLSVerifyEnabled() bool {
 }
 
 // OWASPChecker performs automated OWASP Top 10 checks
+//
+//nolint:revive // reason: renaming exported identifier would break the public API
 type OWASPChecker struct {
 	Target    string
 	Client    *http.Client
@@ -111,6 +113,8 @@ func (c *OWASPChecker) noteProbe() {
 }
 
 // OWASPReport contains results for all 10 categories
+//
+//nolint:revive // reason: renaming exported identifier would break the public API
 type OWASPReport struct {
 	Categories map[string]*OWASPCategory
 	Score      int    // 0-100 (100 = fully compliant)
@@ -122,6 +126,8 @@ type OWASPReport struct {
 }
 
 // OWASPCategory represents one OWASP category
+//
+//nolint:revive // reason: renaming exported identifier would break the public API
 type OWASPCategory struct {
 	ID          string
 	Name        string
@@ -282,11 +288,12 @@ func (c *OWASPChecker) addFinding(cat *OWASPCategory, finding, remediation, seve
 		cat.Score = 0
 	}
 
-	if cat.Score <= 30 {
+	switch {
+	case cat.Score <= 30:
 		cat.Status = "FAIL"
-	} else if cat.Score <= 70 {
+	case cat.Score <= 70:
 		cat.Status = "WARNING"
-	} else {
+	default:
 		cat.Status = "PASS"
 	}
 }
@@ -324,11 +331,9 @@ func (c *OWASPChecker) makeRequestURL(method, baseURL, path string, headers http
 	}
 
 	req.Header.Set("User-Agent", "Sift-owasp/1.0")
-	if headers != nil {
-		for k, vs := range headers {
-			for _, v := range vs {
-				req.Header.Set(k, v)
-			}
+	for k, vs := range headers {
+		for _, v := range vs {
+			req.Header.Set(k, v)
 		}
 	}
 

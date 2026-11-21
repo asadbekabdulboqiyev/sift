@@ -41,6 +41,8 @@ var Default = DefaultOptions()
 // TLSVerifyEnabled reports the process-wide default. It is deliberately a pure
 // read of Default: an explicit per-call opt-out is recorded on that scan's
 // result, never here, so it cannot leak into an unrelated scan or report.
+//
+//nolint:revive // reason: renaming exported identifier would break the public API
 func TLSVerifyEnabled() bool {
 	return Default.TLSVerify
 }
@@ -82,9 +84,6 @@ var KnownCiphers = map[uint16]core.CipherInfo{
 var InsecurePatterns = []string{
 	"RC4", "DES", "3DES", "MD5", "NULL", "EXPORT", "anon",
 }
-
-// Secure TLS versions.
-var secureVersions = []string{"TLS 1.3", "TLS 1.2"}
 
 // ScanTLS performs a full TLS scan on the target host:port using Default.
 func ScanTLS(host string, port int) (*core.TLSInfo, error) {

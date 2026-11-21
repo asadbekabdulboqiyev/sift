@@ -81,7 +81,7 @@ type Response struct {
 }
 
 // ReplayPacing selects how a replay spaces captured requests over time.
-type ReplayPacing string
+type ReplayPacing string //nolint:revive // reason: renaming exported identifier would break the public API
 
 const (
 	// PacingTiming replays packets at their captured inter-request gaps,
@@ -94,7 +94,7 @@ const (
 )
 
 // ReplayConfig controls rate, concurrency, filtering, and validation for a replay run.
-type ReplayConfig struct {
+type ReplayConfig struct { //nolint:revive // reason: renaming exported identifier would break the public API
 	RateMultiplier   float64
 	MaxConcurrency   int
 	Duration         time.Duration
@@ -129,7 +129,7 @@ type Assertion struct {
 }
 
 // ReplayResult aggregates counters and latency percentiles for a completed replay run.
-type ReplayResult struct {
+type ReplayResult struct { //nolint:revive // reason: renaming exported identifier would break the public API
 	Capture      *Capture        `json:"-"`
 	Config       *ReplayConfig   `json:"-"`
 	StartTime    time.Time       `json:"start_time"`

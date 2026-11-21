@@ -21,14 +21,14 @@ func postJSON(t *testing.T, h http.HandlerFunc, path, body string) *httptest.Res
 func TestDirBustScanRefusedNotesAreExplained(t *testing.T) {
 	s := owaspTestServer(t)
 
-	rec := postJSON(t, s.handleDirBust, "/api/dirbust", `{
+	postJSON(t, s.handleDirBust, "/api/dirbust", `{
 		"target":"http://127.0.0.1:9/",
 		"paths":["/admin"]
 	}`)
 	// Out-of-scope is not the case here (default scope is target host), but a
 	// port that refuses connections still produces a scan result; to force gate
 	// refusals we use an allowlist that excludes the target host.
-	rec = postJSON(t, s.handleDirBust, "/api/dirbust", `{
+	rec := postJSON(t, s.handleDirBust, "/api/dirbust", `{
 		"target":"http://127.0.0.1:9/",
 		"paths":["/admin"]
 	}`)

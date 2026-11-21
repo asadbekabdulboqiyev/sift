@@ -18,8 +18,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
 	"github.com/gorilla/websocket"
+
+	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
 )
 
 // WebSocketResult is the output of a WebSocket security test.

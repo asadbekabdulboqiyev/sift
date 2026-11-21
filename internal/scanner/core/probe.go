@@ -47,11 +47,9 @@ func SendProbeWithControl(target, method, path string, headers http.Header, cont
 		return nil, err
 	}
 
-	if headers != nil {
-		for k, vs := range headers {
-			for _, v := range vs {
-				req.Header.Set(k, v)
-			}
+	for k, vs := range headers {
+		for _, v := range vs {
+			req.Header.Set(k, v)
 		}
 	}
 	ApplyHeaders(req, DefaultFingerprint)

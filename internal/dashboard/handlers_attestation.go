@@ -128,11 +128,12 @@ func (s *Server) handleAttestationDownload(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	var path string
-	if typ == "bundle" {
+	switch typ {
+	case "bundle":
 		path = info.BundlePath
-	} else if typ == "samples" {
+	case "samples":
 		path = info.SamplesPath
-	} else {
+	default:
 		http.Error(w, "type must be bundle|samples", http.StatusBadRequest)
 		return
 	}

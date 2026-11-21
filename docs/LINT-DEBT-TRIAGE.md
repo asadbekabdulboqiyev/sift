@@ -85,16 +85,20 @@ golangci-lint run ./... \
 **Total: 589 / 738 = 79.8%** of issues will be eliminated; 149 remain (20.2%).
 Recommended execution order: QF1012 → revive comment → errcheck (the largest, but touches the most files).
 
-## 6. Why the `only-new-issues` ratchet should not be removed yet
+## 6. Why the `only-new-issues` ratchet was kept during cleanup (resolved in §9)
 
 1. The 738 existing findings are spread across 138 files; without the ratchet, **every** PR would be red in the lint job,
    and the CI signal is lost because of debt unrelated to the change.
-2. The ratchet surfaces **all** new issues (CI uses `only-new-issues: true`), so regressions are not hidden —
+2. The ratchet surfaces **all** new issues (CI used `only-new-issues: true`), so regressions are not hidden —
    only old debt does not block.
 3. The 755 → 738 dynamic recorded in the `.golangci.yml` comment shows that the debt is decreasing, but still far from 0;
    even if Phase 1 alone covers 79.8%, 149 remain.
 4. Removal criteria: `golangci-lint run ./...` yields **0 issues** (or explicit, documented suppressions for all debt
    rules) and several consecutive CI runs pass green.
+
+**Resolution:** the criteria in item 4 were met at the end of Phase 3 (§9). The ratchet and its
+`pull-requests: read` permission were removed from `.github/workflows/ci.yml`; CI now lints the whole
+repository on every run.
 
 ## 7. Phase 1 completed (2026-11-21)
 
@@ -142,10 +146,67 @@ Verification: `gofmt`, `go vet ./...`, `go build ./...`, `go test`, `go test -ra
 Remaining: **145** issues (gocritic 31, staticcheck 44, unused 28, revive 19, goimports 8,
 ineffassign 6, gosec 5, unconvert 4). **Ratchet not removed yet:** the §6 criteria are not met.
 
+## 9. Phase 3 completed (2026-11-21): lint debt to zero
+
+4 parallel agents worked across 91 files. Result: **145 → 0** issues. Every remaining finding from §8 was
+resolved; `golangci-lint run ./...` now reports **0 issues**.
+
+| Agent scope | Files | Findings fixed |
+|---|---:|---:|
+| `cmd/*` + `examples/*` | 19 | 25 |
+| `internal/scanner/*` + `hostxray` + `fingerprint` + `honesty` | 25 | 45 |
+| `dashboard` + `report` + `replay` + `evidence` + `cliux` + `shared` + `store` | 22 | 34 |
+| `engine` + `twin` + `oidc` + `certificate` + `attest` + `audit360` + `bounty` + `config` + `dist` | 25 | 41 |
+| **Total** | **91** | **145** |
+
+Breakdown of the cleared backlog: staticcheck 44, gocritic 31, unused 28, revive 19, goimports 8,
+ineffassign 6, gosec 5, unconvert 4.
+
+Real fixes (not suppressions):
+- **Real bug — `exitAfterDefer`** in `cmd/sift-scan/main.go`: `enforceScanAuthz` called `os.Exit` while a
+  deferred `context.WithTimeout` cancel was pending, so the cancel never ran. The function now returns
+  `(class, allowed, error)`; `main` owns all exits, so the deferred cancel runs on success, denial and error
+  paths. Exit codes and user-facing messages are unchanged.
+- **SA4000** in `owasp/owasp_test.go`: a mock login check tested `"admin"` twice; it now checks distinct
+  `"username":"admin"` and `"password":"admin"` JSON fields.
+- **SA1019 (crypto/elliptic)** in `oidc/oidc.go`: raw `IsOnCurve` / `PublicKey.X,Y` JWK validation was migrated to
+  `ecdsa.ParseUncompressedPublicKey(elliptic.P256, point)` with explicit 256-bit coordinate guards. The test
+  JWK helper now derives points from `pub.Bytes()` instead of deprecated raw coordinates. Security checks and
+  error text are unchanged; no suppression was used.
+- **SA6002 (sync.Pool)** in `engine/buffer_pool.go`: tiers now store `*[]byte` so `Put` needs no boxing
+  allocation; `ReusableBuffer` gained a `slot` header and `Get` delegates to `GetMinSize`. Both sides of each
+  pool were changed together; confirmed by the full race suite.
+- **G301** in `attest/trust.go`: trust-store directory mode hardened from `0o755` to `0o750`.
+- **SA9003 / ineffassign / unconvert / goimports / mechanical gocritic and staticcheck fixes** were applied
+  where behavior was provably unchanged (no-op branches removed, redundant conversions and assignments dropped,
+  `if`-`else` chains rewritten as `switch`, imports regrouped).
+
+Justified suppressions (all inline, with reasons; no exported name was renamed):
+- **revive stutter (19)**: exported identifiers kept to avoid breaking the public API.
+- **gosec G602 (2)**: index accesses in `hostxray/report.go` and `certificate/certificate.go` are guarded by
+  preceding bounds checks — false positives.
+- **gosec G304 (2)**: `dashboard/static.go` dev-only asset reads behind `SIFT_DASHBOARD_DEV_ASSETS=1` with
+  hardcoded filenames — false positives.
+- **staticcheck SA1019 (1)**: `engine/enhanced_clients_test.go` keeps a deliberate no-op referencing
+  `x/net/http2` to link the package; replacing it would drop that link.
+- **unused (several)**: helpers used only by `//go:build integration` tests are invisible to the default lint
+  build; deleting them would break the integration suite. `dirSyncNone` is the iota zero value used by `options{}`;
+  deleting it would renumber durability modes and change the default.
+
+Verification (all PASS): `gofmt -l`, `go vet ./...`, `go build ./...`, `go test -count=1 ./...`,
+`go test -race -count=1 ./...`, integration compile plus `go test -race -tags=integration ./...`,
+`golangci-lint run ./...` (0 issues), `gitleaks` (no leaks), `actionlint`, `git diff --check`, and the English-only /
+absent-term scans (both clean).
+
+**Ratchet removed:** with the backlog at 0, `only-new-issues: true` and its `pull-requests: read` permission were
+deleted from `.github/workflows/ci.yml`; CI now fails on any lint finding in any file. Related comments in
+`.golangci.yml` were updated to describe the full-repo lint policy.
+
 ## Limitations
 
-- This report was created on 2026-11-20; §7 adds Phase 1 and §8 adds Phase 2 results dated 2026-11-21.
-  `.golangci.yml` and the CI files were not changed; they retain the `only-new-issues: true` ratchet.
+- This report was created on 2026-11-20; §7 adds Phase 1, §8 adds Phase 2 and §9 adds Phase 3 results dated
+  2026-11-21. The `only-new-issues: true` ratchet was removed from CI in Phase 3 (§9); `.golangci.yml` comments
+  were updated accordingly.
 - The count was taken with `.golangci.yml` exclusions in place: errcheck/gosec/gocritic in tests are excluded
   (the comment records that removing the exclusions was measured at **+295** additional findings — this number
   is not included in the present measurement); `.pb.go` and two scanner files are also excluded. Full gosec runs only

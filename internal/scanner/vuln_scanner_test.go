@@ -73,7 +73,7 @@ func mockHandler(w http.ResponseWriter, r *http.Request) {
 			val = query.Get("next")
 		}
 		if strings.Contains(val, "evil.com") {
-			http.Redirect(w, r, val, 302)
+			http.Redirect(w, r, val, http.StatusFound)
 			return
 		}
 	}

@@ -230,11 +230,17 @@ Examples:
 	// ── authorization gate (OpScan): before ANY network work ────────────────
 	// The TLS/HTTP/WAF/security phases dial the target directly, so the gate
 	// must run first, exactly like the main binary.
-	approvedClass := enforceScanAuthz(baseURL, scanGateOptions{
+	approvedClass, authzAllowed, authzErr := enforceScanAuthz(baseURL, scanGateOptions{
 		policyPath: *policyPath,
 		auditPath:  *auditLog,
 		authorized: *authorized,
 	})
+	if authzErr != nil {
+		fatal(authzErr)
+	}
+	if !authzAllowed {
+		os.Exit(authzDeniedExitCode)
+	}
 
 	fmt.Println("╔═══════════════════════════════════════════════════════════════╗")
 	fmt.Println("║  Sift scan — Deep Security Scanner                  ║")
@@ -1116,22 +1122,25 @@ type scanGateOptions struct {
 }
 
 // enforceScanAuthz classifies the target, applies the policy, records an audit
-// record when --audit-log is set, and either returns or terminates with the
-// denial exit code. A denial is an outcome, not an error.
-// enforceScanAuthz returns the class the policy approved, so the dialer can
-// re-apply the decision to the address actually connected to.
-func enforceScanAuthz(targetURL string, opts scanGateOptions) authz.Class {
+// record when --audit-log is set, and returns the decision to the caller. A
+// denial is an outcome (allowed=false), not an error. It returns the class the
+// policy approved, so the dialer can re-apply the decision to the address
+// actually connected to.
+//
+// Exiting is deliberately left to main: any os.Exit inside this function would
+// skip the deferred cancel() below and leak the classification context.
+func enforceScanAuthz(targetURL string, opts scanGateOptions) (authz.Class, bool, error) {
 	policyPath := strings.TrimSpace(opts.policyPath)
 	if policyPath == "" {
 		policyPath = defaultPolicyPath()
 	}
 	pol, err := authz.LoadPolicyOrDefault(policyPath)
 	if err != nil {
-		fatal(err)
+		return authz.ClassPublic, false, err
 	}
 	if env := os.Getenv("SIFT_ALLOW"); env != "" {
 		if err := pol.AddEnvRules(env); err != nil {
-			fatal(err)
+			return authz.ClassPublic, false, err
 		}
 	}
 
@@ -1140,7 +1149,7 @@ func enforceScanAuthz(targetURL string, opts scanGateOptions) authz.Class {
 
 	tgt, err := authz.Classify(ctx, targetURL, nil)
 	if err != nil {
-		fatal(err)
+		return authz.ClassPublic, false, err
 	}
 
 	now := time.Now()
@@ -1183,7 +1192,7 @@ func enforceScanAuthz(targetURL string, opts scanGateOptions) authz.Class {
 		} else {
 			fmt.Fprintf(os.Stderr, "authorization: ok (class=%s)\n", tgt.Class().String())
 		}
-		return tgt.Class()
+		return tgt.Class(), true, nil
 	}
 
 	fmt.Fprintf(os.Stderr, "\nBLOCKED by authorization policy\n")
@@ -1192,9 +1201,7 @@ func enforceScanAuthz(targetURL string, opts scanGateOptions) authz.Class {
 	fmt.Fprintln(os.Stderr, "To authorize a test, have the approver add an entry:")
 	fmt.Fprintln(os.Stderr, "  Sift authorize add --pattern <host-or-ip> --approver <name> --ticket <id>")
 	fmt.Fprintln(os.Stderr, "then re-run with --authorized <id>.")
-	cancel()
-	os.Exit(authzDeniedExitCode)
-	return authz.ClassPublic
+	return authz.ClassPublic, false, nil
 }
 
 // recordScanAuthz appends one decision to the audit log, warning (never

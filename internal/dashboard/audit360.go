@@ -87,11 +87,12 @@ func (s *Server) handleAudit360Start(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		msg := err.Error()
 		code := http.StatusForbidden
-		if strings.Contains(msg, "mode must be") {
+		switch {
+		case strings.Contains(msg, "mode must be"):
 			code = http.StatusBadRequest
-		} else if strings.Contains(msg, "target_url") && (strings.Contains(msg, "required") || strings.Contains(msg, "valid") || strings.Contains(msg, "credentials")) {
+		case strings.Contains(msg, "target_url") && (strings.Contains(msg, "required") || strings.Contains(msg, "valid") || strings.Contains(msg, "credentials")):
 			code = http.StatusBadRequest
-		} else if strings.Contains(msg, "admin mode is not permitted") || strings.Contains(msg, "authorized confirmation") {
+		case strings.Contains(msg, "admin mode is not permitted") || strings.Contains(msg, "authorized confirmation"):
 			code = http.StatusForbidden
 		}
 		writeAudit360JSON(w, code, audit360.StartResponse{OK: false, Error: msg})

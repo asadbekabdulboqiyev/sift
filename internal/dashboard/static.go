@@ -86,7 +86,7 @@ func dashboardDevAssetsEnabled() bool {
 func loadDashboardAsset(name string, fallback []byte) []byte {
 	if dashboardDevAssetsEnabled() {
 		for _, p := range dashboardAssetCandidates(name) {
-			b, err := os.ReadFile(p)
+			b, err := os.ReadFile(p) //nolint:gosec // G304: dev-only asset path with hardcoded filename
 			if err == nil && len(b) > 0 {
 				return b
 			}
@@ -118,7 +118,7 @@ func loadDashboardJS() []byte {
 		var buf bytes.Buffer
 		ok := true
 		for _, p := range paths {
-			part, err := os.ReadFile(p)
+			part, err := os.ReadFile(p) //nolint:gosec // G304: dev-only asset path from a fixed *.js glob
 			if err != nil {
 				ok = false
 				break

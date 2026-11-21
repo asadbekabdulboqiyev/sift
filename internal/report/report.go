@@ -432,13 +432,6 @@ func msDuration(ms float64) time.Duration {
 	return time.Duration(ms * float64(time.Millisecond)).Round(time.Millisecond)
 }
 
-// timeMillis renders a millisecond count compactly for comparison tables.
-func timeMillis(ms int64) string {
-	d := time.Duration(ms) * time.Millisecond
-	s := d.String()
-	return s
-}
-
 func uniquePath(dir, filename string) string {
 	path := filepath.Join(dir, filename)
 	for i := 1; ; i++ {

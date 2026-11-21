@@ -379,7 +379,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxyge
 	b.WriteString(`</div>`)
 
 	// ── OWASP Compliance Matrix ──
-	if report.OWASPCompliance != nil && len(report.OWASPCompliance) > 0 {
+	if len(report.OWASPCompliance) > 0 {
 		b.WriteString(`<div class="section" id="owasp-compliance"><h2>OWASP Top 10 (2021) Compliance Matrix</h2>`)
 		b.WriteString(`<table class="owasp-table"><thead><tr><th>Category</th><th>Status</th></tr></thead><tbody>`)
 		for _, cat := range owaspOrder() {
@@ -395,7 +395,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxyge
 	}
 
 	// ── Compliance Impact ──
-	if report.Compliance != nil && len(report.Compliance) > 0 {
+	if len(report.Compliance) > 0 {
 		complianceHTML(&b, report.Compliance)
 	}
 
@@ -515,7 +515,7 @@ func GenerateMarkdown(report *PentestReport) []byte {
 	b.WriteString("4. [Findings Summary](#findings-summary)\n")
 	b.WriteString("5. [Detailed Findings](#detailed-findings)\n")
 	tocN := 6
-	if report.OWASPCompliance != nil && len(report.OWASPCompliance) > 0 {
+	if len(report.OWASPCompliance) > 0 {
 		fmt.Fprintf(&b, "%d. [OWASP Compliance Matrix](#owasp-compliance)\n", tocN)
 		tocN++
 	}
@@ -629,7 +629,7 @@ func GenerateMarkdown(report *PentestReport) []byte {
 		b.WriteString("---\n\n")
 	}
 
-	if report.OWASPCompliance != nil && len(report.OWASPCompliance) > 0 {
+	if len(report.OWASPCompliance) > 0 {
 		b.WriteString("## OWASP Top 10 (2021) Compliance Matrix\n\n")
 		b.WriteString("| Category | Status |\n")
 		b.WriteString("|----------|--------|\n")
@@ -643,7 +643,7 @@ func GenerateMarkdown(report *PentestReport) []byte {
 		b.WriteString("\n")
 	}
 
-	if report.Compliance != nil && len(report.Compliance) > 0 {
+	if len(report.Compliance) > 0 {
 		complianceMarkdown(&b, report.Compliance)
 	}
 

@@ -732,7 +732,7 @@ func TestFlexibleTimeUnmarshalJSON(t *testing.T) {
 			if err != nil {
 				t.Fatalf("UnmarshalJSON(%s): %v", tc.input, err)
 			}
-			if !got.Time.Equal(tc.want) {
+			if !got.Equal(tc.want) {
 				t.Errorf("time = %v, want %v", got.Time, tc.want)
 			}
 		})

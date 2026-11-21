@@ -610,7 +610,7 @@ func (v *Verifier) verifyDeterministic(requestURL string, vuln Vulnerability) Ve
 
 	// 6. Generic fallback: reachable endpoint keeps its grade, otherwise drop.
 	if page.status == http.StatusOK {
-		return Verdict{Confidence: ConfConfirmed, Evidence: fmt.Sprintf("deterministic re-check: endpoint still answers HTTP 200 (finding is configuration-observable)")}
+		return Verdict{Confidence: ConfConfirmed, Evidence: "deterministic re-check: endpoint still answers HTTP 200 (finding is configuration-observable)"}
 	}
 	return Verdict{
 		Confidence: ConfPossible,
@@ -672,7 +672,7 @@ func gradeCookieClaim(page *verifyPage, vuln Vulnerability) Verdict {
 			return Verdict{Confidence: ConfConfirmed, Evidence: fmt.Sprintf("re-check: cookie '%s' still ships SameSite=None", name)}
 		}
 	case strings.Contains(title, "Long Expiry"):
-		if !cookie.Expires.IsZero() && cookie.Expires.Sub(time.Now()) > 24*time.Hour {
+		if !cookie.Expires.IsZero() && time.Until(cookie.Expires) > 24*time.Hour {
 			return Verdict{Confidence: ConfConfirmed, Evidence: fmt.Sprintf("re-check: cookie '%s' still expires at %s (>24h)", name, cookie.Expires.Format(time.RFC3339))}
 		}
 	default:

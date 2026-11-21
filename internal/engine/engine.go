@@ -590,12 +590,6 @@ func (e *Engine) runIteration(reqBase context.Context, userIndex int, coExtra ti
 	}
 }
 
-// runStep dispatches one step to the matching protocol client. It is kept for
-// library compatibility and runs without per-user session pooling.
-func (e *Engine) runStep(ctx context.Context, step config.Step, vars map[string]string) stepResult {
-	return e.runStepForUser(ctx, step, vars, -1)
-}
-
 func (e *Engine) runStepForUser(ctx context.Context, step config.Step, vars map[string]string, userIndex int) stepResult {
 	fullURL := step.URL
 	if step.Type == "http" && e.scenario.BaseURL != "" {
@@ -640,10 +634,6 @@ func (e *Engine) runStepForUser(ctx context.Context, step config.Step, vars map[
 		})
 	}
 	return res
-}
-
-func (e *Engine) httpClient(ctx context.Context, fullURL string, step config.Step, vars map[string]string, timeout time.Duration) (stepResult, []byte) {
-	return e.httpClientForUser(-1, ctx, fullURL, step, vars, timeout)
 }
 
 // newCookieJar builds a fresh per-user cookie jar. cookiejar.New is cheap

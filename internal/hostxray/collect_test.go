@@ -343,11 +343,13 @@ func TestAgentStreamNilGuards(t *testing.T) {
 		t.Errorf("nil callback error = %v, want 'nil sample callback'", err)
 	}
 
-	// A nil context is treated as context.Background().
+	// A nil context is treated as context.Background(). Use a typed zero-value
+	// variable to exercise that path without passing a nil literal.
+	var nilCtx context.Context
 	fake := &scriptedCollector{samples: []Sample{{Source: "prime"}, {Source: "emitted"}}}
 	agent = &Agent{opts: Options{Interval: MinInterval, MaxSamples: 1}, collector: fake}
 	emitted := 0
-	if err := agent.Stream(nil, func(Sample) error { emitted++; return nil }); err != nil {
+	if err := agent.Stream(nilCtx, func(Sample) error { emitted++; return nil }); err != nil {
 		t.Fatalf("Stream with nil context: %v", err)
 	}
 	if emitted != 1 {

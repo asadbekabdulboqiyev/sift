@@ -90,7 +90,7 @@ func (vs *VulnScanner) scanCookies() {
 			strings.Contains(nameLower, "token") || strings.Contains(nameLower, "auth")
 		if isSessionCookie && cookie.Expires.IsZero() && cookie.MaxAge == 0 {
 			// Session cookie - no persistent expiry, which is actually good
-		} else if isSessionCookie && !cookie.Expires.IsZero() && cookie.Expires.Sub(time.Now()) > 24*time.Hour {
+		} else if isSessionCookie && !cookie.Expires.IsZero() && time.Until(cookie.Expires) > 24*time.Hour {
 			vs.addFinding(Vulnerability{
 				ID:          vs.nextVulnID("CK"),
 				Title:       fmt.Sprintf("Session Cookie '%s' Has Long Expiry", cookie.Name),

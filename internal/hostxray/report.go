@@ -412,7 +412,7 @@ func netFaultDelta(samples []Sample, i int) (uint64, bool) {
 	if !ok {
 		return 0, false
 	}
-	prev, prevOK := netFaults(samples[i-1].Net)
+	prev, prevOK := netFaults(samples[i-1].Net) //nolint:gosec // G602: index guarded by preceding bounds check
 	if !prevOK || cur < prev {
 		return 0, false
 	}

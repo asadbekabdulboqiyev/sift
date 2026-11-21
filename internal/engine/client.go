@@ -39,12 +39,6 @@ var checkRedirect = func(req *http.Request, via []*http.Request) error {
 	return nil
 }
 
-// baseTransport is the compatibility wrapper for callers that do not install a
-// dial-time authorization hook (tests and direct library use).
-func baseTransport(keepAlive bool, tlsFP fingerprint.Profile) *http.Transport {
-	return baseTransportWithControl(keepAlive, tlsFP, nil)
-}
-
 // baseTransportWithControl shares the common transport configuration. When
 // tlsFP names a fingerprint, outgoing connections present that ClientHello
 // instead of Go's default one, so the engine can mimic a real browser or

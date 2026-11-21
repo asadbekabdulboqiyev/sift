@@ -730,11 +730,3 @@ func displayTime(s string) string {
 	}
 	return s
 }
-
-func displayOrDash(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return "-"
-	}
-	return s
-}

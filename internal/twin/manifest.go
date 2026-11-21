@@ -371,13 +371,14 @@ func VerifyManifestSeparation(m DatasetManifest) LeakageVerification {
 
 	// Same-file/same-hash partition without disjoint IDs cannot be verified as separated.
 	sameSource := false
-	if train.SHA256 != "" && val.SHA256 != "" && strings.EqualFold(train.SHA256, val.SHA256) {
+	switch {
+	case train.SHA256 != "" && val.SHA256 != "" && strings.EqualFold(train.SHA256, val.SHA256):
 		sameSource = true
 		res.Checks = append(res.Checks, "hash_equality_check")
-	} else if train.Path != "" && val.Path != "" && filepath.Clean(train.Path) == filepath.Clean(val.Path) {
+	case train.Path != "" && val.Path != "" && filepath.Clean(train.Path) == filepath.Clean(val.Path):
 		sameSource = true
 		res.Checks = append(res.Checks, "path_equality_check")
-	} else if train.DatasetID != "" && val.DatasetID != "" && train.DatasetID == val.DatasetID {
+	case train.DatasetID != "" && val.DatasetID != "" && train.DatasetID == val.DatasetID:
 		sameSource = true
 		res.Checks = append(res.Checks, "dataset_id_equality_check")
 	}

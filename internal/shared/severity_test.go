@@ -45,7 +45,7 @@ func TestAlertSortKey(t *testing.T) {
 	// Host x-ray's vocabulary is critical / warning / info. The relative order
 	// must stay critical < warning < info even though the scale differs from
 	// FindingSortKey.
-	if !(AlertSortKey("critical") < AlertSortKey("warning") && AlertSortKey("warning") < AlertSortKey("info")) {
+	if AlertSortKey("critical") >= AlertSortKey("warning") || AlertSortKey("warning") >= AlertSortKey("info") {
 		t.Error("alert severity ordering is wrong")
 	}
 }

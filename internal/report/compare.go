@@ -117,14 +117,15 @@ func Compare(current, baseline *Report) *CompareResult {
 		// 0 -> positive throughput is not a regression.
 		candidates = append(candidates, -100)
 	}
-	if baseline.TotalErrors > 0 {
+	switch {
+	case baseline.TotalErrors > 0:
 		candidates = append(candidates, cr.ErrorChangePct)
-	} else if baselineMeasured && current.TotalErrors > 0 {
+	case baselineMeasured && current.TotalErrors > 0:
 		// Measured clean baseline -> any errors is a regression.
 		candidates = append(candidates, 100)
-	} else if !baselineMeasured && baseline.ErrorRatePct == 0 && current.ErrorRatePct > 0 && current.TotalErrors > 0 {
+	case !baselineMeasured && baseline.ErrorRatePct == 0 && current.ErrorRatePct > 0 && current.TotalErrors > 0:
 		// If both counts and baseline measurement are absent, avoid false positives.
-	} else if baselineMeasured || baseline.ErrorRatePct > 0 || current.ErrorRatePct > 0 {
+	case baselineMeasured || baseline.ErrorRatePct > 0 || current.ErrorRatePct > 0:
 		// Fallback when counts/rates indicate change.
 		if baseline.TotalErrors == 0 && current.TotalErrors == 0 && baseline.ErrorRatePct < current.ErrorRatePct {
 			candidates = append(candidates, math.Max(cr.currentErr-cr.baselineErr, 1))

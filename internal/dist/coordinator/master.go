@@ -287,8 +287,7 @@ func (m *Master) Coordinate(stream distproto.MasterWorker_CoordinateServer) erro
 		if err != nil {
 			return err
 		}
-		switch cmd.Payload.(type) {
-		case *distproto.WorkerCommand_GetStatus:
+		if _, ok := cmd.Payload.(*distproto.WorkerCommand_GetStatus); ok {
 			if err := stream.Send(&distproto.WorkerEvent{
 				Payload: &distproto.WorkerEvent_StatusReport{
 					StatusReport: &distproto.StatusReport{
@@ -792,7 +791,7 @@ func partialReportFromSnapshot(sc *config.Scenario, snap *distproto.TelemetrySna
 	if errs == nil {
 		errs = make(map[string]uint64)
 	}
-	errs["distributed:partial_worker"] = errs["distributed:partial_worker"] + 1
+	errs["distributed:partial_worker"]++
 	if reason != "" {
 		// Keep a bounded marker without inventing metric counts; counts remain snapshot-derived.
 		_ = reason
@@ -879,11 +878,12 @@ func partialReportFromSnapshot(sc *config.Scenario, snap *distproto.TelemetrySna
 	}
 
 	// Normalize timing for consistency without inventing planned duration.
-	if rep.Duration > 0 && !rep.StartedAt.IsZero() {
+	switch {
+	case rep.Duration > 0 && !rep.StartedAt.IsZero():
 		rep.EndedAt = rep.StartedAt.Add(rep.Duration)
-	} else if rep.Duration > 0 && !rep.EndedAt.IsZero() {
+	case rep.Duration > 0 && !rep.EndedAt.IsZero():
 		rep.StartedAt = rep.EndedAt.Add(-rep.Duration)
-	} else if rep.Duration <= 0 {
+	case rep.Duration <= 0:
 		// No defensible measured duration; keep bounds only if both known, else leave unset.
 		if rep.StartedAt.IsZero() || rep.EndedAt.IsZero() || rep.EndedAt.Before(rep.StartedAt) {
 			rep.StartedAt = time.Time{}

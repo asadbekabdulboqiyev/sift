@@ -210,7 +210,7 @@ func TestPriority3_ConfidenceCalibrationSemantics(t *testing.T) {
 					foundDQ = true
 				}
 			}
-			if !(foundSample && foundDuration && foundDist && foundMissing && foundModelU && foundDQ) {
+			if !foundSample || !foundDuration || !foundDist || !foundMissing || !foundModelU || !foundDQ {
 				t.Fatalf("confidence factors must cover sample size, duration, distribution/stability, missing metrics, model uncertainty, data quality: %+v", c.Factors)
 			}
 		})

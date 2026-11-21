@@ -313,15 +313,6 @@ func snapshotFromTelemetry(e *engine.Engine, sc *config.Scenario) *dashboard.Liv
 	p95 := lat.Percentile(0.95)
 	p99 := lat.Percentile(0.99)
 
-	totalDur := sc.Profile.TotalDuration()
-	progress := 0.0
-	if totalDur > 0 {
-		progress = elapsedSec / float64(totalDur) * 100
-		if progress > 100 {
-			progress = 100
-		}
-	}
-
 	return &dashboard.LiveSnapshot{
 		Timestamp:   time.Now(),
 		RPS:         float64(reqs) / elapsedSec,

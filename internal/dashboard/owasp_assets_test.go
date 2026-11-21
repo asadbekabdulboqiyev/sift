@@ -91,11 +91,11 @@ func TestOWASPAssets(t *testing.T) {
 		// off, a first click shows a coverage table and an always-empty findings
 		// section, because the findings list only carries the passive and
 		// intrusive families.
-		if !(strings.Contains(html, `id="owaspPassive" checked`) ||
-			(strings.Contains(html, `id="owaspPassive"`) &&
-				(strings.Contains(html, `aria-pressed="true"`) || strings.Contains(html, `class="btn btn-ghost btn-sm scan-toggle tip tp-58 active"`)))) {
+		if !strings.Contains(html, `id="owaspPassive" checked`) &&
+			(!strings.Contains(html, `id="owaspPassive"`) ||
+				(!strings.Contains(html, `aria-pressed="true"`) && !strings.Contains(html, `class="btn btn-ghost btn-sm scan-toggle tip tp-58 active"`))) {
 			// More specific: ensure the owaspPassive element itself is marked active/pressed.
-			if !(strings.Contains(html, `id="owaspPassive"`) && strings.Contains(html, `aria-pressed="true"`) && strings.Contains(html, `active`)) {
+			if !strings.Contains(html, `id="owaspPassive"`) || !strings.Contains(html, `aria-pressed="true"`) || !strings.Contains(html, `active`) {
 				t.Error("the passive checks control must default to on; passive probes are read-only " +
 					"and pass the same scope gate, and without them the findings section is always empty")
 			}

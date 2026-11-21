@@ -390,8 +390,8 @@ func streamTelemetry(bridge *dashboard.EngineBridge, eng *engine.Engine, selfMet
 						// division below is safe.
 						selfMetrics.IncRequestsN(d)
 						avg := (snap.Sum - lastSum) / d
-						if avg > uint64(^uint64(0)>>1) {
-							avg = uint64(^uint64(0) >> 1)
+						if avg > ^uint64(0)>>1 {
+							avg = ^uint64(0) >> 1
 						}
 						selfMetrics.ObserveLatency(time.Duration(int64(avg))) // #nosec G115 -- average latency ns capped to int64 range
 					}

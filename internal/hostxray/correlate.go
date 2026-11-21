@@ -487,12 +487,10 @@ func normalizeSignals(signals []Signal) []Signal {
 			continue
 		}
 		signal.ErrorRate = clampFraction(signal.ErrorRate)
-		switch {
-		case math.IsNaN(signal.RPS) || math.IsInf(signal.RPS, 0) || signal.RPS < 0:
+		if math.IsNaN(signal.RPS) || math.IsInf(signal.RPS, 0) || signal.RPS < 0 {
 			signal.RPS = 0
 		}
-		switch {
-		case math.IsNaN(signal.P99Ms) || math.IsInf(signal.P99Ms, 0) || signal.P99Ms < 0:
+		if math.IsNaN(signal.P99Ms) || math.IsInf(signal.P99Ms, 0) || signal.P99Ms < 0 {
 			signal.P99Ms = 0
 		}
 		out = append(out, signal)

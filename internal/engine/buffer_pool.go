@@ -16,6 +16,10 @@ const (
 type ReusableBuffer struct {
 	buf  []byte
 	pool *BufferPool
+	// slot is the pooled *[]byte header. Keeping it separate from buf lets put
+	// return a pointer-like value to sync.Pool (no boxing allocation) while
+	// still clearing buf on the borrower before the buffer goes back to the pool.
+	slot *[]byte
 }
 
 // Bytes returns the bytes currently written to the buffer.
@@ -63,9 +67,9 @@ type PoolStats struct {
 // NewBufferPool creates a BufferPool with small, medium, and large size tiers.
 func NewBufferPool() *BufferPool {
 	p := &BufferPool{}
-	p.small.New = func() any { return make([]byte, 0, bufSmall) }
-	p.medium.New = func() any { return make([]byte, 0, bufMedium) }
-	p.large.New = func() any { return make([]byte, 0, bufLarge) }
+	p.small.New = func() any { b := make([]byte, 0, bufSmall); return &b }
+	p.medium.New = func() any { b := make([]byte, 0, bufMedium); return &b }
+	p.large.New = func() any { b := make([]byte, 0, bufLarge); return &b }
 	return p
 }
 
@@ -78,21 +82,33 @@ func (p *BufferPool) Get() *ReusableBuffer {
 func (p *BufferPool) GetMinSize(minSize int) *ReusableBuffer {
 	p.totalGets.Add(1)
 
-	var buf []byte
-	if minSize <= bufSmall {
-		buf = p.small.Get().([]byte)
-	} else if minSize <= bufMedium {
-		buf = p.medium.Get().([]byte)
-	} else if minSize <= bufLarge {
-		buf = p.large.Get().([]byte)
-	} else {
+	var slot *[]byte
+	switch {
+	case minSize <= bufSmall:
+		slot = p.small.Get().(*[]byte)
+	case minSize <= bufMedium:
+		slot = p.medium.Get().(*[]byte)
+	case minSize <= bufLarge:
+		slot = p.large.Get().(*[]byte)
+	default:
 		p.totalAllocations.Add(1)
-		buf = make([]byte, 0, minSize)
+		buf := make([]byte, 0, minSize)
 		return &ReusableBuffer{buf: buf, pool: p}
 	}
 
-	buf = buf[:0]
-	return &ReusableBuffer{buf: buf, pool: p}
+	return &ReusableBuffer{buf: (*slot)[:0], slot: slot, pool: p}
+}
+
+// returnTo hands the buffer's slice header back to a tier. The pool stores a
+// pointer so sync.Pool.Put needs no boxing allocation, and the borrower's own
+// buf field is cleared separately by put.
+func (rb *ReusableBuffer) returnTo(pool *sync.Pool) {
+	if rb.slot == nil {
+		slot := rb.buf
+		rb.slot = &slot
+	}
+	*rb.slot = rb.buf
+	pool.Put(rb.slot)
 }
 
 func (p *BufferPool) put(rb *ReusableBuffer) {
@@ -105,20 +121,21 @@ func (p *BufferPool) put(rb *ReusableBuffer) {
 	switch {
 	case cap <= bufSmall:
 		rb.buf = rb.buf[:0]
-		p.small.Put(rb.buf)
+		rb.returnTo(&p.small)
 		p.savedAllocations.Add(1)
 	case cap <= bufMedium:
 		rb.buf = rb.buf[:0]
-		p.medium.Put(rb.buf)
+		rb.returnTo(&p.medium)
 		p.savedAllocations.Add(1)
 	case cap <= bufLarge:
 		rb.buf = rb.buf[:0]
-		p.large.Put(rb.buf)
+		rb.returnTo(&p.large)
 		p.savedAllocations.Add(1)
 	default:
 		p.upgradedBuffers.Add(1)
 	}
 	rb.buf = nil
+	rb.slot = nil
 }
 
 // Stats returns a snapshot of the pool usage counters.

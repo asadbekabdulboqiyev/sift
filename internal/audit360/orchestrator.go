@@ -138,15 +138,16 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 		loadCancel()
 		notes = append(notes, load.Notes...)
 		load = normalizeLoadOutcome(load)
-		if load.RejectedByTarget {
+		switch {
+		case load.RejectedByTarget:
 			emit(StageLoad, StatusCompleted, fmt.Sprintf("Capacity not measurable: target refused load (%s).", rejectionLabel(load.RejectStatusCode)), "")
-		} else if load.Available {
+		case load.Available:
 			if load.Breached {
 				emit(StageLoad, StatusCompleted, fmt.Sprintf("Breaking point reached near %d users.", load.BreakingPointUsers), "")
 			} else {
 				emit(StageLoad, StatusCompleted, "No failure threshold breached within test window.", "")
 			}
-		} else {
+		default:
 			emit(StageLoad, StatusCompleted, "Load test unavailable (target unreachable or not measurable).", "")
 		}
 	}
@@ -211,7 +212,8 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 		RawEvidenceHash:      rawHash,
 		RawEvidenceFormat:    rawFmt,
 	}
-	if load.RejectedByTarget {
+	switch {
+	case load.RejectedByTarget:
 		rep.CapacityBlocked = true
 		rep.BlockedStatus = load.RejectStatusCode
 		share := nonNegFinite(load.RejectSharePct)
@@ -221,7 +223,7 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 		rep.MaxSafeRPS = 0
 		rep.MaxObservedRPS = 0
 		rep.MaxObservedUsers = max(0, load.MaxObservedUsers)
-	} else if load.Available {
+	case load.Available:
 		rep.BreakingPointReached = load.Breached
 		rep.MaxObservedRPS = nonNegFinite(load.MaxObservedRPS)
 		rep.MaxObservedUsers = max(0, load.MaxObservedUsers)
@@ -231,7 +233,7 @@ func Run(ctx context.Context, opt Options, sink progressSink) (*Audit360Report, 
 		if load.MaxSafeRPS > 0 {
 			rep.MaxSafeRPS = nonNegFinite(load.MaxSafeRPS)
 		}
-	} else {
+	default:
 		// Unavailable/skipped: no fabricated capacity/breach metrics.
 		rep.BreakingPointReached = false
 		rep.BreakingPointUsers = 0
@@ -898,11 +900,12 @@ func runLoadTest(ctx context.Context, targetURL string, budget time.Duration, co
 				rejectionLabel(rejectCode), rejectShare))
 			return out
 		}
-		if !out.Available {
+		switch {
+		case !out.Available:
 			out.Notes = append(out.Notes, "Load test did not produce measurable telemetry.")
-		} else if !out.Breached {
+		case !out.Breached:
 			out.Notes = append(out.Notes, "Linear-ramp load test completed without breaching failure thresholds (error rate <= 5% and p99 <= 2000ms) within the time window.")
-		} else {
+		default:
 			out.Notes = append(out.Notes, "Linear-ramp load runner reused; breach detection based on live telemetry thresholds.")
 		}
 		return out

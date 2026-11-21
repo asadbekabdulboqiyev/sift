@@ -46,7 +46,7 @@ func TestPlannedRPSMilliHandlesNilScenario(t *testing.T) {
 	}
 }
 
-func mustMilli(t *testing.T, rps int64) attest.Decimal {
+func mustMilli(t *testing.T, rps int64) attest.Decimal { //nolint:unused // used by the integration-tagged tests in this package
 	t.Helper()
 	d, err := attest.DecimalFromMilli(rps * 1000)
 	if err != nil {

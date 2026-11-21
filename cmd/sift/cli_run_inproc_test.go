@@ -19,7 +19,7 @@ import (
 )
 
 // runTestServer starts a loopback server that answers every request 200.
-func runTestServer(t *testing.T) *httptest.Server {
+func runTestServer(t *testing.T) *httptest.Server { //nolint:unused // used by cli_run_inproc_integration_test.go (integration build tag)
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -41,7 +41,7 @@ func runTestServer(t *testing.T) *httptest.Server {
 // run that happens often enough to matter: the "unreachable target" starts
 // answering normally, the load test reports a green run, and the safety net
 // under test never fires. Holding the port removes the race entirely.
-func deadLoopbackURL(t *testing.T) string {
+func deadLoopbackURL(t *testing.T) string { //nolint:unused // used by cli_run_inproc_integration_test.go (integration build tag)
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

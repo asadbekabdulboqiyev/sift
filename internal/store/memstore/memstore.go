@@ -66,9 +66,6 @@ type auditStore struct{ s *Store }
 func (ts *tenantStore) Create(ctx context.Context, t store.Tenant) (store.Tenant, error) {
 	ts.s.mu.Lock()
 	defer ts.s.mu.Unlock()
-	if _, ok := ts.s.tenants[t.ID]; ok && t.ID != "" {
-		// allow empty to be generated? but keep simple
-	}
 	if t.ID == "" {
 		t.ID = randID("t")
 	}

@@ -182,13 +182,14 @@ func (d *CVEDetector) fingerprint() map[string]string {
 	}
 	for _, cookie := range resp.Cookies() {
 		name := strings.ToLower(cookie.Name)
-		if strings.Contains(name, "phpsessid") {
+		switch {
+		case strings.Contains(name, "phpsessid"):
 			tech["php"] = "true"
-		} else if strings.Contains(name, "jsessionid") {
+		case strings.Contains(name, "jsessionid"):
 			tech["java"] = "true"
-		} else if strings.Contains(name, "wordpress_") {
+		case strings.Contains(name, "wordpress_"):
 			tech["wordpress"] = "true"
-		} else if strings.Contains(name, "bigipserver") {
+		case strings.Contains(name, "bigipserver"):
 			tech["bigip"] = "true"
 		}
 	}
@@ -405,7 +406,7 @@ func SeverityGrade(score int) string {
 func (d *CVEDetector) Render() string {
 	r := d.Results
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("\n  CVE SCAN REPORT\n"))
+	b.WriteString("\n  CVE SCAN REPORT\n")
 	_, _ = fmt.Fprintf(&b, "  Target:  %s\n", r.Target)
 	_, _ = fmt.Fprintf(&b, "  Scanned: %s\n", r.ScanTime.Format("2006-01-02 15:04:05"))
 	_, _ = fmt.Fprintf(&b, "  CVEs:    %d found\n", len(r.CVEs))

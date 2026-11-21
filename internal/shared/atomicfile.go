@@ -26,7 +26,7 @@ const (
 	// dirSyncNone skips the directory sync entirely. This is the default and
 	// matches writers whose data is re-derived on the next run (caches, local
 	// UI state, tool output).
-	dirSyncNone dirSyncMode = iota
+	dirSyncNone dirSyncMode = iota //nolint:unused // zero value of dirSyncMode; intentionally has no switch case
 	// dirSyncBestEffort attempts the sync but ignores its error, for callers
 	// that want the durability on supported filesystems without failing the
 	// write on those that reject directory fsync.

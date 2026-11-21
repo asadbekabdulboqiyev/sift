@@ -426,7 +426,7 @@ func TestInprocDirectDialDryRun(t *testing.T) {
 		if !strings.Contains(res.stderr, "nothing is sent") {
 			t.Errorf("%v: stderr = %q, want the dry-run notice", args, res.stderr)
 		}
-		if !strings.Contains(res.stderr, "dials "+string(args[0])) {
+		if !strings.Contains(res.stderr, "dials "+args[0]) {
 			// The direct-dial note names the command that will dial.
 			if !strings.Contains(res.stderr, args[0]+" dials ") {
 				t.Errorf("%v: stderr = %q, want the direct-dial honesty note", args, res.stderr)

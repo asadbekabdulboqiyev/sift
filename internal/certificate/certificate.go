@@ -656,6 +656,8 @@ func validateEnvelope(c *Certificate) error {
 // CertificateID derives a deterministic, tamper-evident identifier from the
 // certificate's signed and envelope material. It is verifiable from the
 // certificate itself.
+//
+//nolint:revive // Renaming this exported function would break the public API.
 func CertificateID(c *Certificate) string {
 	if c == nil {
 		return ""
@@ -689,6 +691,8 @@ func signedCertificateID(c *Certificate) string {
 
 // CertificateHash returns the sha256 of the stored JSON bytes of c. This is the
 // value issuers put into the next certificate's PreviousCertificateHash field.
+//
+//nolint:revive // Renaming this exported function would break the public API.
 func CertificateHash(c *Certificate) (string, error) {
 	if c == nil {
 		return "", fmt.Errorf("certificate: nil certificate")
@@ -726,6 +730,7 @@ func VerifyChain(certs []*Certificate) error {
 			}
 			continue
 		}
+		//nolint:gosec // G602: index is guarded by the `if i == 0 { continue }` above.
 		want, err := CertificateHash(certs[i-1])
 		if err != nil {
 			return fmt.Errorf("certificate: chain[%d]: hash predecessor: %w", i, err)

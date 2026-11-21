@@ -15,6 +15,8 @@ import (
 // 10k-user start burst would otherwise overwhelm the OS listen backlog on
 // localhost (macOS somaxconn=128 → RST → connection_error), not because of
 // any engine defect. Returns the number of connections successfully pooled.
+//
+//nolint:unused // Called by power_integration_test.go (//go:build integration).
 func prefillPool(t testing.TB, e *Engine, url string, n, concurrency int) int {
 	t.Helper()
 	sem := make(chan struct{}, concurrency)
@@ -50,6 +52,8 @@ func prefillPool(t testing.TB, e *Engine, url string, n, concurrency int) int {
 // assertions this test makes are still exercised at 500 users: they prove lock
 // correctness, broad progress and failure-class separation, not absolute
 // throughput.
+//
+//nolint:unused // Called by power_integration_test.go (//go:build integration).
 func powerTestUsers() int {
 	users := 10_000
 	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {

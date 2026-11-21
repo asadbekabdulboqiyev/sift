@@ -216,13 +216,14 @@ func (e *Engine) grpcMethodClient(ctx context.Context, target string, step confi
 		res := classifyError(err, latency)
 		// Map gRPC error codes onto status families so assertions/reporting
 		// stay consistent with HTTP semantics where sensible.
-		if code := status.Code(err); code == codes.Unavailable {
+		switch code := status.Code(err); {
+		case code == codes.Unavailable:
 			res.errName = errConnection
-		} else if code >= codes.InvalidArgument && code <= codes.Unauthenticated {
+		case code >= codes.InvalidArgument && code <= codes.Unauthenticated:
 			res.errName = errStatus4xx
-		} else if code >= codes.Internal && code <= codes.DataLoss {
+		case code >= codes.Internal && code <= codes.DataLoss:
 			res.errName = errStatus5xx
-		} else {
+		default:
 			res.errName = errOther
 		}
 		return res, nil

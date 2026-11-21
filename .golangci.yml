@@ -35,11 +35,11 @@ linters:
       # errcheck was measured with this rule removed (golangci-lint v2.14.0,
       # 2026-11-20): +295 findings, 72 of them `fmt.Fprint`, 42 `fmt.Fprintf`,
       # 36 `io.WriteString` and the rest mostly `Close()` on test fixtures.
-      # Fixing them means editing ~70 test files, which would swamp the
-      # `only-new-issues` ratchet with noise rather than catch real bugs.
-      # Deliberate discards already use an explicit `_ = call(...)` convention
-      # (errcheck does not flag blank assignments unless check-blank is on).
-      # Revisit once the test fixtures are cleaned up, not before.
+      # Fixing them means editing ~70 test files for no behavior gain, so this
+      # exclusion is kept deliberately. Production-code errcheck debt was cleared
+      # in Phase 2 (see docs/LINT-DEBT-TRIAGE.md); deliberate discards use an
+      # explicit `_ = call(...)` convention (errcheck ignores blank assignments
+      # unless check-blank is on). Revisit only if test-policy requirements change.
       - path: _test\.go
         linters:
           - errcheck
@@ -69,12 +69,9 @@ formatters:
         - github.com/asadbekabdulboqiyev/sift
 
 issues:
-  # The CI ratchet (`only-new-issues: true` in .github/workflows/ci.yml) is
-  # deliberately kept. A full `golangci-lint run ./...` at HEAD 605dc57 with
-  # golangci-lint v2.14.0 reported 755 issues (368 errcheck, 172 revive, 119
-  # staticcheck, 40 unused, 32 gocritic, 8 goimports, 7 gosec, 6 ineffassign,
-  # 3 unconvert). Removing the ratchet would turn CI red on 755 pre-existing
-  # findings unrelated to any given change; the ratchet still fails every new
-  # one. That legacy backlog is tracked debt, not part of this cleanup.
+  # The CI ratchet was removed after Phase 3: `golangci-lint run ./...` is clean
+  # at 0 issues with golangci-lint v2.14.0, so CI now fails on every finding.
+  # The debt was paid down in tracked phases (738 -> 510 -> 145 -> 0); see
+  # docs/LINT-DEBT-TRIAGE.md for the per-phase breakdown and suppression policy.
   max-issues-per-linter: 0
   max-same-issues: 0

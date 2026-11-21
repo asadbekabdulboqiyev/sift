@@ -25,6 +25,8 @@ import (
 )
 
 // AuthType selects how a scan session authenticates against a target.
+//
+//nolint:revive // reason: renaming exported identifier would break the public API
 type AuthType int
 
 // AuthNone and the following values enumerate the supported authentication modes.
@@ -53,6 +55,8 @@ func (t AuthType) String() string {
 }
 
 // AuthConfig describes how to authenticate against a target application.
+//
+//nolint:revive // reason: renaming exported identifier would break the public API
 type AuthConfig struct {
 	Type          AuthType          `json:"type"`
 	LoginURL      string            `json:"login_url,omitempty"`      // form POST target
@@ -92,6 +96,8 @@ const (
 // requests on behalf of a logged-in principal.
 //
 // A session is safe for concurrent use by multiple goroutines.
+//
+//nolint:revive // reason: renaming exported identifier would break the public API
 type AuthSession struct {
 	cfg        AuthConfig
 	client     *http.Client // public client: redirects, timeout, injection layers
@@ -158,7 +164,7 @@ func NewAuthSession(cfg AuthConfig, timeout time.Duration) (*AuthSession, error)
 
 	// Transport chain for the public client: static credential injection is
 	// applied first, then the transparent re-authentication layer.
-	var rt http.RoundTripper = http.DefaultTransport
+	rt := http.DefaultTransport
 	switch cfg.Type {
 	case AuthHeader:
 		rt = &headerInjector{
@@ -426,17 +432,18 @@ func (s *AuthSession) loginBrowserLocked() error {
 	}
 
 	// Success match check
-	if s.cfg.SuccessMatch != "" {
+	switch {
+	case s.cfg.SuccessMatch != "":
 		if !strings.Contains(body, s.cfg.SuccessMatch) {
 			s.ok = false
 			return fmt.Errorf("auth: browser login success match not found")
 		}
-	} else if s.cfg.FailureMatch != "" {
+	case s.cfg.FailureMatch != "":
 		if strings.Contains(body, s.cfg.FailureMatch) {
 			s.ok = false
 			return fmt.Errorf("auth: browser login failure match found")
 		}
-	} else {
+	default:
 		lower := strings.ToLower(body)
 		if strings.Contains(lower, "login") || strings.Contains(lower, "sign in") || strings.Contains(lower, "password") {
 			s.ok = false

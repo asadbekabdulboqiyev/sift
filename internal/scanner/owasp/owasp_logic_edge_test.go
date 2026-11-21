@@ -11,12 +11,19 @@ import (
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
 )
 
+// denyAllRequester is referenced by owasp_logic_edge_integration_test.go,
+// which is compiled only under the integration build tag. The default lint
+// build cannot see that reference, so the unused findings are suppressed.
+//
+//nolint:unused // used by integration-tagged tests
 type denyAllRequester struct{}
 
+//nolint:unused // used by integration-tagged tests
 func (denyAllRequester) Check(_ context.Context, _ string, _ string, _ bool) error {
 	return core.ErrOutOfScope
 }
 
+//nolint:unused // used by integration-tagged tests
 func (denyAllRequester) Do(_ *http.Request) (*http.Response, error) {
 	return nil, core.ErrOutOfScope
 }

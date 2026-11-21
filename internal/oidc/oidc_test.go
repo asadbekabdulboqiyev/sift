@@ -126,7 +126,7 @@ func (p *fakeProvider) jwksJSON(t *testing.T) string {
 	doc := map[string]any{
 		"keys": []any{
 			rsaJWK(p.rsaKid, &p.rsaKey.PublicKey),
-			ecJWK(p.ecKid, &p.ecKey.PublicKey),
+			ecJWK(t, p.ecKid, &p.ecKey.PublicKey),
 		},
 	}
 	raw, err := json.Marshal(doc)
@@ -158,16 +158,6 @@ func genECKey(t *testing.T) *ecdsa.PrivateKey {
 
 func b64URL(raw []byte) string { return base64.RawURLEncoding.EncodeToString(raw) }
 
-func paddedInt(i *big.Int, size int) []byte {
-	b := i.Bytes()
-	if len(b) >= size {
-		return b
-	}
-	out := make([]byte, size)
-	copy(out[size-len(b):], b)
-	return out
-}
-
 func rsaJWK(kid string, pub *rsa.PublicKey) map[string]any {
 	return map[string]any{
 		"kty": "RSA",
@@ -179,15 +169,20 @@ func rsaJWK(kid string, pub *rsa.PublicKey) map[string]any {
 	}
 }
 
-func ecJWK(kid string, pub *ecdsa.PublicKey) map[string]any {
+func ecJWK(t *testing.T, kid string, pub *ecdsa.PublicKey) map[string]any {
+	t.Helper()
+	point, err := pub.Bytes()
+	if err != nil {
+		t.Fatalf("encode EC public key: %v", err)
+	}
 	return map[string]any{
 		"kty": "EC",
 		"use": "sig",
 		"alg": "ES256",
 		"kid": kid,
 		"crv": "P-256",
-		"x":   b64URL(paddedInt(pub.X, 32)),
-		"y":   b64URL(paddedInt(pub.Y, 32)),
+		"x":   b64URL(point[1:33]),
+		"y":   b64URL(point[33:65]),
 	}
 }
 
@@ -1171,11 +1166,11 @@ func TestLoadKeysFiltersJWKSMetadata(t *testing.T) {
 		return out
 	}
 
-	goodRSA := rsaJWK("rsa-good", rsaPub)                           // use=sig, alg=RS256
-	goodECNoUse := without(ecJWK("ec-good", ecPub), "use")          // use absent, alg=ES256
-	goodRSANoAlg := without(rsaJWK("rsa-noalg", rsaPub), "alg")     // use=sig, alg absent
-	encRSA := with(rsaJWK("rsa-enc", rsaPub), "use", "enc")         // encryption-only
-	mismatchEC := with(ecJWK("ec-mismatch", ecPub), "alg", "RS256") // alg contradicts kty
+	goodRSA := rsaJWK("rsa-good", rsaPub)                              // use=sig, alg=RS256
+	goodECNoUse := without(ecJWK(t, "ec-good", ecPub), "use")          // use absent, alg=ES256
+	goodRSANoAlg := without(rsaJWK("rsa-noalg", rsaPub), "alg")        // use=sig, alg absent
+	encRSA := with(rsaJWK("rsa-enc", rsaPub), "use", "enc")            // encryption-only
+	mismatchEC := with(ecJWK(t, "ec-mismatch", ecPub), "alg", "RS256") // alg contradicts kty
 	unknownAlg := with(rsaJWK("rsa-unknown", rsaPub), "alg", "RS512")
 
 	serve := func(t *testing.T, docs ...map[string]any) *Client {

@@ -107,6 +107,8 @@ type TestConfiguration struct {
 }
 
 // Audit360Report is the final signed report.
+//
+//nolint:revive // Renaming this exported type would break the public API.
 type Audit360Report struct {
 	ResilienceScore    int       `json:"resilience_score"` // overall score (backward compatibility)
 	RiskLevel          string    `json:"risk_level"`

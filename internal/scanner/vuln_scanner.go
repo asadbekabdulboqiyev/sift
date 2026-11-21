@@ -208,11 +208,9 @@ func (vs *VulnScanner) doRequest(method, url string, body io.Reader, headers htt
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "Sift-vulnscanner/1.0")
-	if headers != nil {
-		for k, vals := range headers {
-			for _, v := range vals {
-				req.Header.Set(k, v)
-			}
+	for k, vals := range headers {
+		for _, v := range vals {
+			req.Header.Set(k, v)
 		}
 	}
 	return vs.Client.Do(req)

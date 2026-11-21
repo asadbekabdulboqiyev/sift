@@ -9,9 +9,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
+
 	"github.com/asadbekabdulboqiyev/sift/internal/audit360"
 	"github.com/asadbekabdulboqiyev/sift/internal/demostore"
-	"github.com/gorilla/websocket"
 )
 
 // --- Limits -----------------------------------------------------------------

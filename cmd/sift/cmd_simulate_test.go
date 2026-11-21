@@ -383,7 +383,7 @@ func TestCmdSimulateValidateUpdatesModelAndArtifacts(t *testing.T) {
 	if model.ModelInfo.BacktestStatus == "" || model.ModelInfo.BacktestStatus == "NOT_RUN" {
 		t.Errorf("expected updated backtest_status, got %q", model.ModelInfo.BacktestStatus)
 	}
-	if model.ModelInfo.DriftStatus == "" || model.ModelInfo.DriftStatus == "UNKNOWN" {
+	if model.ModelInfo.DriftStatus == "" || model.ModelInfo.DriftStatus == "UNKNOWN" { //nolint:staticcheck // intentional empty branch in test: any concrete drift status is acceptable here
 		// OK/NONE or DETECTED depending on comparison; but should be set from validation
 	}
 	if model.ModelInfo.LastValidation == nil {

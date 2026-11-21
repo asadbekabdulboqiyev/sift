@@ -306,11 +306,12 @@ func summarizeValidationProvenance(rec ValidationRecord) string {
 	} else {
 		parts = append(parts, "dataset=none")
 	}
-	if rec.ManifestPath != "" {
+	switch {
+	case rec.ManifestPath != "":
 		parts = append(parts, "manifest="+filepath.Base(rec.ManifestPath))
-	} else if rec.Manifest != nil {
+	case rec.Manifest != nil:
 		parts = append(parts, "manifest=embedded")
-	} else {
+	default:
 		parts = append(parts, "manifest=none")
 	}
 	if rec.Split != nil && strings.TrimSpace(rec.Split.Strategy) != "" {
@@ -548,9 +549,7 @@ func Fit(rep report.Report, opts FitOptions) (Model, error) {
 	legacyUncertainty := uncertainty
 	// When sustainable capacity is insufficient, still retain modeled bounds but
 	// CapacityAssessment clearly reports INSUFFICIENT_DATA (no fabricated certainty).
-	if capAssess.SustainableInterval != nil && capAssess.Status == CapacityInsufficient {
-		// leave modeled legacy fields as-is
-	}
+	// The modeled legacy fields above are intentionally left as-is in that case.
 	_ = legacyUncertainty
 
 	m := Model{
@@ -880,7 +879,7 @@ func buildConfidenceAssessment(rep report.Report, durationSec, rps, errPct, mode
 	score = clamp(score, 0, 100)
 
 	// Sufficiency gates: must have minimum evidence for responsible estimation.
-	sufficient := rep.TotalRequests >= 100 && durationSec >= 10 && !(rep.TotalErrors == rep.TotalRequests && rep.TotalRequests > 0)
+	sufficient := rep.TotalRequests >= 100 && durationSec >= 10 && (rep.TotalErrors != rep.TotalRequests || rep.TotalRequests <= 0)
 	if !sufficient {
 		dqStatus = DataQualityInsuff
 		score = math.Min(score, 45)
@@ -959,11 +958,12 @@ func buildCapacityAssessment(rep report.Report, observedRPS, capacity, uncertain
 	// Sustainable capacity heuristic: start from modeled capacity, apply
 	// degradation/error pressure penalties. This is an estimate, not a guarantee.
 	penalty := 1.0
-	if errPct >= 5 {
+	switch {
+	case errPct >= 5:
 		penalty *= 0.80
-	} else if errPct >= 1 {
+	case errPct >= 1:
 		penalty *= 0.90
-	} else if errPct > 0.1 {
+	case errPct > 0.1:
 		penalty *= 0.97
 	}
 	if p50 > 0 {

@@ -129,15 +129,16 @@ func VerifyPackage(m Manifest, baseDir string, opts VerifyOptions) (Verification
 	// The manifest digest is checked before any artifact so a manifest that was
 	// edited after packaging is distinguished from an artifact that was.
 	computed, err := m.ComputeDigest()
-	if err != nil {
+	switch {
+	case err != nil:
 		report.Checks = append(report.Checks, Check{Name: "package-digest", Status: StatusFail, Detail: err.Error()})
-	} else if computed != m.PackageDigest {
+	case computed != m.PackageDigest:
 		report.Checks = append(report.Checks, Check{
 			Name:   "package-digest",
 			Status: StatusFail,
 			Detail: fmt.Sprintf("manifest digest is %s, recomputed %s", m.PackageDigest, computed),
 		})
-	} else {
+	default:
 		report.Checks = append(report.Checks, Check{Name: "package-digest", Status: StatusPass})
 	}
 

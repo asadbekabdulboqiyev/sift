@@ -25,9 +25,7 @@ func TestConfidenceAssessmentEvidenceBased(t *testing.T) {
 	if m.ConfidenceV2.Level == ConfidenceHighLabel && !m.ConfidenceV2.Sufficient {
 		t.Fatal("HIGH confidence must not be assigned without sufficient evidence")
 	}
-	if m.ConfidenceV2.Level == ConfidenceHighLabel && m.ConfidenceV2.Score < 80 {
-		// possible if downgraded, but our label should match score semantics in general
-	}
+	// possible if downgraded, but our label should match score semantics in general
 }
 
 func TestCapacityInsufficientDataAndObservedNotMax(t *testing.T) {

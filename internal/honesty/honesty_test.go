@@ -158,7 +158,7 @@ func TestCIsBracketPointEstimate(t *testing.T) {
 			if blo > bhi {
 				t.Fatalf("%s ppm=%d: bootstrap interval inverted [%d,%d]", name, ppm, blo, bhi)
 			}
-			if !(blo <= point && point <= bhi) {
+			if blo > point || point > bhi {
 				t.Fatalf("%s ppm=%d: bootstrap [%d,%d] does not bracket point %d", name, ppm, blo, bhi, point)
 			}
 
@@ -166,7 +166,7 @@ func TestCIsBracketPointEstimate(t *testing.T) {
 			if olo > ohi {
 				t.Fatalf("%s ppm=%d: order-statistic interval inverted [%d,%d]", name, ppm, olo, ohi)
 			}
-			if !(olo <= point && point <= ohi) {
+			if olo > point || point > ohi {
 				t.Fatalf("%s ppm=%d: order-statistic [%d,%d] does not bracket point %d", name, ppm, olo, ohi, point)
 			}
 		}

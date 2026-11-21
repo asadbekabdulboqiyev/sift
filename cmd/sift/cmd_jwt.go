@@ -114,7 +114,7 @@ func resolveJWTInput(tokenFlag, fileFlag string) (string, error) {
 		return tok, nil
 	}
 	if isInteractiveTerminal() {
-		return "", fmt.Errorf("no token provided\n\nPass --token <jwt>, --file <path>, or pipe a token on stdin.\n\nExample: Sift jwt --token eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0.")
+		return "", fmt.Errorf("no token provided\n\nPass --token <jwt>, --file <path>, or pipe a token on stdin.\n\nExample: Sift jwt --token eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0")
 	}
 	data, err := io.ReadAll(io.LimitReader(os.Stdin, 1<<20))
 	if err != nil {

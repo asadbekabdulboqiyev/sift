@@ -164,6 +164,7 @@ func TestHTTP2TransportEnabled(t *testing.T) {
 	if tr.TLSClientConfig.MinVersion != tls.VersionTLS12 {
 		t.Errorf("TLS MinVersion = %x, want 0303 (TLS 1.2)", tr.TLSClientConfig.MinVersion)
 	}
+	//nolint:staticcheck // Deliberate no-op: keeps x/net/http2 linked for h2 upgrades; net/http.Transport would not.
 	_ = http2.Transport{} // ensure dependency stays linked for h2 upgrades
 }
 

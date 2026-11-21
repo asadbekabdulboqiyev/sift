@@ -221,7 +221,6 @@ func TestCatalogSortSelectNotInline(t *testing.T) {
 func substringAround(s, needle string) string {
 	i := strings.Index(s, needle)
 	if i < 0 {
-		i = 0
 		if len(s) > 80 {
 			s = s[:80]
 		}

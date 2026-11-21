@@ -573,11 +573,12 @@ func pdfEscapeStr(s string) string {
 			b.WriteByte('\\')
 			b.WriteRune(r)
 		default:
-			if r >= 32 && r <= 126 {
+			switch {
+			case r >= 32 && r <= 126:
 				b.WriteRune(r)
-			} else if r == '\n' || r == '\r' || r == '\t' {
+			case r == '\n' || r == '\r' || r == '\t':
 				b.WriteByte(' ')
-			} else {
+			default:
 				b.WriteRune('?')
 			}
 		}

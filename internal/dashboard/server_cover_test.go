@@ -21,9 +21,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
+
 	"github.com/asadbekabdulboqiyev/sift/internal/attest"
 	"github.com/asadbekabdulboqiyev/sift/internal/demostore"
-	"github.com/gorilla/websocket"
 )
 
 // --- ops endpoints ----------------------------------------------------------

@@ -33,6 +33,8 @@ type Endpoint struct {
 }
 
 // CrawlResult aggregates everything one crawl produced.
+//
+//nolint:revive // reason: renaming exported identifier would break the public API
 type CrawlResult struct {
 	Endpoints []Endpoint    `json:"endpoints"`
 	Pages     int           `json:"pages"`
@@ -44,6 +46,8 @@ type CrawlResult struct {
 // SameHostOnly from the contract is exposed as its inverted form
 // AllowOffsite so the zero value naturally means "stay on-site"
 // (the contract explicitly permits this inversion).
+//
+//nolint:revive // reason: renaming exported identifier would break the public API
 type CrawlOptions struct {
 	MaxDepth     int           // default 3 if 0
 	MaxPages     int           // default 100 if 0
@@ -479,7 +483,6 @@ func queryParamNames(u *url.URL) []string {
 // --- Form handling -----------------------------------------------------------
 
 type formInfo struct {
-	action string
 	method string
 	fields []string
 }

@@ -11,6 +11,8 @@ import (
 )
 
 // HTTPInfo contains the results of an HTTP scan.
+//
+//nolint:revive // reason: renaming exported identifier would break the public API
 type HTTPInfo struct {
 	Server       string            `json:"server"`
 	XPoweredBy   string            `json:"x_powered_by"`
@@ -143,15 +145,16 @@ func DetectTechnologies(resp *http.Response) []string {
 
 	for _, cookie := range resp.Cookies() {
 		name := strings.ToLower(cookie.Name)
-		if strings.Contains(name, "phpsessid") {
+		switch {
+		case strings.Contains(name, "phpsessid"):
 			if !ContainsTech(techs, "PHP") {
 				techs = append(techs, "PHP")
 			}
-		} else if strings.Contains(name, "jsessionid") {
+		case strings.Contains(name, "jsessionid"):
 			techs = append(techs, "Java")
-		} else if strings.Contains(name, "csrftoken") {
+		case strings.Contains(name, "csrftoken"):
 			techs = append(techs, "Django (Python)")
-		} else if strings.Contains(name, "_rails_session") {
+		case strings.Contains(name, "_rails_session"):
 			techs = append(techs, "Ruby on Rails")
 		}
 	}

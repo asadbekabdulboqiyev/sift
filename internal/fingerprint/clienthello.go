@@ -150,9 +150,7 @@ func parseClientHello(record []byte) (*clientHello, error) {
 			ch.groups = parseU16List(data)
 		case 0x000b: // ec_point_formats: first byte is the count
 			if len(data) > 1 {
-				for _, f := range data[1:] {
-					ch.points = append(ch.points, f)
-				}
+				ch.points = append(ch.points, data[1:]...)
 			}
 		case 0x000d: // signature_algorithms
 			ch.sigAlgs = parseU16List(data)

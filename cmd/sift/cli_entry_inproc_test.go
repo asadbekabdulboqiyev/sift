@@ -203,7 +203,7 @@ func TestInprocEmitScanDirectDialJSON(t *testing.T) {
 // writeExecSibling drops a small shell script beside the test binary so
 // runSubCommand's "sibling binary found" branch is exercised without building
 // the real subcommands. Names are unique per test and removed afterwards.
-func writeExecSibling(t *testing.T, name, script string) {
+func writeExecSibling(t *testing.T, name, script string) { //nolint:unused // used by cli_entry_inproc_integration_test.go (integration build tag)
 	t.Helper()
 	exe, err := os.Executable()
 	if err != nil {
@@ -222,7 +222,7 @@ func writeExecSibling(t *testing.T, name, script string) {
 // with an interpreter line. The Windows half of the same logic — the ".exe"
 // suffix that runSubCommand must look for — is covered by
 // TestSubBinaryNameWindowsSuffix.
-func skipUnlessPOSIXExec(t *testing.T) {
+func skipUnlessPOSIXExec(t *testing.T) { //nolint:unused // used by cli_entry_inproc_integration_test.go (integration build tag)
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("sibling dispatch is driven by /bin/sh scripts; Windows needs real PE binaries")
@@ -449,7 +449,7 @@ func TestInprocInteractiveDashboardNoURL(t *testing.T) {
 // ── helpers ───────────────────────────────────────────────────────────────
 
 // tail returns at most n trailing bytes, so a failure message stays readable.
-func tail(s string, n int) string {
+func tail(s string, n int) string { //nolint:unused // used by cli_entry_inproc_integration_test.go (integration build tag)
 	if len(s) <= n {
 		return s
 	}

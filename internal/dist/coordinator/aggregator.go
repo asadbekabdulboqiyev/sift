@@ -312,11 +312,12 @@ func MergeReports(sc *config.Scenario, reports []*report.Report) *report.Report 
 		merged.Duration = 0
 	}
 	if !startedAt.IsZero() {
-		if merged.Duration > 0 {
+		switch {
+		case merged.Duration > 0:
 			merged.EndedAt = startedAt.Add(merged.Duration)
-		} else if !endedAt.IsZero() && !endedAt.Before(startedAt) {
+		case !endedAt.IsZero() && !endedAt.Before(startedAt):
 			merged.EndedAt = endedAt
-		} else {
+		default:
 			merged.EndedAt = startedAt
 		}
 	} else {

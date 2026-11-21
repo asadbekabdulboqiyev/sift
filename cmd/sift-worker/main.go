@@ -313,7 +313,7 @@ func registrationLoop(masterAddr, id, advertised, token string, clientCreds cred
 
 	client := distproto.NewMasterWorkerClient(conn)
 	lastErr := ""
-	wait := regSteadyInterval
+	var wait time.Duration
 	backoffIdx := 0
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

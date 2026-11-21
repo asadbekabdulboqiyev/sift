@@ -269,7 +269,8 @@ func prepareCompareValidation(req *twinCompareRequest) compareValidation {
 	var verification *twin.LeakageVerification
 	var manifestPath string
 	leakage := req.Leakage
-	if req.Manifest != nil {
+	switch {
+	case req.Manifest != nil:
 		m := *req.Manifest
 		manifestCopy = &m
 		manifestPath = "inline:manifest"
@@ -301,9 +302,9 @@ func prepareCompareValidation(req *twinCompareRequest) compareValidation {
 			eff.Method = leakage.Method
 		}
 		leakage = eff
-	} else if leakage == nil {
+	case leakage == nil:
 		leakage = &twin.LeakageGuard{Enforced: false, Proven: false, Status: twin.LeakageStatusUnverified, Reason: "no leakage proof provided; caller-provided metadata only (not persisted)"}
-	} else {
+	default:
 		// Metadata-only claims are not provenance-verified without manifest
 		// verification. Never accept a false verified_no_leakage on
 		// contradictory/missing provenance.
@@ -569,7 +570,8 @@ func (s *Server) handleInsightsTwinBacktest(w http.ResponseWriter, r *http.Reque
 	var verification *twin.LeakageVerification
 	var manifestPath string
 	leakage := req.Leakage
-	if req.Manifest != nil {
+	switch {
+	case req.Manifest != nil:
 		m := *req.Manifest
 		manifestCopy = &m
 		manifestPath = "inline:manifest"
@@ -596,9 +598,9 @@ func (s *Server) handleInsightsTwinBacktest(w http.ResponseWriter, r *http.Reque
 			}
 		}
 		leakage = eff
-	} else if leakage == nil {
+	case leakage == nil:
 		leakage = &twin.LeakageGuard{Enforced: false, Proven: false, Status: twin.LeakageStatusUnverified, Reason: "no leakage proof provided; caller/workflow must enforce train/validation split and prevent leakage"}
-	} else {
+	default:
 		// Metadata-only claims are not provenance-verified without manifest
 		// verification. Never accept a false verified_no_leakage on
 		// contradictory/missing provenance.

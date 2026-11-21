@@ -31,14 +31,15 @@ func RecommendedActionNotes(r *Audit360Report) []string {
 		}
 	}
 
-	if crit > 0 || high > 0 || med > 0 {
+	switch {
+	case crit > 0 || high > 0 || med > 0:
 		notes = append(notes, fmt.Sprintf(
 			"Recommended action plan (prioritized): address critical/high findings first (%d critical, %d high, %d medium), then retest to confirm risk reduction.",
 			crit, high, med,
 		))
-	} else if len(r.Findings) > 0 {
+	case len(r.Findings) > 0:
 		notes = append(notes, "Recommended action plan: review reported low/info findings for hardening opportunities and retest if changes are made.")
-	} else {
+	default:
 		notes = append(notes, "Recommended action plan: no issues were reported by the executed checks; continue periodic authorized testing and monitoring.")
 	}
 

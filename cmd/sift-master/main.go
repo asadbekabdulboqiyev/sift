@@ -45,7 +45,9 @@ var (
 	name        = flag.String("name", "distributed-run", "Run name")
 	regressPct  = flag.Float64("regress-pct", 20, "Regression threshold %")
 	comparePath = flag.String("compare", "", "Baseline report for comparison")
-	timeline    = flag.Bool("timeline", false, "Export CSV timeline")
+	// Kept registered for CLI compatibility (documented in DISTRIBUTED.md);
+	// the value is intentionally not read.
+	_           = flag.Bool("timeline", false, "Export CSV timeline")
 	expectP99   = flag.Float64("expect-p99-ms", 0, "SLA: max p99 latency")
 	expectErr   = flag.Float64("expect-error-rate", 0, "SLA: max error rate %")
 	expectRPS   = flag.Float64("expect-min-rps", 0, "SLA: min throughput")

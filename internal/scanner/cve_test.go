@@ -77,34 +77,10 @@ func mockJoomla() *httptest.Server {
 	}))
 }
 
-func mockNginxHTTP2() *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Server", "nginx/1.21.6")
-		w.WriteHeader(200)
-		fmt.Fprintf(w, "<html><body>OK</body></html>")
-	}))
-}
-
 func mockCleanServer() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 		fmt.Fprintf(w, "<html><body>OK</body></html>")
-	}))
-}
-
-func mockTomcat() *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Server", "Apache-Coyote/1.1")
-		w.WriteHeader(200)
-		fmt.Fprintf(w, "<html><body>Tomcat</body></html>")
-	}))
-}
-
-func mockCGIServer() *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Server", "Apache/2.4.41 (Ubuntu)")
-		w.WriteHeader(200)
-		fmt.Fprintf(w, "<html><body>CGI Script</body></html>")
 	}))
 }
 

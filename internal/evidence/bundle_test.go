@@ -15,7 +15,7 @@ import (
 
 // runAndCollect drives a short live run against a local target and returns the
 // collector together with the run description that matches it.
-func runAndCollect(t *testing.T, durationSeconds int) (*Collector, attest.Run) {
+func runAndCollect(t *testing.T, durationSeconds int) (*Collector, attest.Run) { //nolint:unused // used by the integration-tagged tests in this package
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

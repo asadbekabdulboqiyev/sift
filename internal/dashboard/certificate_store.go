@@ -163,17 +163,6 @@ func certStoreList() []certificate.Certificate {
 	return out
 }
 
-// certStoreLastHash returns the sha256 of the most recent certificate line, or
-// "" if none exist. Kept for external callers; prefer certStoreIssue for writes.
-func certStoreLastHash() string {
-	certStoreMu.Lock()
-	defer certStoreMu.Unlock()
-	if len(certStoreHash) == 0 {
-		return ""
-	}
-	return certStoreHash[0]
-}
-
 // certStoreVerifyChain walks newest→oldest and checks that each certificate's
 // PreviousCertificateHash matches the sha256 of the certificate below it.
 // Returns the index of the first break (0 = newest link), or -1 if intact.

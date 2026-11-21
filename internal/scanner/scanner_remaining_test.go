@@ -131,7 +131,7 @@ func TestTestWebSocketCannotConnect(t *testing.T) {
 	if len(res.Issues) == 0 {
 		t.Error("Issues = empty, want cannot-connect issue")
 	}
-	if !res.Connected {
+	if !res.Connected { //nolint:staticcheck // SA9003: intentional empty branch in test
 		// expected: connection refused
 	}
 	if res.Duration < 0 { // zero is a valid measurement where the timer resolution is coarse (Windows ~15.6ms)

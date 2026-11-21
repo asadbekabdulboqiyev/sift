@@ -312,8 +312,7 @@ func (p *Profile) Normalize() error {
 	// at t=0 and loops at maximum speed (no RPS cap) for a short window,
 	// defaulting to 3 seconds. The transform happens before validation so the
 	// rest of the pipeline only ever sees the steady shape.
-	switch p.Type {
-	case ProfileBurst:
+	if p.Type == ProfileBurst {
 		if p.Duration <= 0 {
 			p.Duration = 3
 		}

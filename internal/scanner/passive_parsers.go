@@ -13,11 +13,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"golang.org/x/net/html"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"golang.org/x/net/html"
 )
 
 // passiveResource is one <script src> or <link href> the page referenced.

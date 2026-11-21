@@ -143,7 +143,7 @@ func mockVulnerableServer() *httptest.Server {
 			body := make([]byte, 1024)
 			n, _ := r.Body.Read(body)
 			content := string(body[:n])
-			if strings.Contains(content, "admin") && strings.Contains(content, "admin") {
+			if strings.Contains(content, `"username":"admin"`) && strings.Contains(content, `"password":"admin"`) {
 				fmt.Fprint(w, `{"token":"abc123","status":"success"}`)
 			} else if strings.Contains(content, "test") {
 				fmt.Fprint(w, `{"error":"invalid credentials"}`)

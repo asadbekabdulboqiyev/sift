@@ -328,13 +328,6 @@ func emitScanDirectDialJSON(name, target string, result any, sf *scanFlags) erro
 // refused" (3).
 const scanUsageExitCode = 2
 
-// usageFatal reports a bad flag value (or a required flag that is missing) and
-// exits with the usage code. Runtime failures keep using fatal (exit 1).
-func usageFatal(err error) {
-	fmt.Fprintf(os.Stderr, "error: %v\n", err)
-	exitProcess(scanUsageExitCode)
-}
-
 func scanUsageExit(sf *scanFlags, err error) {
 	if sf != nil && sf.jsonOut {
 		emitScanCLIErrorJSON(sf, err)

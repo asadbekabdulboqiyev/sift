@@ -11,11 +11,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
 )
 
 // ---------------------------------------------------------------------------
