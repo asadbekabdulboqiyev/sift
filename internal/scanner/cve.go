@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
@@ -15,9 +16,13 @@ import (
 
 // CVEDetector fingerprints a target and accumulates matched CVE findings.
 type CVEDetector struct {
-	Target  string
-	Client  *http.Client
-	Results *CVEReport
+	Target string
+	Client *http.Client
+	// DialControl is the same dial-time authorization hook the Guard installs
+	// on HTTP probes. The fingerprint GET is a raw connect, so without it the
+	// CVE stage can reach an address the Gate never approved.
+	DialControl func(network, address string, c syscall.RawConn) error
+	Results     *CVEReport
 }
 
 // CVEReport holds the outcome of a single CVE detection run.
@@ -91,16 +96,21 @@ type cvePattern struct {
 	VerNum  string
 }
 
-// NewCVEDetector creates a CVE detector for the given target.
+// NewCVEDetector creates a CVE detector for the given target. Standalone
+// callers (and tests) get an uncontrolled client; inside a pentest use
+// NewCVEDetectorWithControl so the fingerprint probe carries the Gate's
+// dial-time decision.
 func NewCVEDetector(target string) *CVEDetector {
+	return NewCVEDetectorWithControl(target, nil)
+}
+
+// NewCVEDetectorWithControl creates a CVE detector whose probe client checks
+// every resolved peer with control before connecting.
+func NewCVEDetectorWithControl(target string, control func(network, address string, c syscall.RawConn) error) *CVEDetector {
 	return &CVEDetector{
-		Target: target,
-		Client: &http.Client{
-			Timeout: 10 * time.Second,
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		},
+		Target:      target,
+		DialControl: control,
+		Client:      core.NewHTTPClientWithControl(core.DefaultFingerprint, 10*time.Second, false, control),
 		Results: &CVEReport{
 			Target: target,
 			CVEs:   make([]CVEMatch, 0),
@@ -130,7 +140,10 @@ func (d *CVEDetector) Scan() *CVEReport {
 
 func (d *CVEDetector) fingerprint() map[string]string {
 	tech := make(map[string]string)
-	resp, err := core.SendProbe(d.Target, "GET", "/", nil)
+	// Use d.Client, not a fresh probe client: callers swap in an authenticated,
+	// dial-controlled client and the fingerprint request must honour the same
+	// cookies, timeout and Gate decision as the rest of the CVE stage.
+	resp, err := core.SendProbeWithClient(d.Target, "GET", "/", nil, d.Client)
 	if err != nil {
 		return tech
 	}

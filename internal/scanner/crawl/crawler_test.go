@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -402,4 +403,47 @@ func endpointURLs(eps []Endpoint) []string {
 		out = append(out, ep.Method+" "+ep.URL+" "+strings.Join(ep.Params, "&"))
 	}
 	return out
+}
+
+// TestCrawlerRedirectGuardHopCap proves the custom CheckRedirect keeps an
+// explicit hop limit: net/http's implicit 10-hop cap does not apply when a
+// CheckRedirect callback is installed.
+func TestCrawlerRedirectGuardHopCap(t *testing.T) {
+	req := &http.Request{URL: &url.URL{Host: "example.com", Path: "/next"}}
+	via := make([]*http.Request, maxRedirectHops)
+	for i := range via {
+		via[i] = &http.Request{URL: &url.URL{Host: "example.com"}}
+	}
+	if err := crawlerRedirectGuard(req, via); err == nil {
+		t.Fatal("hop cap not enforced at the limit")
+	}
+	if err := crawlerRedirectGuard(req, via[:maxRedirectHops-1]); err != nil {
+		t.Fatalf("guard rejected a redirect below the cap: %v", err)
+	}
+}
+
+// TestCrawlDiscoveryCap proves a page with far more links than the crawl
+// budget cannot grow the dedup maps without bound.
+func TestCrawlDiscoveryCap(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		var b strings.Builder
+		b.WriteString("<html><body>")
+		for i := 0; i < 200; i++ {
+			fmt.Fprintf(&b, `<a href="/p%d">p%d</a>`, i, i)
+		}
+		b.WriteString("</body></html>")
+		fmt.Fprint(w, b.String())
+	}))
+	defer srv.Close()
+
+	c := NewCrawler(srv.URL, CrawlOptions{MaxPages: 2, MaxDepth: 1})
+	res := c.Crawl()
+	limit := c.discoveryLimit()
+	if len(res.Endpoints) > limit {
+		t.Fatalf("discovered %d endpoints, cap is %d", len(res.Endpoints), limit)
+	}
+	if len(c.visited) > limit {
+		t.Fatalf("visited map has %d entries, cap is %d", len(c.visited), limit)
+	}
 }

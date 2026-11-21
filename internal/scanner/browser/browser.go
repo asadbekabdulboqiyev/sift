@@ -16,12 +16,15 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 )
 
@@ -140,6 +143,14 @@ type Endpoint struct {
 //   - the dedup key includes the method. A /search link and a GET form for the
 //     same URL are one endpoint, but a /transfer link and a POST form for the
 //     same URL are two: dropping the POST lost the state-changing endpoint.
+//
+// maxEndpointsPerPage bounds what one hostile HTML document can contribute.
+// A multi-megabyte page can hold hundreds of thousands of unique href/form
+// values; without a cap the dedup map and slice grow unbounded and are then
+// multiplied across the crawl fanout.
+const maxEndpointsPerPage = 4096
+
+// ExtractEndpoints parses a page's links and forms into deduplicated endpoints.
 func ExtractEndpoints(html, baseURL string) []Endpoint {
 	var eps []Endpoint
 	seen := make(map[string]bool)
@@ -150,7 +161,7 @@ func ExtractEndpoints(html, baseURL string) []Endpoint {
 	}
 
 	add := func(method, kind, rawURL, foundAt string, params []string) {
-		if rawURL == "" {
+		if rawURL == "" || len(eps) >= maxEndpointsPerPage {
 			return
 		}
 		lower := strings.ToLower(rawURL)
@@ -247,7 +258,7 @@ func parseTagAttrs(tag string) map[string]string {
 
 // LoginForm fills in a login form in browser and submits it (OAuth / deep auth).
 // usernameSel / passwordSel — full CSS selectors (e.g. input[name='username']).
-func (b *Browser) LoginForm(loginURL, usernameSel, passwordSel, username, password string, extraFields map[string]string, successMatch string, timeout time.Duration) (bool, string, error) {
+func (b *Browser) LoginForm(loginURL, usernameSel, passwordSel, username, password string, extraFields map[string]string, successMatch string, timeout time.Duration) (bool, string, []*http.Cookie, error) {
 	ctx, cancel := b.ctx(timeout)
 	defer cancel()
 
@@ -283,17 +294,59 @@ func (b *Browser) LoginForm(loginURL, usernameSel, passwordSel, username, passwo
 	)
 
 	if err := chromedp.Do(ctx, actions...); err != nil {
-		return false, "", fmt.Errorf("browser: login failed %s: %w", loginURL, err)
+		return false, "", nil, fmt.Errorf("browser: login failed %s: %w", loginURL, err)
 	}
 
 	// Re-read the page (Action[string])
 	var finalBody string
 	finalBody, err := chromedp.Run(ctx, chromedp.OuterHTML(chromedp.CSS("body")))
 	if err != nil {
-		return false, "", fmt.Errorf("browser: error reading response: %w", err)
+		return false, "", nil, fmt.Errorf("browser: error reading response: %w", err)
 	}
 
-	return loginSucceeded(finalBody, successMatch), finalBody, nil
+	// Export the cookies the browser obtained so the caller's plain HTTP client
+	// carries the authenticated session. Without this a browser login succeeds
+	// in Chromium but every scanner request that follows is anonymous.
+	cookieAction := func(ctx context.Context, t *chromedp.Target) (network.GetCookiesResult, error) {
+		return cdp.Call(ctx, t, network.GetCookies, network.GetCookiesParams{URLs: []string{loginURL}})
+	}
+	cookieResult, err := chromedp.Run(ctx, cookieAction)
+	if err != nil {
+		return false, "", nil, fmt.Errorf("browser: error reading session cookies: %w", err)
+	}
+	cdCookies := cookieResult.Cookies
+	cookies := make([]*http.Cookie, 0, len(cdCookies))
+	for _, c := range cdCookies {
+		var expires time.Time
+		if c.Expires > 0 {
+			expires = time.Unix(int64(c.Expires), 0)
+		}
+		var sameSite http.SameSite
+		switch c.SameSite {
+		case network.CookieSameSiteStrict:
+			sameSite = http.SameSiteStrictMode
+		case network.CookieSameSiteLax:
+			sameSite = http.SameSiteLaxMode
+		case network.CookieSameSiteNone:
+			sameSite = http.SameSiteNoneMode
+		default:
+			sameSite = http.SameSiteDefaultMode
+		}
+		// #nosec G124 -- attributes are copied verbatim from Chromium's cookie
+		// store; forcing Secure/HttpOnly here would break legitimate sessions.
+		cookies = append(cookies, &http.Cookie{
+			Name:     c.Name,
+			Value:    c.Value,
+			Path:     c.Path,
+			Domain:   c.Domain,
+			Expires:  expires,
+			HttpOnly: c.HTTPOnly,
+			Secure:   c.Secure,
+			SameSite: sameSite,
+		})
+	}
+
+	return loginSucceeded(finalBody, successMatch), finalBody, cookies, nil
 }
 
 // loginSucceeded decides whether a submitted login flow actually authenticated.

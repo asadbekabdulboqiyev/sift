@@ -13,12 +13,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/browser"
@@ -156,7 +158,16 @@ func NewAuthSession(cfg AuthConfig, timeout time.Duration) (*AuthSession, error)
 		if strings.TrimSpace(cfg.Username) == "" || strings.TrimSpace(cfg.Password) == "" {
 			return nil, errors.New("auth: username and password are required for browser authentication")
 		}
-		s.ok = true
+		// The browser login is an explicit step (Login/Refresh), not a side
+		// effect of construction: launching Chromium here makes config
+		// validation unusable in environments without a browser. The jar must
+		// exist now so those cookies can reach the public HTTP client later.
+		jar, err := cookiejar.New(nil)
+		if err != nil {
+			return nil, fmt.Errorf("auth: create browser cookie jar: %w", err)
+		}
+		s.jar = jar
+		s.ok = false
 
 	default:
 		return nil, fmt.Errorf("auth: unsupported auth type %d", int(cfg.Type))
@@ -232,6 +243,36 @@ func NewAuthSession(cfg AuthConfig, timeout time.Duration) (*AuthSession, error)
 // The client follows redirects and applies the configured timeout.
 func (s *AuthSession) Client() *http.Client { return s.client }
 
+// ClientWithDialControl returns a copy of the authenticated client whose
+// transport dials only through control. The credential injection layer is
+// rebuilt on top of the controlled transport so authentication survives:
+// callers that would otherwise swap in this client must not silently drop the
+// Guard's DNS-rebind/SSRF check.
+func (s *AuthSession) ClientWithDialControl(control func(network, address string, c syscall.RawConn) error) *http.Client {
+	if control == nil || s.client == nil {
+		return s.client
+	}
+	clone := *s.client
+	tr := &http.Transport{
+		Proxy:               http.ProxyFromEnvironment,
+		DialContext:         (&net.Dialer{Timeout: s.client.Timeout, KeepAlive: 30 * time.Second, Control: control}).DialContext,
+		TLSHandshakeTimeout: s.client.Timeout,
+		MaxIdleConns:        100,
+		IdleConnTimeout:     90 * time.Second,
+	}
+	var rt http.RoundTripper = tr
+	switch s.cfg.Type {
+	case AuthHeader:
+		rt = &headerInjector{base: rt, name: http.CanonicalHeaderKey(strings.TrimSpace(s.cfg.HeaderName)), value: s.cfg.HeaderValue}
+	case AuthCookie:
+		rt = &cookieInjector{base: rt, cookie: s.cfg.Cookie}
+	case AuthForm:
+		rt = &reauthTransport{session: s, base: rt}
+	}
+	clone.Transport = rt
+	return &clone
+}
+
 // OK reports whether the session is verified: after a successful form login
 // it is true; for other modes it reflects config validity.
 func (s *AuthSession) OK() bool {
@@ -243,15 +284,23 @@ func (s *AuthSession) OK() bool {
 // Type returns the configured authentication type.
 func (s *AuthSession) Type() AuthType { return s.cfg.Type }
 
-// Refresh re-establishes the session. For form authentication it re-runs the
-// login flow; for all other modes it is a no-op returning nil.
-func (s *AuthSession) Refresh() error {
-	if s.cfg.Type != AuthForm {
+// Login performs the interactive authentication step for the modes that need
+// it. Form login also runs in the constructor; browser login cannot (it would
+// launch Chromium during config validation), so its callers must invoke this
+// explicitly. Cookie/header/none modes are a no-op.
+func (s *AuthSession) Login() error {
+	if s.cfg.Type != AuthForm && s.cfg.Type != AuthBrowser {
 		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.loginLocked()
+}
+
+// Refresh re-establishes the session. It shares Login's dispatch so browser
+// sessions can re-authenticate on expiry just like form sessions.
+func (s *AuthSession) Refresh() error {
+	return s.Login()
 }
 
 // loginLocked performs the credential POST and verifies the outcome.
@@ -417,7 +466,7 @@ func (s *AuthSession) loginBrowserLocked() error {
 	usernameSel := orDefault(s.cfg.BrowserSelectors["username_selector"], "input[type='text'], input[type='email'], input[name='username'], input[name='email']")
 	passwordSel := orDefault(s.cfg.BrowserSelectors["password_selector"], "input[type='password'], input[name='password']")
 
-	_, body, err := br.LoginForm(
+	_, body, cookies, err := br.LoginForm(
 		s.cfg.LoginURL,
 		usernameSel,
 		passwordSel,
@@ -449,6 +498,18 @@ func (s *AuthSession) loginBrowserLocked() error {
 			s.ok = false
 			return fmt.Errorf("auth: browser login verification failed - still on login page")
 		}
+	}
+
+	// Carry the Chromium session cookies into the HTTP client's jar. Without
+	// this the login succeeds in the browser but every subsequent scanner
+	// request is anonymous.
+	if s.jar != nil && len(cookies) > 0 {
+		loginURL, perr := url.Parse(s.cfg.LoginURL)
+		if perr != nil {
+			s.ok = false
+			return fmt.Errorf("auth: parse login url for cookies: %w", perr)
+		}
+		s.jar.SetCookies(loginURL, cookies)
 	}
 
 	s.ok = true

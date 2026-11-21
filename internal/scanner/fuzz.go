@@ -34,6 +34,10 @@ import (
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
 )
 
+// MaxFuzzConcurrency bounds worker fan-out. A single CLI flag must not be
+// able to start an arbitrary number of goroutines and sockets.
+const MaxFuzzConcurrency = 100
+
 // FuzzConfig configures a fuzzing campaign.
 type FuzzConfig struct {
 	// BaseURL is the target (e.g. https://example.com/api).
@@ -159,6 +163,9 @@ func NewFuzzer(cfg FuzzConfig, req core.Requester) (*Fuzzer, error) {
 	}
 	if cfg.Concurrency <= 0 {
 		cfg.Concurrency = 10
+	}
+	if cfg.Concurrency > MaxFuzzConcurrency {
+		cfg.Concurrency = MaxFuzzConcurrency
 	}
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = 10 * time.Second

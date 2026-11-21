@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	proreport "github.com/asadbekabdulboqiyev/sift/internal/report"
@@ -114,12 +116,31 @@ func resetVulnCounter() {
 	vulnCounter = 0
 }
 
-// NewVulnScanner creates a new vulnerability scanner
+// NewVulnScanner creates a new vulnerability scanner with no dial-time check.
 func NewVulnScanner(target string) *VulnScanner {
+	return NewVulnScannerWithControl(target, nil)
+}
+
+// NewVulnScannerWithControl creates a vulnerability scanner whose HTTP client
+// runs control on every resolved peer before connecting. The defaults are
+// otherwise identical to NewVulnScanner: callers that already hold a Guard must
+// pass its DialControl, otherwise this raw client could reach an address the
+// Gate never approved (DNS rebinding / SSRF). A nil control is allowed for
+// standalone callers and tests.
+func NewVulnScannerWithControl(target string, control func(network, address string, c syscall.RawConn) error) *VulnScanner {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	if control != nil {
+		tr.DialContext = (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+			Control:   control,
+		}).DialContext
+	}
 	return &VulnScanner{
 		Target: target,
 		Client: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout:   10 * time.Second,
+			Transport: tr,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse
 			},

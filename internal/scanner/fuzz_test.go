@@ -250,3 +250,17 @@ func TestFuzzRunReturnsAfterContextCancellation(t *testing.T) {
 		t.Fatal("Fuzzer.Run did not return after context cancellation: producer blocked on the unbuffered jobs channel after workers exited")
 	}
 }
+
+func TestNewFuzzerClampsConcurrency(t *testing.T) {
+	f, err := NewFuzzer(FuzzConfig{
+		BaseURL:     "http://x.test",
+		Paths:       []string{"/"},
+		Concurrency: MaxFuzzConcurrency * 10,
+	}, &fakeRequester{})
+	if err != nil {
+		t.Fatalf("NewFuzzer() error = %v", err)
+	}
+	if f.cfg.Concurrency != MaxFuzzConcurrency {
+		t.Fatalf("Concurrency = %d, want clamped to %d", f.cfg.Concurrency, MaxFuzzConcurrency)
+	}
+}

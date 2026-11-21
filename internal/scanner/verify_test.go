@@ -399,3 +399,86 @@ func TestVerifAnnotateDoesNotMutateInput(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Fail-closed grading regressions
+// ---------------------------------------------------------------------------
+
+// TestVerifSQLiControlFetchFailureDowngraded proves a failed random-marker
+// control cannot manufacture a Confirmed verdict: WAF blocks and transient
+// network errors are not evidence about the baseline response.
+func TestVerifSQLiControlFetchFailureDowngraded(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := r.URL.Query().Get("id")
+		if strings.Contains(id, "'") || strings.Contains(id, `"`) {
+			fmt.Fprint(w, "Warning: mysqli_fetch_array() expects parameter 1, "+
+				"SQLSTATE[42000]: Syntax error or access violation")
+			return
+		}
+		// Random-marker control: drop the connection so v.fetch returns an
+		// error instead of a clean baseline page.
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			t.Error("test server does not support hijacking")
+			return
+		}
+		conn, _, err := hj.Hijack()
+		if err != nil {
+			return
+		}
+		_ = conn.Close()
+	}))
+	defer srv.Close()
+
+	v := NewVerifier(2 * time.Second)
+	vuln := Vulnerability{
+		CWE:       "CWE-89",
+		URL:       srv.URL + "/item?id=" + url.QueryEscape(`' OR 1=1--`),
+		Parameter: "id",
+		Evidence:  "Payload triggered SQL error response",
+	}
+	got := v.Check(srv.URL, vuln)
+	if got.Confidence != ConfPossible {
+		t.Fatalf("SQLi with failed control graded %q, want possible (evidence: %s)", got.Confidence, got.Evidence)
+	}
+}
+
+// TestVerifDeterministicGenericFallbackNotConfirmed proves an HTTP 200 alone
+// is not re-observation of the original finding condition.
+func TestVerifDeterministicGenericFallbackNotConfirmed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "<html>plain page</html>")
+	}))
+	defer srv.Close()
+
+	v := NewVerifier(2 * time.Second)
+	vuln := Vulnerability{
+		CWE:      "CWE-200",
+		URL:      srv.URL + "/exotic",
+		Title:    "Exotic Disclosure Finding",
+		Category: "info",
+		Evidence: "heuristic only",
+	}
+	got := v.Check(srv.URL, vuln)
+	if got.Confidence != ConfPossible {
+		t.Fatalf("generic HTTP 200 fallback graded %q, want possible (evidence: %s)", got.Confidence, got.Evidence)
+	}
+}
+
+func TestVerifConfidenceFromTitle(t *testing.T) {
+	tests := []struct {
+		title string
+		want  Confidence
+	}{
+		{ConfidenceBadge(ConfConfirmed) + " SQL Injection", ConfConfirmed},
+		{ConfidenceBadge(ConfProbable) + " XSS", ConfProbable},
+		{ConfidenceBadge(ConfPossible) + " Unknown", ConfPossible},
+		{"No badge", ConfPossible},
+		{"", ConfPossible},
+	}
+	for _, tt := range tests {
+		if got := ConfidenceFromTitle(tt.title); got != tt.want {
+			t.Errorf("ConfidenceFromTitle(%q) = %q, want %q", tt.title, got, tt.want)
+		}
+	}
+}

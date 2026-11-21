@@ -870,7 +870,11 @@ func (c *OWASPChecker) checkA05() *OWASPCategory {
 		}
 		for _, ip := range importantPorts {
 			addr := net.JoinHostPort(host, strconv.Itoa(ip.port))
-			conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+			// The port probe must honour the same dial-time authorization check
+			// as every other socket this scan opens; a bare net.DialTimeout
+			// would let a DNS-rebound address escape the Gate's scope decision.
+			dialer := &net.Dialer{Timeout: 2 * time.Second, Control: c.DialControl}
+			conn, err := dialer.Dial("tcp", addr)
 			if err == nil {
 				_ = conn.Close()
 				c.addFinding(cat,

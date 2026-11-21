@@ -1,12 +1,14 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -500,3 +502,54 @@ func TestAuthCookieNotLeakedOnCrossHostRedirect(t *testing.T) {
 
 func syncAtomicAdd(p *int32, v int32) { atomic.AddInt32(p, v) }
 func syncAtomicLoad(p *int32) int32   { return atomic.LoadInt32(p) }
+
+// TestClientWithDialControlPreservesInjection proves the dial-controlled clone
+// still carries static credential injection: callers swap this client into
+// crawlers and scanners and must not lose authentication.
+func TestClientWithDialControlPreservesInjection(t *testing.T) {
+	var gotCookie string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCookie = r.Header.Get("Cookie")
+		fmt.Fprint(w, "ok")
+	}))
+	defer srv.Close()
+
+	sess, err := NewAuthSession(AuthConfig{Type: AuthCookie, Cookie: "k1=v1"}, time.Second)
+	if err != nil {
+		t.Fatalf("NewAuthSession: %v", err)
+	}
+	client := sess.ClientWithDialControl(func(network, address string, c syscall.RawConn) error {
+		return nil
+	})
+	if client == sess.Client() {
+		t.Fatal("ClientWithDialControl returned the original client")
+	}
+	resp, err := client.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	_ = resp.Body.Close()
+	if gotCookie != "k1=v1" {
+		t.Fatalf("Cookie header = %q, want k1=v1", gotCookie)
+	}
+}
+
+// TestClientWithDialControlRefuses proves a refusal on the clone blocks the
+// request instead of silently falling back to an uncontrolled transport.
+func TestClientWithDialControlRefuses(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "should not be reached")
+	}))
+	defer srv.Close()
+
+	sess, err := NewAuthSession(AuthConfig{Type: AuthCookie, Cookie: "k1=v1"}, time.Second)
+	if err != nil {
+		t.Fatalf("NewAuthSession: %v", err)
+	}
+	client := sess.ClientWithDialControl(func(network, address string, c syscall.RawConn) error {
+		return errors.New("blocked by test gate")
+	})
+	if _, err := client.Get(srv.URL); err == nil {
+		t.Fatal("Get succeeded despite dial control refusal")
+	}
+}

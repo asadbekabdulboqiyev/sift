@@ -36,6 +36,15 @@ func SendProbe(target, method, path string, headers http.Header) (*http.Response
 // by class can refuse a connection that resolved to a more restrictive address.
 // Nil keeps the original behaviour exactly.
 func SendProbeWithControl(target, method, path string, headers http.Header, control func(network, address string, c syscall.RawConn) error) (*http.Response, error) {
+	return SendProbeWithClient(target, method, path, headers,
+		NewHTTPClientWithControl(DefaultFingerprint, 10*time.Second, false, control))
+}
+
+// SendProbeWithClient builds the same probe as SendProbe but sends it through a
+// caller-supplied client. Use it when the caller owns the transport (authenticated
+// cookies, a Guard dial control, custom timeouts): the probe URL and headers are
+// still applied here, but no uncontrolled client is silently substituted.
+func SendProbeWithClient(target, method, path string, headers http.Header, client *http.Client) (*http.Response, error) {
 	u, err := url.Parse(target)
 	if err != nil {
 		return nil, err
@@ -54,8 +63,9 @@ func SendProbeWithControl(target, method, path string, headers http.Header, cont
 	}
 	ApplyHeaders(req, DefaultFingerprint)
 
-	client := NewHTTPClientWithControl(DefaultFingerprint, 10*time.Second, false, control)
-
+	if client == nil {
+		client = NewHTTPClientWithControl(DefaultFingerprint, 10*time.Second, false, nil)
+	}
 	return client.Do(req)
 }
 

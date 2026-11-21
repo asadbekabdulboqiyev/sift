@@ -8,6 +8,7 @@ package crawl
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -81,13 +82,27 @@ type crawlJob struct {
 }
 
 const (
-	defaultMaxDepth = 3
-	defaultMaxPages = 100
-	defaultTimeout  = 10 * time.Second
-	defaultConc     = 5
-	defaultUA       = "Sift-crawler/1.0"
-	maxBodyBytes    = 4 << 20 // 4 MiB cap per page body
+	defaultMaxDepth      = 3
+	defaultMaxPages      = 100
+	defaultTimeout       = 10 * time.Second
+	defaultConc          = 5
+	defaultUA            = "Sift-crawler/1.0"
+	maxBodyBytes         = 4 << 20 // 4 MiB cap per page body
+	maxRedirectHops      = 10
+	maxLinksPerPage      = 4096 // bounds per-page link/form extraction from hostile HTML
+	maxDiscoveredHardCap = 1_000_000
 )
+
+// discoveryLimit caps total discovered URLs/endpoints. Per-page bounds alone
+// still let MaxPages multiplied by thousands of links grow the dedup maps
+// without limit, so both crawl modes share this ceiling.
+func (c *Crawler) discoveryLimit() int {
+	limit := c.Options.MaxPages * 10
+	if limit < c.Options.MaxPages || limit > maxDiscoveredHardCap {
+		return maxDiscoveredHardCap
+	}
+	return limit
+}
 
 // NewCrawler builds a crawler for startURL, applying option defaults.
 func NewCrawler(startURL string, opts CrawlOptions) *Crawler {
@@ -118,6 +133,12 @@ func NewCrawler(startURL string, opts CrawlOptions) *Crawler {
 // the authenticated session when injected) at third-party hosts. Direct
 // offsite fetches are unaffected — only redirect hops are cut.
 func crawlerRedirectGuard(req *http.Request, via []*http.Request) error {
+	// A custom CheckRedirect replaces net/http's default 10-hop limit, so an
+	// endless same-host redirect chain would otherwise spin until the job's
+	// context expires. Keep an explicit cap here.
+	if len(via) >= maxRedirectHops {
+		return errors.New("crawler: stopped after 10 redirects")
+	}
 	if len(via) > 0 && req.URL.Host != via[0].URL.Host {
 		return http.ErrUseLastResponse
 	}
@@ -193,6 +214,9 @@ func (c *Crawler) crawlHTTP() *CrawlResult {
 				continue
 			}
 			for _, ep := range out.endpoints {
+				if len(c.endpoints) >= c.discoveryLimit() {
+					break
+				}
 				key := endpointKey(ep.Method, ep.URL, ep.Params)
 				if _, ok := c.endpoints[key]; !ok {
 					ep.FoundAt = out.pageURL
@@ -201,7 +225,7 @@ func (c *Crawler) crawlHTTP() *CrawlResult {
 			}
 			for _, link := range out.links {
 				childDepth := out.depth + 1
-				if childDepth > c.Options.MaxDepth {
+				if childDepth > c.Options.MaxDepth || len(c.visited) >= c.discoveryLimit() {
 					continue
 				}
 				k := queueKey(link.parsed)
@@ -279,6 +303,9 @@ func (c *Crawler) crawlBrowser() *CrawlResult {
 					continue
 				}
 			}
+			if len(c.endpoints) >= c.discoveryLimit() {
+				break
+			}
 			key := endpointKey(ep.Method, ep.URL, ep.Params)
 			if _, ok := c.endpoints[key]; !ok {
 				c.endpoints[key] = Endpoint{
@@ -297,11 +324,17 @@ func (c *Crawler) crawlBrowser() *CrawlResult {
 				continue
 			}
 			childDepth := j.depth + 1
-			if childDepth > c.Options.MaxDepth {
+			if childDepth > c.Options.MaxDepth || len(c.visited) >= c.discoveryLimit() {
 				continue
 			}
 			u, parseErr := url.Parse(ep.URL)
 			if parseErr != nil {
+				continue
+			}
+			// Same offsite policy as the endpoint loop above: without this,
+			// a page's <a href> to a third-party host is fetched with the
+			// (possibly authenticated) crawler client despite AllowOffsite=false.
+			if !c.Options.AllowOffsite && !sameHost(u, baseURL) {
 				continue
 			}
 			k := queueKey(u)
@@ -405,6 +438,9 @@ func extractPageLinks(htmlText string, baseURL *url.URL, c *Crawler) []discovere
 	var links []discoveredLink
 	seenOnPage := map[string]bool{}
 	for _, tag := range rxA.FindAllString(htmlText, -1) {
+		if len(links) >= maxLinksPerPage {
+			break
+		}
 		href := attrValue(tag, rxHrefName)
 		u, ok := resolveTarget(baseURL, href)
 		if !ok {
@@ -495,6 +531,9 @@ func extractFormEndpoints(htmlText string, baseURL *url.URL, sameHostOnly bool) 
 	var endpoints []Endpoint
 	opens := rxFormOpen.FindAllStringIndex(htmlText, -1)
 	for i, span := range opens {
+		if len(endpoints) >= maxLinksPerPage {
+			break
+		}
 		tagEnd := span[1]
 
 		// Form body ends at the first </form>, the next <form, or EOF —

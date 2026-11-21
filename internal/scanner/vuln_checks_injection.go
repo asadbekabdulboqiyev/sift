@@ -24,14 +24,14 @@ func (vs *VulnScanner) scanSQLInjection() {
 		payload   string
 		signature string
 	}{
+		// Only error-based signatures belong in the default deep scan. A
+		// destructive statement (DROP TABLE) can damage an authorized production
+		// database, and time-based payloads (SLEEP/WAITFOR) are a deliberate DoS.
+		// Those belong to the separate, explicitly opted-in intrusive module.
 		{"' OR 1=1--", "sql"},
 		{`" OR ""="`, "sql"},
 		{"1' UNION SELECT NULL--", "sql"},
-		{"1' AND SLEEP(5)--", "time"},
-		{"'; WAITFOR DELAY '0:0:5'--", "time"},
 		{"1' AND '1'='1", "sql"},
-		{"1; DROP TABLE users--", "sql"},
-		{"' UNION SELECT username,password FROM users--", "sql"},
 	}
 
 	sqlErrorPatterns := []string{

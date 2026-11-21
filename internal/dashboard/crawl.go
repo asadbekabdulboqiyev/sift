@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -292,6 +293,10 @@ func (s *Server) handleCrawlScan(w http.ResponseWriter, r *http.Request) {
 		// the scanner's own crawler client): a hostile page must not steer the
 		// authenticated crawl at a third-party host.
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			// A custom CheckRedirect disables net/http's implicit 10-hop cap.
+			if len(via) >= 10 {
+				return errors.New("dashboard crawl: stopped after 10 redirects")
+			}
 			if len(via) > 0 && req.URL.Host != via[0].URL.Host {
 				return http.ErrUseLastResponse
 			}

@@ -54,7 +54,10 @@ func NewHTTPClientWithControl(profile fingerprint.Profile, timeout time.Duration
 			Fingerprint:        profile,
 			Dialer:             net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second, Control: control},
 			InsecureSkipVerify: insecure, // #nosec G402 -- caller opts in for authorized scanner targets
-			NextProtos:         []string{"h2", "http/1.1"},
+			// ForceAttemptHTTP2 is false above, and Go cannot negotiate h2 over a
+			// custom DialTLSContext (the recovered tlsState is nil). Offering h2
+			// makes an h2-capable server select it, then receive HTTP/1.1 bytes.
+			NextProtos: []string{"http/1.1"},
 		})
 	}
 

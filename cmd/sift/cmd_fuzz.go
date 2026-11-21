@@ -73,8 +73,8 @@ func cmdFuzz() {
 	if mutations <= 0 {
 		scanUsageExit(sf, fmt.Errorf("--mutations must be positive, got %d", mutations))
 	}
-	if concurrency <= 0 {
-		scanUsageExit(sf, fmt.Errorf("--concurrency must be positive, got %d", concurrency))
+	if concurrency <= 0 || concurrency > scanner.MaxFuzzConcurrency {
+		scanUsageExit(sf, fmt.Errorf("--concurrency must be between 1 and %d, got %d", scanner.MaxFuzzConcurrency, concurrency))
 	}
 	if timeout <= 0 {
 		scanUsageExit(sf, fmt.Errorf("--timeout must be positive, got %d", timeout))

@@ -1,11 +1,14 @@
 package scanner
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 
 	proreport "github.com/asadbekabdulboqiyev/sift/internal/report"
@@ -1008,5 +1011,44 @@ func TestVulnScanner_SeverityCounts(t *testing.T) {
 	}
 	if len(vs.Results.Info) != 1 {
 		t.Errorf("info count = %d, want 1", len(vs.Results.Info))
+	}
+}
+
+// TestVulnScannerDialControlInvoked proves the controlled constructor routes
+// every connection through the caller's dial hook.
+func TestVulnScannerDialControlInvoked(t *testing.T) {
+	srv := newMockServer(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "ok")
+	})
+	defer srv.Close()
+
+	var calls atomic.Int32
+	vs := NewVulnScannerWithControl(srv.URL, func(network, address string, c syscall.RawConn) error {
+		calls.Add(1)
+		return nil
+	})
+	resp, err := vs.get(srv.URL)
+	if err != nil {
+		t.Fatalf("get() error = %v", err)
+	}
+	_ = resp.Body.Close()
+	if calls.Load() == 0 {
+		t.Fatal("dial control was never invoked")
+	}
+}
+
+// TestVulnScannerDialControlRefuses proves a refusal actually blocks the
+// request, so an unapproved resolved peer cannot be reached.
+func TestVulnScannerDialControlRefuses(t *testing.T) {
+	srv := newMockServer(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "should not be reached")
+	})
+	defer srv.Close()
+
+	vs := NewVulnScannerWithControl(srv.URL, func(network, address string, c syscall.RawConn) error {
+		return errors.New("blocked by test gate")
+	})
+	if _, err := vs.get(srv.URL); err == nil {
+		t.Fatal("get() succeeded despite dial control refusal")
 	}
 }

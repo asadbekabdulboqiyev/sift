@@ -119,6 +119,20 @@ func (v *Verifier) Annotate(targetURL string, vulns []Vulnerability) []Vulnerabi
 	return out
 }
 
+// ConfidenceFromTitle reads the badge Annotate prepended to a finding title.
+// Reports use it to preserve the verifier's grade instead of hardcoding
+// "possible" for every deep-scan finding.
+func ConfidenceFromTitle(title string) Confidence {
+	switch {
+	case strings.HasPrefix(title, ConfidenceBadge(ConfConfirmed)+" "):
+		return ConfConfirmed
+	case strings.HasPrefix(title, ConfidenceBadge(ConfProbable)+" "):
+		return ConfProbable
+	default:
+		return ConfPossible
+	}
+}
+
 // ConfidenceBadge renders a confidence level as a report-friendly prefix.
 func ConfidenceBadge(c Confidence) string {
 	switch c {
@@ -353,13 +367,21 @@ func (v *Verifier) verifySQLi(requestURL string, vuln Vulnerability) Verdict {
 	if sig, hit := matchSQLError(page.body); hit {
 		controlURL := withParam(requestURL, vuln.Parameter, randToken())
 		control, cerr := v.fetch(controlURL)
-		if cerr == nil {
-			if _, ctrlHit := matchSQLError(control.body); ctrlHit {
-				return Verdict{
-					Confidence: ConfProbable,
-					Evidence: fmt.Sprintf("payload replay showed SQL error '%s' but the random-marker control errored too; "+
-						"generic error pages cannot be ruled out", sig),
-				}
+		if cerr != nil {
+			// A control that could not be fetched proves nothing about the
+			// baseline. Claiming "returned no error" here would manufacture a
+			// confirmed finding out of a WAF block or a transient network error.
+			return Verdict{
+				Confidence: ConfPossible,
+				Evidence: fmt.Sprintf("payload replay showed SQL error '%s' but the random-marker control request failed (%v); "+
+					"the finding cannot be confirmed", sig, cerr),
+			}
+		}
+		if _, ctrlHit := matchSQLError(control.body); ctrlHit {
+			return Verdict{
+				Confidence: ConfProbable,
+				Evidence: fmt.Sprintf("payload replay showed SQL error '%s' but the random-marker control errored too; "+
+					"generic error pages cannot be ruled out", sig),
 			}
 		}
 		return Verdict{
@@ -608,9 +630,12 @@ func (v *Verifier) verifyDeterministic(requestURL string, vuln Vulnerability) Ve
 		return Verdict{Confidence: ConfPossible, Evidence: fmt.Sprintf("signature '%s' from the original evidence is absent on re-check", m[1])}
 	}
 
-	// 6. Generic fallback: reachable endpoint keeps its grade, otherwise drop.
+	// 6. Generic fallback: a reachable endpoint is not evidence that the
+	// original condition is still true (mass assignment, IDOR and rate-limit
+	// findings land here). Only claims with a re-matched signature earn
+	// Confirmed above; this fallback must never manufacture one from HTTP 200.
 	if page.status == http.StatusOK {
-		return Verdict{Confidence: ConfConfirmed, Evidence: "deterministic re-check: endpoint still answers HTTP 200 (finding is configuration-observable)"}
+		return Verdict{Confidence: ConfPossible, Evidence: "deterministic re-check: endpoint still answers HTTP 200, but the original condition was not re-observed"}
 	}
 	return Verdict{
 		Confidence: ConfPossible,

@@ -176,9 +176,20 @@ func ScanTLS(host string, port int) (*TLSInfo, error) {
 	return tls.ScanTLS(host, port)
 }
 
+// ScanTLSWithControl re-exports tls.ScanTLSWithControl so callers that already
+// hold a Guard can keep the dial-time authorization decision on TLS sockets.
+func ScanTLSWithControl(host string, port int, control func(network, address string, c syscall.RawConn) error) (*TLSInfo, error) {
+	return tls.ScanTLSWithControl(host, port, control)
+}
+
 // ScanWAF re-exports waf.ScanWAF for backward compatibility.
 func ScanWAF(target string) (*WAFInfo, error) {
 	return waf.ScanWAF(target)
+}
+
+// ScanWAFWithControl re-exports waf.ScanWAFWithControl.
+func ScanWAFWithControl(target string, control func(network, address string, c syscall.RawConn) error) (*WAFInfo, error) {
+	return waf.ScanWAFWithControl(target, control)
 }
 
 // ScanHTTP re-exports http.ScanHTTP for backward compatibility.
@@ -189,6 +200,11 @@ func ScanHTTP(target string) (*HTTPInfo, error) {
 // ScanSecurity re-exports security.ScanSecurity for backward compatibility.
 func ScanSecurity(target string) (*SecurityInfo, error) {
 	return security.ScanSecurity(target)
+}
+
+// ScanSecurityWithControl re-exports security.ScanSecurityWithControl.
+func ScanSecurityWithControl(target string, control func(network, address string, c syscall.RawConn) error) (*SecurityInfo, error) {
+	return security.ScanSecurityWithControl(target, control)
 }
 
 // calculateVulns delegates to the shared canonical rule so the scanner and the
