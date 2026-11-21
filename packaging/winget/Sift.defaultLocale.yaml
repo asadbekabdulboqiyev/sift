@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.28.0.schema.json
+# yaml-language-server schema uses PackageLocale; the version manifest uses DefaultLocale.
+PackageIdentifier: asadbekabdulboqiyev.Sift
+PackageVersion: 0.18.1
+PackageLocale: en-US
+Publisher: Asadbek Abdulboqiyev
+Author: Asadbek Abdulboqiyev and contributors
+PackageName: Sift
+PackageUrl: https://github.com/asadbekabdulboqiyev/sift
+License: Apache-2.0
+ShortDescription: "Verifiable load & security evidence for systems you own."
+Tags:
+  - load-testing
+  - security-scanning
+  - pentest
+  - traffic-replay
+  - verifiable-evidence
+  - cli
+  - go
+  - dashboard
+  - capacity-planning
+  - performance
+ReleaseNotes: |
+  Security and release-hardening update: path-first fail-closed RBAC and
+  socket-level dial authorization, default CSRF same-origin enforcement with
+  rate limiting, certificate trust anchors required by default, and TLS
+  certificate verification for HTTP/3 probes. Also unifies the report grade
+  ladder, repairs CLI subcommand dispatch, and adds deterministic test coverage.
+ReleaseNotesUrl: https://github.com/asadbekabdulboqiyev/Sift/releases/tag/v0.18.1
+ManifestType: defaultLocale
+ManifestVersion: 1.28.0

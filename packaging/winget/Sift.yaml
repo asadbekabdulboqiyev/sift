@@ -1,31 +1,16 @@
-# Windows Package Manager — ROOT VERSION manifest for Sift.
-#
-# In winget-pkgs this file goes to:
-#   manifests/a/asadbekabdulboqiyev/Sift/0.18.1/Sift.yaml
-#
-# A version manifest contains ONLY these five keys. The previous revision of
-# this file mixed installer fields (`InstallerType`, `Installers`, ...) with
-# version/locale fields, which winget rejects. Split the data across siblings:
-#
-#   Sift.installer.yaml       -> Platform, InstallerType, ReleaseDate,
-#                                Installers, InstallerSwitches, FileExtensions,
-#                                Commands, ManifestType: installer
-#   Sift.defaultLocale.yaml   -> Publisher, Author, PackageName, License,
-#                                Homepage, ShortDescription, Tags,
-#                                ReleaseNotes, ReleaseNotesUrl,
-#                                ManifestType: defaultLocale
-#
-# All three files must declare the SAME PackageIdentifier, PackageVersion and
-# ManifestVersion. The checked-in installer manifest currently lists only
-# arm64; add this x64 entry there (hash verified against the published
-# v0.18.1 checksums.txt):
-#
-#   - Architecture: x64
-#     InstallerUrl: https://github.com/asadbekabdulboqiyev/Sift/releases/download/v0.18.1/Sift_0.18.1_windows_amd64.zip
-#     InstallerSha256: 26eb5cab1d203efa6ac1b56a06107374af1d0626fe9854667c0ec018c0cfb66d
-#
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.28.0.schema.json
+# Windows Package Manager — root version manifest for Sift 0.18.1.
+# Release: v0.18.1
+# Multi-file set in this directory:
+#   Sift.yaml               -> version (this file)
+#   Sift.installer.yaml     -> installer (x64 and arm64)
+#   Sift.defaultLocale.yaml -> defaultLocale (en-US)
+# All three declare the same PackageIdentifier, PackageVersion and ManifestVersion.
+# For winget-pkgs submission, rename to asadbekabdulboqiyev.Sift.yaml /
+# asadbekabdulboqiyev.Sift.installer.yaml / asadbekabdulboqiyev.Sift.locale.en-US.yaml
+# (repo-internal filenames stay unchanged).
 PackageIdentifier: asadbekabdulboqiyev.Sift
 PackageVersion: 0.18.1
 DefaultLocale: en-US
 ManifestType: version
-ManifestVersion: 1.10.0
+ManifestVersion: 1.28.0

@@ -1,15 +1,21 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.28.0.schema.json
 PackageIdentifier: asadbekabdulboqiyev.Sift
 PackageVersion: 0.18.1
 ManifestType: installer
+ManifestVersion: 1.28.0
 InstallerType: zip
 MinimumOSVersion: 10.0.17763.0
-ReleaseNotes: https://github.com/asadbekabdulboqiyev/Sift/releases/tag/v0.18.1
-ReleaseNotesUrl: https://github.com/asadbekabdulboqiyev/Sift/releases/tag/v0.18.1
+# Required by winget-pkgs when InstallerType is an archive. The release ZIP
+# contains Sift.exe (verified from the v0.18.1 GitHub release asset).
+NestedInstallerType: portable
+NestedInstallerFiles:
+  - RelativeFilePath: Sift.exe
+Commands:
+  - Sift
 Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/asadbekabdulboqiyev/Sift/releases/download/v0.18.1/Sift_0.18.1_windows_amd64.zip
+    InstallerSha256: 26eb5cab1d203efa6ac1b56a06107374af1d0626fe9854667c0ec018c0cfb66d
   - Architecture: arm64
     InstallerUrl: https://github.com/asadbekabdulboqiyev/Sift/releases/download/v0.18.1/Sift_0.18.1_windows_arm64.zip
     InstallerSha256: c7c6e5dd3f3aef8f1f0fb163980221d276ef1caad8ee86b34a8a1361abbdc0cb
-FileExtensions:
-  - ss
-Commands:
-  - name: Sift
