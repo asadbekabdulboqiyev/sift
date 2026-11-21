@@ -112,7 +112,7 @@ type Telemetry struct {
 	ActiveUsers atomic.Int64
 	PeakUsers   atomic.Int64
 	Timeline    Timeline
-	mu          sync.Mutex // guards Steps (read by TotalRequests/Errors/StatusCodes/RPS while AddStep appends)
+	mu          sync.Mutex // guards Steps (read by StepsSnapshot/TotalRequests/Errors/StatusCodes/RPS while AddStep appends)
 	warmupUntil atomic.Int64
 	// finished/elapsedNanos let Elapsed() read a finished run's duration
 	// without a lock, so it stays safe to call concurrently with Finish().
@@ -152,6 +152,16 @@ func (t *Telemetry) AddStep(stats *StepStats) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.Steps = append(t.Steps, stats)
+}
+
+// StepsSnapshot returns a copy of the step list so readers can iterate it
+// without racing a concurrent AddStep (for example during an HTTP scrape).
+func (t *Telemetry) StepsSnapshot() []*StepStats {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	out := make([]*StepStats, len(t.Steps))
+	copy(out, t.Steps)
+	return out
 }
 
 func (t *Telemetry) Finish() {

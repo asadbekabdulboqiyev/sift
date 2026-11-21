@@ -87,7 +87,9 @@ func TelemetryToProto(tel *metrics.Telemetry, snap metrics.HistogramSnapshot) *d
 		ErrorTypes:    ErrorsToProto(tel.Errors()),
 		Latency:       LatencyToProto(snap),
 	}
-	for _, step := range tel.Steps {
+	// Telemetry.AddStep appends under a lock; snapshot before iterating so
+	// coordinator conversion cannot race an active run's step updates.
+	for _, step := range tel.StepsSnapshot() {
 		ts.Steps = append(ts.Steps, &distproto.StepTelemetry{
 			Name:        step.Name,
 			Requests:    int64(step.Requests()),   // #nosec G115 -- counters are expected to remain within int64 range

@@ -156,7 +156,10 @@ func Build(t *metrics.Telemetry, scenario *config.Scenario) Report {
 		Overall:       fromStepStats("overall", t.Overall),
 		Timeline:      t.Timeline.Snapshot(),
 	}
-	for _, s := range t.Steps {
+	// AddStep appends under Telemetry's lock; take a snapshot so building a
+	// report never races a concurrent step append (same rule as the /metrics
+	// exporter).
+	for _, s := range t.StepsSnapshot() {
 		r.Steps = append(r.Steps, fromStepStats(s.Name, s))
 	}
 	r.SLA = EvaluateSLA(&r, scenario.SLA)

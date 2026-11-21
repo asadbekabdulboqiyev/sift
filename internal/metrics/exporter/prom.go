@@ -31,9 +31,10 @@
 //
 // The unlabelled series come from Telemetry.Overall, the run-wide step the
 // engine updates on every iteration, and the histogram is Overall's latency
-// distribution. The per-step series come from Telemetry.Steps. Taking all of
+// distribution. The per-step series come from Telemetry.StepsSnapshot. Taking all of
 // the run-wide numbers from Overall keeps ss_requests_total, the histogram
-// _count and the sum of the per-step counters mutually consistent.
+// _count and the sum of the per-step counters mutually consistent. Steps are
+// read through Telemetry.StepsSnapshot so a scrape never races AddStep.
 //
 // # Histogram buckets
 //
@@ -289,11 +290,14 @@ func reportFromTelemetry(t *metrics.Telemetry) report {
 // collectSteps merges the per-step stats by name (so duplicate names cannot
 // produce duplicate series) and returns them sorted by name.
 func collectSteps(t *metrics.Telemetry) []stepReport {
-	if len(t.Steps) == 0 {
+	// AddStep appends under Telemetry's lock, so take a snapshot before
+	// iterating; the /metrics handler can be scraped while a run is active.
+	steps := t.StepsSnapshot()
+	if len(steps) == 0 {
 		return nil
 	}
-	byName := make(map[string]stepReport, len(t.Steps))
-	for _, s := range t.Steps {
+	byName := make(map[string]stepReport, len(steps))
+	for _, s := range steps {
 		if s == nil {
 			continue
 		}

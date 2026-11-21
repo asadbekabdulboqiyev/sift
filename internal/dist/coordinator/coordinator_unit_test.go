@@ -482,9 +482,15 @@ func TestUnitMasterStartRunFailuresAndForceDone(t *testing.T) {
 	default:
 	}
 
+	// A rejected start must stay retryable: it never committed m.started, so
+	// the second attempt fails for the same reason (no workers) instead of
+	// being permanently locked out with "run already started".
 	err = m.StartRun(context.Background(), "run-2")
-	if err == nil || !strings.Contains(err.Error(), "already started") {
-		t.Fatalf("second StartRun error = %v, want 'already started'", err)
+	if err == nil || !strings.Contains(err.Error(), "no connected workers") {
+		t.Fatalf("second StartRun error = %v, want 'no connected workers'", err)
+	}
+	if m.started {
+		t.Fatal("failed StartRun must not leave the master in started state")
 	}
 
 	// Two never-reporting workers: forceDone must synthesize failure evidence

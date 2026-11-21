@@ -515,20 +515,22 @@ func (m *Master) StartRun(ctx context.Context, runID string) error {
 		m.mu.Unlock()
 		return errors.New("run already started")
 	}
-	m.started = true
-	m.runID = runID
-	m.runStartedAt = time.Now()
 	// Deterministic order keeps worker_index stable.
 	addrs := make([]string, 0, len(m.clients))
 	for addr := range m.clients {
 		addrs = append(addrs, addr)
 	}
 	sort.Strings(addrs)
+	m.runID = runID
+	m.runStartedAt = time.Now()
 	m.workerCount = len(addrs)
-	if m.workerCount == 0 {
+	if len(addrs) == 0 {
 		m.mu.Unlock()
 		return errors.New("no connected workers")
 	}
+	// Commit "started" only after validation passes: a rejected start must
+	// remain retryable instead of reporting "run already started" forever.
+	m.started = true
 	m.mu.Unlock()
 
 	total := m.workerCount

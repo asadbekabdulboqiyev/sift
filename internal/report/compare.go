@@ -110,12 +110,12 @@ func Compare(current, baseline *Report) *CompareResult {
 		candidates = append(candidates, 100)
 	}
 	if baseline.RPS > 0 {
+		// A drop to zero throughput yields pctChange == -100, i.e. a 100%
+		// regression, so no separate zero-current branch is needed here.
 		candidates = append(candidates, -cr.RPSChangePct)
 	} else if current.RPS > 0 {
 		// 0 -> positive throughput is not a regression.
 		candidates = append(candidates, -100)
-	} else if baselineMeasured && baseline.RPS == 0 && current.RPS < baseline.RPS {
-		candidates = append(candidates, 100)
 	}
 	if baseline.TotalErrors > 0 {
 		candidates = append(candidates, cr.ErrorChangePct)

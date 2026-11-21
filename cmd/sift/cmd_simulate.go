@@ -1009,7 +1009,9 @@ func resolveValidateManifest(manifestPath, actualPath, resultPath, modelPath str
 	}
 	m, err := twin.CreateValidateCompareManifest(actualPath, resultPath, opts)
 	if err != nil {
-		return nil, twin.LeakageVerification{Status: twin.LeakageStatusUnverified, Summary: "unverified: could not construct provenance manifest from metadata"}, "", nil
+		// Propagate the construction failure so the caller can fail with the
+		// real cause instead of a generic "unverified" verdict.
+		return nil, twin.LeakageVerification{Status: twin.LeakageStatusUnverified, Summary: "unverified: could not construct provenance manifest from metadata"}, "", err
 	}
 	ver := twin.VerifyManifestSeparation(m)
 	// Force metadata-only path to unverified even if incidental fields looked separable, unless explicitly backed by strong IDs?
@@ -1038,7 +1040,9 @@ func resolveBacktestManifest(manifestPath, inputPath string, predicted, actual [
 	}
 	m, ver, err := twin.ComputeBacktestManifestFromInput(inputPath, predicted, actual, split, dataset)
 	if err != nil {
-		return nil, twin.LeakageVerification{Status: twin.LeakageStatusUnverified, Summary: "unverified: could not compute provenance manifest"}, "", nil
+		// Surface the provenance failure: silently returning a nil error here
+		// would let a broken manifest fall through as merely "unverified".
+		return nil, twin.LeakageVerification{Status: twin.LeakageStatusUnverified, Summary: "unverified: could not compute provenance manifest"}, "", err
 	}
 	// Metadata-only/computed-without-manifest cannot be trusted as verified.
 	ver.Verified = false

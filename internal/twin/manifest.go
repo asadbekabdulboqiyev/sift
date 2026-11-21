@@ -559,6 +559,10 @@ func HashBytesSHA256(b []byte) string {
 // If split IDs are not provided, it can infer index-based IDs but only verifies
 // separation when explicit train/validation ID sets or separate sources are provided.
 func ComputeBacktestManifestFromInput(inputPath string, predicted, actual []float64, split *SplitSpec, dataset *DatasetRef) (DatasetManifest, LeakageVerification, error) {
+	// A pairs file may carry different numbers of predictions and actuals.
+	// Provenance records the paired minimum; BacktestErrors is the strict
+	// consumer and withholds metrics unless the two slices have equal length,
+	// so mismatched input is intentionally not rejected here.
 	n := len(predicted)
 	if len(actual) < n {
 		n = len(actual)
@@ -600,7 +604,10 @@ func ComputeBacktestManifestFromInput(inputPath string, predicted, actual []floa
 			m.Split.Notes = splitNotes
 		}
 	}
-	m, _ = normalizeAndValidateManifest(m)
+	m, err = normalizeAndValidateManifest(m)
+	if err != nil {
+		return DatasetManifest{}, LeakageVerification{}, fmt.Errorf("twin: normalize computed backtest manifest: %w", err)
+	}
 	ver := VerifyManifestSeparation(m)
 	return m, ver, nil
 }
