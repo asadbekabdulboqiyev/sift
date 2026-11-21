@@ -290,7 +290,7 @@ def build_doc():
         canvas.restoreState()
 
     doc.build(story, onFirstPage=footer, onLaterPages=footer)
-    print("PDF yaratildi:", OUT)
+    print("PDF created:", OUT)
 
 if __name__ == "__main__":
     build_doc()

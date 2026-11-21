@@ -123,8 +123,8 @@ func crawlerRedirectGuard(req *http.Request, via []*http.Request) error {
 // Crawl runs the crawl and always returns a non-nil result. It never panics
 // on malformed input; parse errors are silently ignored.
 //
-// UseBrowser bo'lsa headless Chromium orqali JS-rendered sahifalardan
-// endpoints are discovered (for SPA/React/Vue/Angular apps).
+// When UseBrowser is enabled, headless Chromium renders JavaScript-driven pages
+// so that endpoints can be discovered (for SPA/React/Vue/Angular apps).
 func (c *Crawler) Crawl() *CrawlResult {
 	if c.Options.UseBrowser {
 		return c.crawlBrowser()

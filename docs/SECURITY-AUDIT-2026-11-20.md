@@ -1,38 +1,38 @@
-# Xavfsizlik auditi — Sift v0.18.1 (2026-11-20)
+# Security Audit — Sift v0.18.1 (2026-11-20)
 
-> **BU LOKAL AUDIT. Uchinchi tomon pentest EMAS. Compliance sertifikati EMAS.**
+> **THIS IS A LOCAL AUDIT. NOT a third-party pentest. NOT a compliance certificate.**
 
-## 1. Scope va metodologiya
+## 1. Scope and Methodology
 
-| Element | Qiymat |
+| Element | Value |
 |---|---|
 | Repo | `/Users/asadbek/sift` |
 | Branch / HEAD | `main` / `773fa564f5ef64546dcffd0bd7160bf43c2b18fb` |
-| Sana | 2026-11-20 |
-| Usul | Statik manba ko'rib chiqish va chaqiruv zanjirlarini qidirish (`rg`/`grep`) |
-| Bajarilmagan ishlar | Ilova ishga tushirilmadi; DAST/tarmoq skaneri, ekspluatatsiya urinishlari yo'q. Dependency scanner ushbu audit tomonidan ishga tushirilmadi, lekin CI da doimiy ishlaydi (§5.7) |
+| Date | 2026-11-20 |
+| Method | Static source review and call-chain searching (`rg`/`grep`) |
+| Work Not Performed | The application was not run; no DAST/network scanner and no exploitation attempts. The dependency scanner was not run by this audit, but it runs continuously in CI (§5.7) |
 
-Ko'rib chiqilgan yo'nalishlar: authz/RBAC va `DialControl`, CSRF/rate limiting/CSP, sertifikat verifikatsiyasi (CWE-347/345), HTTP/3 TLS, OIDC token loglash va JWT tekshiruvi, fingerprint dialeri, port validatsiyasi, dashboard JS XSS, insights fayl yo'llari, coordinator TLS, CLI auth ulanishi.
+Areas reviewed: authz/RBAC and `DialControl`, CSRF/rate limiting/CSP, certificate verification (CWE-347/345), HTTP/3 TLS, OIDC token logging and JWT validation, fingerprint dialer, port validation, dashboard JS XSS, insights file paths, coordinator TLS, CLI auth connection.
 
-Hisobot ustida ishlayotganda ishchi daraxt quyidagi **bog'liqsiz** o'zgarishlarga ega edi (ba'zilari tekshiruv davomida paydo bo'lgan): `.github/workflows/release.yml`, `internal/engine/raw_client_leak_test.go`, `internal/evidence/evidence_unit_test.go`, `internal/hostxray/report_test.go`, `internal/shared/atomicfile_test.go` (o'zgartirilgan); `docs/LINT-DEBT-TRIAGE.md`, `internal/finding/confidence_json_test.go`, `internal/secrets/resolver_table_test.go`, `internal/store/postgres/pure_unit_test.go`, `internal/tenant/context_behavior_test.go` (yangi). Ular ushbu audit tomonidan yaratilmagan yoki o'zgartirilmagan va hisobot doirasiga kirmaydi. Yagona yaratilgan fayl — `docs/SECURITY-AUDIT-2026-11-20.md`. Production kodiga tegilmadi; `git add` / `git commit` / `git push` bajarilmadi.
+While working on the report, the working tree had the following **unrelated** changes (some appeared during the review): `.github/workflows/release.yml`, `internal/engine/raw_client_leak_test.go`, `internal/evidence/evidence_unit_test.go`, `internal/hostxray/report_test.go`, `internal/shared/atomicfile_test.go` (modified); `docs/LINT-DEBT-TRIAGE.md`, `internal/finding/confidence_json_test.go`, `internal/secrets/resolver_table_test.go`, `internal/store/postgres/pure_unit_test.go`, `internal/tenant/context_behavior_test.go` (new). They were not created or modified by this audit and are outside the report's scope. The only file created was `docs/SECURITY-AUDIT-2026-11-20.md`. No production code was touched; `git add` / `git commit` / `git push` were not performed.
 
-## 2. Aniq cheklov
+## 2. Explicit Limitation
 
-**BU LOKAL AUDIT, uchinchi tomon pentest EMAS, compliance sertifikati EMAS.**
+**THIS IS A LOCAL AUDIT, NOT a third-party pentest, NOT a compliance certificate.**
 
-- Mustaqil uchinchi tomon eksperti, pentest firmasi, tashqi skaner yoki sertifikatlovchi organ ishtirok etmadi.
-- Hech qanday ekspluatatsiya, tarmoq skanlash, DAST yoki live test o'tkazilmadi; barcha xulosalar kod o'qishga asoslangan.
-- Ushbu hujjat SOC 2, ISO 27001, GDPR yoki boshqa compliance talablariga muvofiqlikni tasdiqlamaydi.
-- "Topilmadi" degan yozuv faqat **ko'rib chiqilgan kod doirasida tasdiqlangan zaiflik yo'q** degan ma'noni anglatadi; tizimda zaiflik yo'qligini isbotlamaydi.
+- No independent third-party expert, pentest firm, external scanner, or certification body was involved.
+- No exploitation, network scanning, DAST, or live testing was performed; all conclusions are based on code reading.
+- This document does not certify compliance with SOC 2, ISO 27001, GDPR, or any other compliance requirements.
+- A "Not found" entry means only **no confirmed vulnerability within the reviewed code scope**; it does not prove the absence of vulnerabilities in the system.
 
-## 3. Topilmalar jadvali
+## 3. Findings Table
 
-| ID | Daraja | Fayl:qator | Dalil (kod iqtibosi) | Ekspluatatsiya ehtimoli | Tavsiya | Holat |
+| ID | Severity | File:line | Evidence (code excerpt) | Exploitability | Recommendation | Status |
 |---|---|---|---|---|---|---|
-| F-01 | O'rta | `cmd/sift/cmd_run_execute.go:19-29`, `cmd/sift/dash_mode.go:165-175`, `cmd/sift-dashboard/main.go:158-170` | `dashboardAuthOptions` faqat `Tokens`, `APIKeyHashes`, `AllowedOrigins`, `RateLimit*`, `TrustProxy`, `AllowAnonymous` qaytaradi; `OIDCIssuer`/`RBACEnabled`/`RBACRole` yo'q. `dash_mode.go:167-169`: `case dashAuth.HasCredentials(): auth = srv.ApplyAuth(dashAuth)`. `sift-dashboard/main.go:166-170` da esa `OIDCIssuer: oidcIssuer`, `RBACEnabled: *authRBACEnabled`, `RBACRole: authRBAC` bor. `rg` bilan `cmd/sift` ichida `auth-oidc`/`auth-rbac`/`OIDCIssuer` topilmadi. | Past-O'rta: faqat `sift run --dashboard` yo'li va operator RBAC kutgan hollarda; non-loopback uchun auth majburiy (`dash_mode.go:158-163`). | `sift run` ga OIDC/RBAC flaglarini qo'shib `AuthOptions` ga uzatish, yoki hujjatda RBAC faqat `sift-dashboard` da mavjudligini aniq yozish va noto'g'ri kutilganda ogohlantirish. | **TUZATILDI** — §6 |
-| F-02 | O'rta | `cmd/sift/cmd_certificate.go:69`, `internal/certificate/certificate.go:797-820`, `cmd/sift/cmd_verify.go:362-366` | `fs.BoolVar(&require, "require-anchor", false, "fail unless the signer is in the trust store")`; `case store == nil: check.Status = attest.IssuerUnpinned`; keyin `Verify(c)` muvaffaqiyatli bo'lsa, faqat `case check.Status == attest.IssuerUnpinned && requireAnchor:` da xato. `loadVerifyTrustStore` default store yo'q va flag o'chirilganda `return nil, nil` qaytaradi. | O'rta: trust store fayli o'rnatilmagan muhitlarda o'z-o'zidan imzolangan, lekin ichki jihatdan to'g'ri sertifikat tasdiqlanadi (status `IssuerUnpinned`, chiqish kodi 0). | Verification uchun `require-anchor` default `true` qilish yoki `--allow-unpinned` ni aniq opt-in qilish; hujjatda hozirgi default ni ochiq yozish. | **TUZATILDI** — §6 |
+| F-01 | Medium | `cmd/sift/cmd_run_execute.go:19-29`, `cmd/sift/dash_mode.go:165-175`, `cmd/sift-dashboard/main.go:158-170` | `dashboardAuthOptions` returns only `Tokens`, `APIKeyHashes`, `AllowedOrigins`, `RateLimit*`, `TrustProxy`, `AllowAnonymous`; `OIDCIssuer`/`RBACEnabled`/`RBACRole` are absent. `dash_mode.go:167-169`: `case dashAuth.HasCredentials(): auth = srv.ApplyAuth(dashAuth)`. In `sift-dashboard/main.go:166-170`, by contrast, `OIDCIssuer: oidcIssuer`, `RBACEnabled: *authRBACEnabled`, `RBACRole: authRBAC` are present. With `rg`, no `auth-oidc`/`auth-rbac`/`OIDCIssuer` was found inside `cmd/sift`. | Low-Medium: only on the `sift run --dashboard` path and when the operator expects RBAC; auth is mandatory for non-loopback (`dash_mode.go:158-163`). | Add OIDC/RBAC flags to `sift run` and pass them into `AuthOptions`, or clearly document that RBAC is available only in `sift-dashboard` and warn when it is incorrectly expected. | **FIXED** — §6 |
+| F-02 | Medium | `cmd/sift/cmd_certificate.go:69`, `internal/certificate/certificate.go:797-820`, `cmd/sift/cmd_verify.go:362-366` | `fs.BoolVar(&require, "require-anchor", false, "fail unless the signer is in the trust store")`; `case store == nil: check.Status = attest.IssuerUnpinned`; then, if `Verify(c)` succeeds, an error occurs only in `case check.Status == attest.IssuerUnpinned && requireAnchor:`. `loadVerifyTrustStore` returns `return nil, nil` when there is no default store and the flag is disabled. | Medium: in environments where no trust store file is installed, a self-signed but internally valid certificate is accepted (status `IssuerUnpinned`, exit code 0). | Make `require-anchor` default to `true` for verification, or make `--allow-unpinned` an explicit opt-in; state the current default openly in the documentation. | **FIXED** — §6 |
 
-### F-01 dalili (to'liq iqtibos)
+### F-01 Evidence (full excerpt)
 
 ```go
 // cmd/sift/cmd_run_execute.go:19-29
@@ -50,14 +50,14 @@ func dashboardAuthOptions(o *runOptions) dashboard.AuthOptions {
 ```
 
 ```go
-// cmd/sift/dash_mode.go:167-169 — RBAC sozlanishi yo'q
+// cmd/sift/dash_mode.go:167-169 — no RBAC configuration
 case dashAuth.HasCredentials():
 	auth = srv.ApplyAuth(dashAuth)
 	defer auth.Close()
 ```
 
 ```go
-// cmd/sift-dashboard/main.go:166-170 — boshqa entry point da to'liq ulanish bor
+// cmd/sift-dashboard/main.go:166-170 — full wiring in another entry point
 OIDCIssuer:     oidcIssuer,
 OIDCClientID:   oidcClientID,
 OIDCRoleClaim:  "role",
@@ -65,7 +65,7 @@ RBACEnabled:    *authRBACEnabled,
 RBACRole:       authRBAC,
 ```
 
-### F-02 dalili (to'liq iqtibos)
+### F-02 Evidence (full excerpt)
 
 ```go
 // cmd/sift/cmd_certificate.go:69
@@ -86,98 +86,97 @@ if requireAnchor {
 return nil, nil
 ```
 
-### Topilmadi / baholanmadi
+### Not Found / Not Evaluated
 
-**Topilmadi (ko'rib chiqilgan kod doirasida):**
+**Not Found (within the reviewed code scope):**
 
-- **XSS:** `internal/dashboard/assets/app-05-render.js:277` dagi `row()` qiymatni `esc(val)` bilan chiqaradi; `:358` dagi `body.innerHTML = html` oldindan escape qilingan ma'lumotni oladi. `app-14-insights.js:16-29` dagi `esc()` va `setOut()` chaqiruvlari ham shunday. Tasdiqlangan XSS topilmadi. `app-07-init.js:188-193` dagi `new Function(...)` faqat hardcoded `map` dan keladi; u XSS emas, lekin CSP `script-src 'self'` (`security.go:74-83`) bilan ziddiyat bo'lishi mumkin (funksionallik masalasi).
-- **Path traversal:** `internal/dashboard/insights_helpers.go:15-43,98-126` da yo'l containment va sanitize mavjud; topilmadi.
-- **Maxfiy ma'lumotlarning log'ga chiqishi (CWE-532):** `internal/oidc/oidc.go:314-351` da provider xato tanasi o'rniga faqat sanitized `error` kodi ishlatiladi; topilmadi.
-- **DNS rebinding:** `internal/authz/dial.go:30-40,54-89` va `internal/engine/client.go:55-98,110-134` da soket darajasida qayta tekshirish bor; tasdiqlangan bypass topilmadi.
+- **XSS:** In `internal/dashboard/assets/app-05-render.js:277`, `row()` outputs the value with `esc(val)`; `body.innerHTML = html` at `:358` receives pre-escaped data. The `esc()` and `setOut()` calls in `app-14-insights.js:16-29` behave the same way. No confirmed XSS was found. The `new Function(...)` at `app-07-init.js:188-193` comes only from a hardcoded `map`; it is not XSS, but it may conflict with the CSP `script-src 'self'` (`security.go:74-83`) (a functionality issue).
+- **Path traversal:** `internal/dashboard/insights_helpers.go:15-43,98-126` has path containment and sanitization; not found.
+- **Sensitive data written to logs (CWE-532):** In `internal/oidc/oidc.go:314-351`, only the sanitized `error` code is used instead of the provider error body; not found.
+- **DNS rebinding:** `internal/authz/dial.go:30-40,54-89` and `internal/engine/client.go:55-98,110-134` perform socket-level re-checking; no confirmed bypass was found.
 
-**Baholanmadi (shu audit doirasida):** SQL/NoSQL/command injection, XXE, runtime va tarmoq testlari. CI ning avtomatik dependency skanlari (govulncheck/Trivy) ushbu auditning qismi hisoblanmaydi. Bu kategoriyalar bo'yicha "topilmadi" degan xulosa berilmaydi.
+**Not Evaluated (within this audit's scope):** SQL/NoSQL/command injection, XXE, runtime and network tests. CI's automatic dependency scans (govulncheck/Trivy) are not part of this audit. No "not found" conclusion is given for these categories.
 
-## 4. Oldingi tuzatishlar holati
+## 4. Status of Previous Fixes
 
-| Tuzatish | Holat | Dalil (fayl:qator + iqtibos) |
+| Fix | Status | Evidence (file:line + excerpt) |
 |---|---|---|
-| Authz RBAC: path-first, fail-closed | **Tasdiqlandi** | `internal/dashboard/auth.go:216-227`: `if a.rbacEnabled { perm := permForPath(r.URL.Path, r.Method); if !a.rbacAllowed(...) { http.Error(w, "rbac: permission denied", 403) } }`; `:398-416`: `case strings.HasPrefix(path, "/api/admin"): return rbac.PermAdmin`, keyin `/api/audit`, `/api/run`, fallback `tests:run`/`tests:view`. Qamrov bo'yicha shubhali joy F-01 da. |
-| `authz.DialControl` + `CheckDialTarget` | **Tasdiqlandi** | `internal/authz/dial.go:36-38`: `if got := ClassifyIP(ip); got.severity() > approved.severity() { return fmt.Errorf(...) }`; `:54-89`: bo'sh host/port, resolve xatosi yoki rad etilgan IP uchun xato. `internal/engine/client.go:58-62` `Control: control`, `:87-97` uTLS yo'lida `net.Dialer{Control: control}`, `:110-131` proxy yo'lida `authz.CheckDialTarget(...)`. |
-| CSRF same-origin + 20 RPS / burst 40 | **Tasdiqlandi (browser doirasi)** | `internal/dashboard/security.go:25-38`: Origin bo'lsa scheme va host solishtiriladi; `internal/dashboard/auth.go:48-49`: `defaultAuthRPS = 20.0`, `defaultAuthBurst = 40`; `:173-183`: `a.rateEnabled = true` va nol qiymatlar default bilan to'ldiriladi; `:229-232`: `if !isSafeMethod(r.Method) && !a.originAllowed(r) { ... 403 }`. Cheklov: `security.go:27-29` da Origin yo'q klientlar qabul qilinadi — bu zaiflik emas, nomahalliy klientlar uchun atayin qilingan dizayn. |
-| Sertifikat CWE-347 / CWE-345 | **Tasdiqlandi** | `internal/certificate/certificate.go:477-479`: `if err := validateV1Envelope(c); err != nil { return err }`; `:488-497`: imzolanmagan `validity_period`, `previous_certificate_hash`, `experiment_reference` rad etiladi; `:673-688`: `signedCertificateID` faqat signed maydonlardan; `:712-738`: `VerifyChain` genesis va hash zanjirini tekshiradi. |
-| HTTP/3 TLS verification default | **Tasdiqlandi (kod darajasida)** | `internal/http3/h3.go:101-106`: `InsecureSkipVerify: opts.InsecureSkipVerify`, `ServerName: host`; `:120-126`: `InsecureSkipVerify: insecure` faqat opt-in. Production chaqiruvi topilmadi (faqat `internal/http3` ichidagi testlar). |
-| CWE-532: IdP token redaction | **Tasdiqlandi** | `internal/oidc/oidc.go:314-320`: `tokenEndpointError` faqat `oauthErrorCode(body)` natijasini chiqaradi; `:337-351`: `sanitizeErrorCode` faqat 64 belgili ASCII kodlarga ruxsat beradi. |
-| Fingerprint: panic yo'q + port validatsiyasi | **Qisman tasdiqlandi / shubhali** | Panic yo'q: `internal/fingerprint/fingerprint.go:133-139` `ErrUnknownProfile` qaytaradi, `:147-152` `NewDialer` ham xato bilan dial qaytaradi. Port: `internal/scanner/guard.go:493-497` `if err != nil || n < 1 || n > 65535`; `internal/dashboard/portscan.go:81-85` `if p < 1 || p > 65535`. Shubhali: `fingerprint.go:29` `Default Profile = ""` `:48-62` xaritada yo'q, `:109-123` `resolved()` uni qo'shmaydi — `NewDialerChecked(Options{})` xato beradi. Bu funksionallik/availability masalasi, xavfsizlik zaifligi emas; `internal/engine/client.go:78` dagi `if tlsFP != ""` sharti tufayli productionda chaqirilmaydi. |
+| Authz RBAC: path-first, fail-closed | **Confirmed** | `internal/dashboard/auth.go:216-227`: `if a.rbacEnabled { perm := permForPath(r.URL.Path, r.Method); if !a.rbacAllowed(...) { http.Error(w, "rbac: permission denied", 403) } }`; `:398-416`: `case strings.HasPrefix(path, "/api/admin"): return rbac.PermAdmin`, then `/api/audit`, `/api/run`, fallback `tests:run`/`tests:view`. The coverage concern is in F-01. |
+| `authz.DialControl` + `CheckDialTarget` | **Confirmed** | `internal/authz/dial.go:36-38`: `if got := ClassifyIP(ip); got.severity() > approved.severity() { return fmt.Errorf(...) }`; `:54-89`: errors for an empty host/port, a resolution error, or a rejected IP. `internal/engine/client.go:58-62` `Control: control`, `:87-97` `net.Dialer{Control: control}` on the uTLS path, `:110-131` `authz.CheckDialTarget(...)` on the proxy path. |
+| CSRF same-origin + 20 RPS / burst 40 | **Confirmed (browser scope)** | `internal/dashboard/security.go:25-38`: if Origin is present, scheme and host are compared; `internal/dashboard/auth.go:48-49`: `defaultAuthRPS = 20.0`, `defaultAuthBurst = 40`; `:173-183`: `a.rateEnabled = true` and zero values are filled with the defaults; `:229-232`: `if !isSafeMethod(r.Method) && !a.originAllowed(r) { ... 403 }`. Limitation: `security.go:27-29` accepts clients without Origin — this is not a vulnerability, it is a deliberate design for non-local clients. |
+| Certificate CWE-347 / CWE-345 | **Confirmed** | `internal/certificate/certificate.go:477-479`: `if err := validateV1Envelope(c); err != nil { return err }`; `:488-497`: unsigned `validity_period`, `previous_certificate_hash`, `experiment_reference` are rejected; `:673-688`: `signedCertificateID` only from signed fields; `:712-738`: `VerifyChain` checks genesis and the hash chain. |
+| HTTP/3 TLS verification default | **Confirmed (code level)** | `internal/http3/h3.go:101-106`: `InsecureSkipVerify: opts.InsecureSkipVerify`, `ServerName: host`; `:120-126`: `InsecureSkipVerify: insecure` only on opt-in. No production call was found (only tests inside `internal/http3`). |
+| CWE-532: IdP token redaction | **Confirmed** | `internal/oidc/oidc.go:314-320`: `tokenEndpointError` outputs only the result of `oauthErrorCode(body)`; `:337-351`: `sanitizeErrorCode` allows only 64-character ASCII codes. |
+| Fingerprint: no panic + port validation | **Partially confirmed / questionable** | No panic: `internal/fingerprint/fingerprint.go:133-139` returns `ErrUnknownProfile`, `:147-152` `NewDialer` also returns a dial with an error. Port: `internal/scanner/guard.go:493-497` `if err != nil || n < 1 || n > 65535`; `internal/dashboard/portscan.go:81-85` `if p < 1 || p > 65535`. Questionable: `fingerprint.go:29` `Default Profile = ""` is absent from the `:48-62` map, and `:109-123` `resolved()` does not add it — `NewDialerChecked(Options{})` returns an error. This is a functionality/availability issue, not a security vulnerability; due to the `if tlsFP != ""` condition at `internal/engine/client.go:78`, it is not called in production. |
 
-## 5. Xavf qolgan jo'nalishlar
+## 5. Areas with Residual Risk
 
-1. **F-01 — RBAC qamrovi.** ~~`sift run --dashboard` da RBAC yoqib bo'lmaydi~~ — §6 da tuzatildi: OIDC/RBAC flaglari qo'shildi.
-2. **F-02 — trust anchor ixtiyoriy.** ~~Trust store bo'lmasa va `--require-anchor` berilmasa, `IssuerUnpinned` statusi xato emas~~ — §6 da tuzatildi: anchor default majburiy.
-3. **OIDC JWKS filteri.** ~~`:499-506` da faqat `kid` bo'yicha yuklanadi~~ — **TUZATILDI (2026-11-21)**: `jwkKey.usableForSigning()` qo'shildi — `use` faqat `""`/`"sig"`, `alg` bo'lsa faqat `RS256`→RSA yoki `ES256`→EC/P-256 mos kelganda qabul qilinadi. Bu qo'shimcha filtr (JWT algoritm pinlash o'zgarishsiz). Test: `TestJWKUsableForSigning` (12 holat), `TestLoadKeysFiltersJWKSMetadata`. JWKS nazorati IdP da bo'lishi shartligi o'z kuchida qoladi.
-4. **Coordinator TLS.** ~~CA ham, `-tls-skip-verify` ham berilmasa `return nil, nil` — plaintext ulanish~~ — **TUZATILDI (2026-11-21)**: `TLSOptions.RequireTLS` maydoni va `--tls-require` flagi qo'shildi (`cmd/sift-master`, `cmd/sift-worker`). Opt-in: `RequireTLS=true` bo'lib, CA va skip-verify ikkisi ham yo'q bo'lsa `ClientCreds()` xato qaytaradi. Default (`false`) o'zgarishsiz — mavjud plaintext fleets ishlayveradi. Test: `TestTLSOptionsRequireTLS` (5 subtest).
-5. **Gate darajasidagi DNS xatosi.** `internal/dashboard/handlers_run.go:122-128`: classify xatosida `authz.ClassPublic, "", false` qaytariladi; lekin `:141-149` orqali bu class `authz.DialControl` ga uzatilib, soketda qayta tekshiriladi. Xavf past, lekin gate darajasida fail-open.
-6. **HTTP/3 probe.** ~~`req := "GET / HTTP/1.1\r\nHost: " + host + ...` xom Host qatoriga asoslangan~~ — **TUZATILDI (2026-11-21)**: `hostHeader()` yordamchisi dial'dan oldin bo'sh host va CR/LF ni rad etadi (header injection oldini olish), IPv6 literalni `[::1]` ko'rinishida o'rash orqali to'g'ri HTTP/1.1 Host hosil qiladi. Test: `TestHostHeader`, `TestCheckAltSvcRejectsUnsafeHost`, `TestCheckAltSvcIPv6HostHeader`. Production chaqiruvi hali yo'q; kelajakda ulansa `authz.DialControl` bilan birga tekshirish talab qilinadi.
-7. **Audit qamrovi.** Faqat statik ko'rib chiqish: DAST, runtime konfiguratsiya, tarmoq va ko'p ijarachi (multi-tenant) integratsiya testlari qamrab olinmadi. Dependency skan ushbu audit tomonidan ishga tushirilmadi, lekin CI da bajariladi: `govulncheck` (Go reachability, `.github/workflows/security.yml:24-45`), Trivy image scan + enforcing gate (HIGH/CRITICAL, `security.yml:189-262`), `dependency-review` (PR, high), Dependabot (gomod/actions/docker). Lokal `trivy fs --scanners vuln --severity HIGH,CRITICAL .` (2026-11-21): **0 vulnerability** (gomod). Uchinchi tomon pentesti bilan almashtirib bo'lmaydi.
-
----
-
-## 6. Topilmalarning tuzatilishi (auditdan keyin, 2026-11-20)
-
-Ikkala topilma ham foydalanuvchi ruxsati bilan tuzatildi. Kod o'zgarishlari
-sifatida qayta tekshirildi (`go build ./...`, `go test ./cmd/sift/... ./cmd/sift-dashboard/... ./internal/certificate/... ./internal/dashboard/... -count=1` — yashil).
-
-### F-01 — OIDC/RBAC flaglari `sift run --dashboard` da
-
-| Fayl | O'zgarish |
-|---|---|
-| `cmd/sift/cmd_run_options.go` | `runOptions` ga `dashAuthOIDC`, `dashAuthRBAC`, `dashAuthRBACEnabled`; yangi flaglar: `--dashboard-auth-oidc`, `--dashboard-auth-rbac`, `--dashboard-auth-rbac-enabled` (default `false`). |
-| `cmd/sift/cmd_run_execute.go` | `dashboardAuthOptions()` endi `OIDCIssuer`, `OIDCClientID`, `OIDCRoleClaim`, `RBACEnabled`, `RBACRole` ni uzatadi. OIDC `issuer:client_id` **oxirgi** `:` bo'yicha ajratiladi — URL issuer (port bilan) ishlaydi. |
-| `cmd/sift/dash_mode.go` | Butun `AuthOptions` `ApplyAuth` ga uzatiladi; auth xabariga `oidc=%t rbac=%t` qo'shildi. |
-| `cmd/sift-dashboard/main.go` | Audit paytida qo'shimcha topilma: `-auth-oidc` `SplitN(":", 2)` ishlatgani uchun URL issuer noto'g'ri parslanardi. `parseOIDCPairs()` orqali `LastIndex` ga o'tkazildi — ikki entry point izchil. |
-| Testlar | `cmd/sift/cmd_run_dashboard_auth_test.go` (5 test), `cmd/sift-dashboard/main_oidc_test.go` (URL issuer + last-colon + malformed). |
-
-Defaults o'zgarmadi: RBAC hali ham o'chirilgan holda boshlanadi; faqat imkoniyat qo'shildi.
-
-### F-02 — trust anchor default majburiy
-
-| Fayl | O'zgarish |
-|---|---|
-| `cmd/sift/cmd_verify.go`, `cmd/sift/cmd_certificate.go` | `--require-anchor` default `true`; yangi `--allow-unpinned` aniq opt-out. `resolveAnchorPolicy()` ziddiyatli flaglarni **xato bilan** rad etadi (jim zaiflashtirish yo'q): `--require-anchor=false` + `--allow-unpinned` izchil, ochiq `--require-anchor` + `--allow-unpinned` — ishlatish xatosi. Kutubhona API'si (`VerifyBytesWithTrust`, `VerifyPDF`) o'zgarmadi — bu faqat CLI siyosati. |
-| `cmd/sift/cmd_trust.go`, `README.md`, `internal/certificate/html.go` | Yordam/guide/hujjat matnlari yangi default ni aks ettiradi. |
-| `scripts/demo-verified.sh`, `scripts/verify-html-parity.sh` | O'z-o'zidan muhrlangan fixture'lar trust store'siz ishlaganligi sababli ularga `--allow-unpinned` qo'shildi —breaking change ularning self-consistency tekshiruvini buzmasligi uchun. |
-| Testlar | `cmd/sift/cmd_require_anchor_f02_test.go` (7 test: default→exit 1, opt-out→VALID, pinned→VALID, ziddiyat, help). Eski CLI testlari o'z self-consistency niyatini saqlash uchun `--allow-unpinned` bilan yangilandi. |
-
-**Breaking change (qasddan):** trust store'siz flagsiz `sift verify` / `sift certificate` endi exit 1 qaytaradi. Bu foydalanuvchi tasdiqlagan xavfsizlik siyosati; oldingi xatti-harakat faqat `--allow-unpinned` bilan qaytariladi.
-
-### Qolgan xavflar (tuzatilmadi)
-
-Trust store bo'lmasa va `--allow-unpinned` berilsa, status yana `IssuerUnpinned` va chiqish kodi 0 bo'ladi — bu endi **oniqli opt-in**, tasodifiy default emas. Uchinchi tomon pentesti, DAST va compliance sertifikati hali ham yo'q; dependency scan CI da mavjud va lokal tekshiruvda 0 HIGH/CRITICAL berdi (§5.7).
+1. **F-01 — RBAC coverage.** ~~RBAC cannot be enabled in `sift run --dashboard`~~ — fixed in §6: OIDC/RBAC flags were added.
+2. **F-02 — trust anchor optional.** ~~If there is no trust store and `--require-anchor` is not given, the `IssuerUnpinned` status is not an error~~ — fixed in §6: the anchor is mandatory by default.
+3. **OIDC JWKS filter.** ~~At `:499-506`, keys are loaded only by `kid`~~ — **FIXED (2026-11-21)**: `jwkKey.usableForSigning()` was added — `use` is accepted only as `""`/`"sig"`, and if `alg` is present, only `RS256`→RSA or `ES256`→EC/P-256 matching is accepted. This is an additional filter (JWT algorithm pinning is unchanged). Tests: `TestJWKUsableForSigning` (12 cases), `TestLoadKeysFiltersJWKSMetadata`. The requirement that JWKS control must reside at the IdP remains in force.
+4. **Coordinator TLS.** ~~If neither a CA nor `-tls-skip-verify` is given, `return nil, nil` — a plaintext connection~~ — **FIXED (2026-11-21)**: the `TLSOptions.RequireTLS` field and the `--tls-require` flag were added (`cmd/sift-master`, `cmd/sift-worker`). Opt-in: with `RequireTLS=true`, if both CA and skip-verify are absent, `ClientCreds()` returns an error. The default (`false`) is unchanged — existing plaintext fleets keep working. Test: `TestTLSOptionsRequireTLS` (5 subtests).
+5. **DNS error at the gate level.** `internal/dashboard/handlers_run.go:122-128`: on a classify error, `authz.ClassPublic, "", false` is returned; however, via `:141-149` this class is passed to `authz.DialControl` and re-checked at the socket. The risk is low, but it is fail-open at the gate level.
+6. **HTTP/3 probe.** ~~`req := "GET / HTTP/1.1\r\nHost: " + host + ...` based on a raw Host line~~ — **FIXED (2026-11-21)**: the `hostHeader()` helper rejects an empty host and CR/LF before dialing (preventing header injection) and wraps an IPv6 literal in `[::1]` form to produce a correct HTTP/1.1 Host. Tests: `TestHostHeader`, `TestCheckAltSvcRejectsUnsafeHost`, `TestCheckAltSvcIPv6HostHeader`. There is still no production call; if it is wired up in the future, it must be checked together with `authz.DialControl`.
+7. **Audit coverage.** Static review only: DAST, runtime configuration, network, and multi-tenant integration tests were not covered. The dependency scan was not run by this audit, but it runs in CI: `govulncheck` (Go reachability, `.github/workflows/security.yml:24-45`), Trivy image scan + enforcing gate (HIGH/CRITICAL, `security.yml:189-262`), `dependency-review` (PR, high), Dependabot (gomod/actions/docker). Local `trivy fs --scanners vuln --severity HIGH,CRITICAL .` (2026-11-21): **0 vulnerabilities** (gomod). It cannot replace a third-party pentest.
 
 ---
 
-## 7. Auditdan keyingi qo'shimcha ishlar (2026-11-21)
+## 6. Remediation of Findings (post-audit, 2026-11-20)
 
-### 7.1 Dependency scan qamrovi tuzatildi
+Both findings were fixed with the user's permission. The code changes were re-verified (`go build ./...`, `go test ./cmd/sift/... ./cmd/sift-dashboard/... ./internal/certificate/... ./internal/dashboard/... -count=1` — green).
 
-Audit yozilayotganda §1/§3/§5.7/§6 da "dependency scan yo'q" deb noto'g'ri yozilgan edi. Aslida ushbu joblar audit HEAD'ida (`773fa564`) ham mavjud edi: `govulncheck` (symbol-level reachability, har push/PR + haftalik cron), Trivy image scan + enforcing gate (`exit-code: 1`, HIGH/CRITICAL), `dependency-review` (PR, high), Dependabot (gomod/actions/docker). Lokal `trivy fs --scanners vuln --severity HIGH,CRITICAL .` (2026-11-21): **0 vulnerability** (gomod). Hisobotdagi tegishli satrlar tuzatildi.
+### F-01 — OIDC/RBAC flags in `sift run --dashboard`
+
+| File | Change |
+|---|---|
+| `cmd/sift/cmd_run_options.go` | Added `dashAuthOIDC`, `dashAuthRBAC`, `dashAuthRBACEnabled` to `runOptions`; new flags: `--dashboard-auth-oidc`, `--dashboard-auth-rbac`, `--dashboard-auth-rbac-enabled` (default `false`). |
+| `cmd/sift/cmd_run_execute.go` | `dashboardAuthOptions()` now passes `OIDCIssuer`, `OIDCClientID`, `OIDCRoleClaim`, `RBACEnabled`, `RBACRole`. The OIDC `issuer:client_id` is split at the **last** `:` — a URL issuer (with a port) works. |
+| `cmd/sift/dash_mode.go` | The entire `AuthOptions` is passed to `ApplyAuth`; `oidc=%t rbac=%t` was added to the auth message. |
+| `cmd/sift-dashboard/main.go` | Additional finding during the audit: `-auth-oidc` used `SplitN(":", 2)`, so a URL issuer was parsed incorrectly. Switched to `LastIndex` via `parseOIDCPairs()` — the two entry points are now consistent. |
+| Tests | `cmd/sift/cmd_run_dashboard_auth_test.go` (5 tests), `cmd/sift-dashboard/main_oidc_test.go` (URL issuer + last-colon + malformed). |
+
+Defaults did not change: RBAC still starts disabled; only the capability was added.
+
+### F-02 — trust anchor mandatory by default
+
+| File | Change |
+|---|---|
+| `cmd/sift/cmd_verify.go`, `cmd/sift/cmd_certificate.go` | `--require-anchor` defaults to `true`; new `--allow-unpinned` is an explicit opt-out. `resolveAnchorPolicy()` rejects conflicting flags **with an error** (no silent weakening): `--require-anchor=false` + `--allow-unpinned` is consistent, explicit `--require-anchor` + `--allow-unpinned` is a usage error. The library API (`VerifyBytesWithTrust`, `VerifyPDF`) did not change — this is only a CLI policy. |
+| `cmd/sift/cmd_trust.go`, `README.md`, `internal/certificate/html.go` | Help/guide/documentation texts reflect the new default. |
+| `scripts/demo-verified.sh`, `scripts/verify-html-parity.sh` | Because self-sealed fixtures worked without a trust store, `--allow-unpinned` was added to them — so that the breaking change would not break their self-consistency check. |
+| Tests | `cmd/sift/cmd_require_anchor_f02_test.go` (7 tests: default→exit 1, opt-out→VALID, pinned→VALID, conflict, help). Old CLI tests were updated with `--allow-unpinned` to preserve their self-consistency intent. |
+
+**Breaking change (intentional):** `sift verify` / `sift certificate` without a trust store and without flags now returns exit 1. This is the security policy approved by the user; the previous behavior is restored only with `--allow-unpinned`.
+
+### Residual Risks (not fixed)
+
+If there is no trust store and `--allow-unpinned` is given, the status becomes `IssuerUnpinned` again with exit code 0 — this is now an **explicit opt-in**, not an accidental default. A third-party pentest, DAST, and a compliance certificate are still absent; the dependency scan is available in CI and returned 0 HIGH/CRITICAL in the local check (§5.7).
+
+---
+
+## 7. Additional Post-Audit Work (2026-11-21)
+
+### 7.1 Dependency Scan Coverage Corrected
+
+While the audit was being written, §1/§3/§5.7/§6 incorrectly stated that "there is no dependency scan". In fact, these jobs were already present at the audit HEAD (`773fa564`): `govulncheck` (symbol-level reachability, every push/PR + weekly cron), Trivy image scan + enforcing gate (`exit-code: 1`, HIGH/CRITICAL), `dependency-review` (PR, high), Dependabot (gomod/actions/docker). Local `trivy fs --scanners vuln --severity HIGH,CRITICAL .` (2026-11-21): **0 vulnerabilities** (gomod). The corresponding lines in the report were corrected.
 
 ### 7.2 Coordinator TLS — opt-in fail-closed (§5.4)
 
-`TLSOptions.RequireTLS` va `--tls-require` flaglari qo'shildi (`cmd/sift-master`, `cmd/sift-worker`, `internal/dist/coordinator/tls.go`). `RequireTLS=true` bo'lib CA va skip-verify yo'q bo'lsa, `ClientCreds()` xato qaytaradi — tasodifiy plaintext dial endi ko'rinadi. Default o'zgarishsiz. `TestTLSOptionsRequireTLS` (5 subtest) qo'shildi; `go test ./internal/dist/coordinator/... ./cmd/sift-master/... ./cmd/sift-worker/...` yashil.
+The `TLSOptions.RequireTLS` field and the `--tls-require` flags were added (`cmd/sift-master`, `cmd/sift-worker`, `internal/dist/coordinator/tls.go`). With `RequireTLS=true` and no CA or skip-verify, `ClientCreds()` returns an error — an accidental plaintext dial is now visible. The default is unchanged. `TestTLSOptionsRequireTLS` (5 subtests) was added; `go test ./internal/dist/coordinator/... ./cmd/sift-master/... ./cmd/sift-worker/...` is green.
 
-### 7.3 OIDC JWKS metadata filtri (§5.3)
+### 7.3 OIDC JWKS Metadata Filter (§5.3)
 
-`internal/oidc/oidc.go` da `jwkKey.usableForSigning()` qo'shildi va `loadKeys()` da `publicKey()` dan oldin chaqirildi: `use=enc` rad etiladi, `alg` e'lon qilinganda faqat mos `kty`/`crv` qabul qilinadi (`RS256`→RSA, `ES256`→EC/P-256), noma'lum `alg` rad etiladi. Xato xabari va JWT algoritm pinlash o'zgarishsiz. `TestJWKUsableForSigning` (12 holat) + `TestLoadKeysFiltersJWKSMetadata` qo'shildi; `go test ./internal/oidc/...` yashil.
+In `internal/oidc/oidc.go`, `jwkKey.usableForSigning()` was added and called in `loadKeys()` before `publicKey()`: `use=enc` is rejected, when `alg` is declared only matching `kty`/`crv` is accepted (`RS256`→RSA, `ES256`→EC/P-256), and an unknown `alg` is rejected. The error message and JWT algorithm pinning are unchanged. `TestJWKUsableForSigning` (12 cases) + `TestLoadKeysFiltersJWKSMetadata` were added; `go test ./internal/oidc/...` is green.
 
-### 7.4 HTTP/3 probe Host hardening (§5.6)
+### 7.4 HTTP/3 Probe Host Hardening (§5.6)
 
-`internal/http3/h3.go` da `hostHeader()` qo'shildi — bo'sh host, CR yoki LF dial'dan oldin rad etiladi, IPv6 literal `[::1]` shaklida o'raladi. `TestHostHeader`, `TestCheckAltSvcRejectsUnsafeHost`, `TestCheckAltSvcIPv6HostHeader` qo'shildi; `go test ./internal/http3/...` yashil.
+In `internal/http3/h3.go`, `hostHeader()` was added — an empty host, CR, or LF is rejected before dialing, and IPv6 literals are wrapped in `[::1]` form. `TestHostHeader`, `TestCheckAltSvcRejectsUnsafeHost`, `TestCheckAltSvcIPv6HostHeader` were added; `go test ./internal/http3/...` is green.
 
-### 7.5 Qolgan xavflar
+### 7.5 Residual Risks
 
-- §5.5 (gate darajasidagi DNS fail-open): `authz.DialControl` soket darajasida qayta tekshiradi — hujjatda yozilgan, o'zgartirilmadi.
-- Uchinchi tomon pentesti, DAST, runtime/multi-tenant testlari va compliance sertifikati hali ham yo'q — ular ushbu lokal audit doirasiga kirmaydi.
+- §5.5 (DNS fail-open at the gate level): `authz.DialControl` re-checks at the socket level — documented, not changed.
+- A third-party pentest, DAST, runtime/multi-tenant tests, and a compliance certificate are still absent — they are outside the scope of this local audit.
 
 ---
 
-Xavfsizlik Muhandisi, 2026-11-20. Audit natijasida `docs/SECURITY-AUDIT-2026-11-20.md` yaratildi; F-01/F-02 tuzatishlari §6 da, 2026-11-21 dagi qo'shimcha ishlar §7 da hujjatlashtirildi. Barcha integratsiya va git operatsiyalarini Bosh Direktor bajardi.
+Security Engineer, 2026-11-20. As a result of the audit, `docs/SECURITY-AUDIT-2026-11-20.md` was created; the F-01/F-02 fixes are documented in §6, and the additional work on 2026-11-21 is documented in §7. All integration and git operations were performed by the CEO.

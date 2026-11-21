@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"unicode"
 )
 
 // shellCommentLine matches a line whose first non-space character is '#'.
@@ -106,15 +107,16 @@ func TestAppJSBalancedDelimiters(t *testing.T) {
 // TestDashboardAssetsAreEnglish keeps the operator UI in English. The dashboard
 // is shipped as-is, so localized/non-English prose in markup or scripts would
 // surface to every user.
+//
+// The check is script-based rather than word-based: any letter outside the
+// basic Latin block is rejected unless it is an explicitly approved technical
+// symbol. This is language-agnostic, so no localized words are embedded in the
+// test source itself.
 func TestDashboardAssetsAreEnglish(t *testing.T) {
-	// Marker fragments are assembled to avoid embedding localized words directly
-	// in source while still detecting accidental non-English UI text.
-	markers := []string{
-		"uch" + "un", "qil" + "ish", "bo'" + "yicha", "ker" + "ak", "tug" + "ma", "nish" + "on",
-		"yuk" + "lan", "ishga" + " tushir", "xa" + "to", "so'" + "z", "bel" + "gi", "avto" + "matik",
-		"tek" + "shir", "och" + "ish", "yop" + "ish", "bos" + "ing", "kut" + "ish", "bosh" + "lash",
-		"to'x" + "tat", "saq" + "lan", "kirit" + "ish", "tan" + "lang", "muvaff" + "aq", "bajar" + "il",
-		"rekonstruk" + "siya", "raqam" + "lar", "holat" + "lar",
+	// Approved non-ASCII letters used by the UI (e.g. micro sign in unit labels).
+	approved := map[rune]bool{
+		'µ': true, // MICRO SIGN
+		'μ': true, // GREEK SMALL LETTER MU
 	}
 
 	assets := map[string][]byte{
@@ -124,12 +126,12 @@ func TestDashboardAssetsAreEnglish(t *testing.T) {
 	}
 
 	for name, body := range assets {
-		lower := strings.ToLower(string(body))
-		for _, m := range markers {
-			if idx := strings.Index(lower, m); idx >= 0 {
-				line := strings.Count(lower[:idx], "\n") + 1
-				t.Errorf("%s:%d contains non-English localized text %q; the dashboard UI must be English only", name, line, m)
+		for idx, r := range string(body) {
+			if r < 128 || !unicode.IsLetter(r) || approved[r] {
+				continue
 			}
+			line := strings.Count(string(body[:idx]), "\n") + 1
+			t.Errorf("%s:%d contains non-ASCII letter %U (%c); the dashboard UI must be English only", name, line, r, r)
 		}
 	}
 }

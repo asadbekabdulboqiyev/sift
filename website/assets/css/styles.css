@@ -473,7 +473,7 @@ a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-
   .facts-grid { grid-template-columns: 1fr; }
   .compare-table { font-size: .88rem; }
   .brand-ver, .tab-tag { display: none; }
-  .term-body, .cmd pre { font-size: .74rem; } /* audit: `.pre` selectori hech qayerda ishlatilmagan edi */
+  .term-body, .cmd pre { font-size: .74rem; } /* audit: the `.pre` selector was not used anywhere */
 }
 
 @media print {

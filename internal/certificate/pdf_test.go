@@ -269,7 +269,7 @@ func TestPDFEncodingKeepsTextReadable(t *testing.T) {
 	if got, want := pdfEncode("a—b"), "a\\227b"; got != want {
 		t.Fatalf("em dash encoded as %q, want %q", got, want)
 	}
-	if got, want := pdfEncode("Maktab — 12"), "Maktab \\227 12"; got != want {
+	if got, want := pdfEncode("School — 12"), "School \\227 12"; got != want {
 		t.Fatalf("mixed text encoded as %q, want %q", got, want)
 	}
 	if got, want := pdfEncode("қ"), "?"; got != want {

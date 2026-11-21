@@ -1,10 +1,10 @@
 # LINT DEBT TRIAGE — sift
 
-**O'lchov:** 2026-11-20, HEAD `773fa56` (main), golangci-lint v2.14.0 (go1.26.11).
-**Jami:** 738 issue, 138 ta `.go` fayli. Tool ishladi, raqamlar haqiqiy hisobot chiqishidan olingan.
-**Yangilash (2026-11-21):** 1-bosqichdan keyin **510** issue qoldi — §7 ga qarang.
+**Measurement:** 2026-11-20, HEAD `773fa56` (main), golangci-lint v2.14.0 (go1.26.11).
+**Total:** 738 issues, 138 `.go` files. The tool ran, and the numbers are taken from the actual report output.
+**Update (2026-11-21):** After Phase 1, **510** issues remain — see §7.
 
-## 1. O'lchov usuli va konfiguratsiya
+## 1. Measurement method and configuration
 
 ```sh
 golangci-lint run ./... \
@@ -12,36 +12,36 @@ golangci-lint run ./... \
   --issues-exit-code 0
 ```
 
-- Konfiguratsiya: `.golangci.yml` (standard + `errcheck`, `gocritic`, `gosec`, `govet`,
+- Configuration: `.golangci.yml` (standard + `errcheck`, `gocritic`, `gosec`, `govet`,
   `ineffassign`, `misspell`, `revive`, `staticcheck`, `unconvert`, `unused`;
-  formatters `gofmt`, `goimports`). `govet`, `misspell`, `gofmt` — **0** issue.
-- `--issues-exit-code 0` faqat chiqish kodini o'zgartiradi; issue soniga ta'sir qilmaydi.
-- `max-issues-per-linter: 0`, `max-same-issues: 0` — hech narsa qisqartirilmagan;
-  `uniq-by-line` default holatda. JSON hisobotda aynan 738 ob'ekt bor.
-- Aniqlik: `.golangci.yml:73-78` izohida HEAD `605dc57` uchun **755** ta qayd etilgan;
-  hozirgi HEAD da **738** (-17). Ratchet `only-new-issues: true` aslida
-  `.github/workflows/ci.yml:71` da (`golangci-lint-action@v7`), `.golangci.yml` da
-  faqat izoh mavjud.
+  formatters `gofmt`, `goimports`). `govet`, `misspell`, `gofmt` — **0** issues.
+- `--issues-exit-code 0` only changes the exit code; it does not affect the number of issues.
+- `max-issues-per-linter: 0`, `max-same-issues: 0` — nothing was truncated;
+  `uniq-by-line` is at its default. The JSON report contains exactly 738 objects.
+- Clarification: the comment at `.golangci.yml:73-78` records **755** for HEAD `605dc57`;
+  the current HEAD has **738** (-17). The `only-new-issues: true` ratchet is actually
+  in `.github/workflows/ci.yml:71` (`golangci-lint-action@v7`); in `.golangci.yml`
+  only a comment exists.
 
-## 2. Linter bo'yicha
+## 2. By linter
 
-| Linter | Son | Ulush | Xarakter | Misol (`fayl:qator`) |
+| Linter | Count | Share | Nature | Example (`file:line`) |
 |---|---:|---:|---|---|
-| errcheck | 365 | 49.5% | asosan shovqin, oz qismi tekshirishga arziydi | `internal/report/report.go:212` |
-| revive | 172 | 23.3% | sof stil / API nomi | `internal/audit360/manager.go:36` |
-| staticcheck | 118 | 16.0% | aralash: quickfix + haqiqiy SA topilmalari | `cmd/sift/cmd_pentest_generate.go:67` |
-| gocritic | 32 | 4.3% | stil | `cmd/sift/cmd_pentest_generate.go:205` |
-| unused | 28 | 3.8% | o'lik kod (17 tasi testda) | `cmd/sift-master/main.go:48` |
-| goimports | 8 | 1.1% | avtoformat | `cmd/sift/cmd_pentest_generate.go:10` |
-| ineffassign | 6 | 0.8% | haqiqiy, kichik | `cmd/sift-worker/main.go:300` |
-| gosec | 5 | 0.7% | 4 tasi noto'g'ri musbat/pas xavf, 1 hardening | `internal/attest/trust.go:339` |
-| unconvert | 4 | 0.5% | stil | `cmd/sift-dashboard/main.go:383` |
+| errcheck | 365 | 49.5% | mostly noise, a small part is worth checking | `internal/report/report.go:212` |
+| revive | 172 | 23.3% | pure style / API naming | `internal/audit360/manager.go:36` |
+| staticcheck | 118 | 16.0% | mixed: quickfix + genuine SA findings | `cmd/sift/cmd_pentest_generate.go:67` |
+| gocritic | 32 | 4.3% | style | `cmd/sift/cmd_pentest_generate.go:205` |
+| unused | 28 | 3.8% | dead code (17 of them in tests) | `cmd/sift-master/main.go:48` |
+| goimports | 8 | 1.1% | auto-format | `cmd/sift/cmd_pentest_generate.go:10` |
+| ineffassign | 6 | 0.8% | genuine, minor | `cmd/sift-worker/main.go:300` |
+| gosec | 5 | 0.7% | 4 are false positives/low risk, 1 hardening | `internal/attest/trust.go:339` |
+| unconvert | 4 | 0.5% | style | `cmd/sift-dashboard/main.go:383` |
 
-## 3. Qoida bo'yicha (738 ta)
+## 3. By rule (738 issues)
 
-| Qoida | Son | Ulush |
+| Rule | Count | Share |
 |---|---:|---:|
-| errcheck (barcha) | 365 | 49.5% |
+| errcheck (all) | 365 | 49.5% |
 | revive / exported-comment | 152 | 20.6% |
 | staticcheck QF1012 (`WriteString(fmt.Sprintf(...))`) | 72 | 9.8% |
 | unused | 28 | 3.8% |
@@ -49,74 +49,74 @@ golangci-lint run ./... \
 | revive / stutter | 16 | 2.2% |
 | goimports | 8 | 1.1% |
 | staticcheck QF1001 (De Morgan) | 7 | 0.9% |
-| staticcheck S1009 (ortiqcha nil-tekshiruv) | 7 | 0.9% |
+| staticcheck S1009 (redundant nil check) | 7 | 0.9% |
 | ineffassign | 6 | 0.8% |
 | gosec (G602×2, G304×2, G301×1) | 5 | 0.7% |
-| staticcheck SA9003 (bo'sh branch) | 5 | 0.7% |
+| staticcheck SA9003 (empty branch) | 5 | 0.7% |
 | staticcheck SA1019 (deprecated API) | 5 | 0.7% |
 | gocritic singleCaseSwitch | 4 | 0.5% |
 | revive / comment-format | 4 | 0.5% |
 | unconvert | 4 | 0.5% |
-| qolgan 18 qoida (SA6002×3, S1031×3, SA4009×2, S1039×2, S1024×2 va 1 tadan) | 25 | 3.4% |
+| remaining 18 rules (SA6002×3, S1031×3, SA4009×2, S1039×2, S1024×2 and 1 each) | 25 | 3.4% |
 
-## 4. Haqiqiy muammo yoki stil/shovqin
+## 4. Genuine issue or style/noise
 
-| Kategoriya | Son | Baho va asos | Misol |
+| Category | Count | Assessment and rationale | Example |
 |---|---:|---|---|
-| errcheck / `fmt.Fprint*` | 323 | 88.5% errcheck: 288 `w`, 18 `out`, 11 `pt.out`, 4 `tw`, 1 `w.out`, 1 `os.Stdout`. Chiqish oqimiga yozish; `Render(w io.Writer)` kabi imzolarda xatoni qaytarish yo'q → **asosan shovqin**, lekin `io.Writer` xatolari (yopiq pipe, disk to'lish) yashirinadi | `internal/report/report.go:212` |
-| errcheck / `Close` + `RemoveAll` | 42 | 41 `defer x.Close()` + 1 `defer os.RemoveAll(tmpDir)` → resurs tozalash xatosi yashirinishi mumkin, **ko'rib chiqish kerak** | `internal/dashboard/insights_bounty.go:332`, `cmd/sift-worker/main.go:296` |
-| revive / exported-comment | 152 | **Sof stil**: faqat doc comment yo'q. 33 fayl, 21 tasi `internal/metrics/metrics.go` da | `internal/audit360/manager.go:36` |
-| QF1012 | 72 | **Stil/avto-tuzatish**: 6 fayl, 40 tasi `cmd_pentest_generate.go` da; xatti-harakat o'zgarmaydi (`strings.Builder` yozuvda xato qaytarmaydi) | `cmd/sift/cmd_pentest_generate.go:67` |
-| unused | 28 | 17 tasi testda; 11 tasi production: o'lik kod/flag → **haqiqiy**, lekin xavfsiz o'chirish | `cmd/sift-master/main.go:48` (`timeline` flag o'qilmaydi) |
-| ifElseChain / singleCaseSwitch | 29 | **Stil**, refactor xavfi past | `cmd/sift/cmd_pentest_print.go:437` |
-| revive / stutter | 16 | Eksport qilingan nomlarni o'zgartirish talab qilinadi → **API buzilishi xavfi**, hozircha tark etish ma'qul | `internal/certificate/certificate.go:659` |
-| gosec | 5 | G602×2 — **noto'g'ri musbat** (`certificate.go:723` da `if i == 0 { continue }`, `hostxray/report.go:408` da `if i <= 0` bor); G304×2 — **dev-only** (`SIFT_DASHBOARD_DEV_ASSETS=1`, nomlar hardcode: `index.html`, `style.css`); G301 — 0o755 → **kichik hardening** | `internal/attest/trust.go:339` |
-| SA1019 | 5 | **Haqiqiy**: deprecated `crypto/ecdsa.PublicKey.X/Y` (Go 1.26), `elliptic.Curve.IsOnCurve`, `http2.Transport` | `internal/oidc/oidc.go:545` |
-| SA9003 / SA6002 / SA4009 | 10 | **Haqiqiy signal**: bo'sh branchlar, `sync.Pool.Put([]byte)` allocation, `ctx` ishlatilishdan oldin ustiga yozilishi | `internal/store/memstore/memstore.go:55`, `internal/engine/buffer_pool.go:97` |
+| errcheck / `fmt.Fprint*` | 323 | 88.5% of errcheck: 288 `w`, 18 `out`, 11 `pt.out`, 4 `tw`, 1 `w.out`, 1 `os.Stdout`. Writing to an output stream; signatures like `Render(w io.Writer)` do not return an error → **mostly noise**, but `io.Writer` errors (closed pipe, disk full) are hidden | `internal/report/report.go:212` |
+| errcheck / `Close` + `RemoveAll` | 42 | 41 `defer x.Close()` + 1 `defer os.RemoveAll(tmpDir)` → a resource-cleanup error may be hidden, **needs review** | `internal/dashboard/insights_bounty.go:332`, `cmd/sift-worker/main.go:296` |
+| revive / exported-comment | 152 | **Pure style**: only missing doc comments. 33 files, 21 of them in `internal/metrics/metrics.go` | `internal/audit360/manager.go:36` |
+| QF1012 | 72 | **Style/auto-fix**: 6 files, 40 of them in `cmd_pentest_generate.go`; behavior does not change (`strings.Builder` does not return an error on write) | `cmd/sift/cmd_pentest_generate.go:67` |
+| unused | 28 | 17 in tests; 11 in production: dead code/flag → **genuine**, but safe to remove | `cmd/sift-master/main.go:48` (`timeline` flag is not read) |
+| ifElseChain / singleCaseSwitch | 29 | **Style**, low refactor risk | `cmd/sift/cmd_pentest_print.go:437` |
+| revive / stutter | 16 | Requires changing exported names → **risk of API breakage**, better to leave it for now | `internal/certificate/certificate.go:659` |
+| gosec | 5 | G602×2 — **false positive** (`if i == 0 { continue }` in `certificate.go:723` and `if i <= 0` in `hostxray/report.go:408`); G304×2 — **dev-only** (`SIFT_DASHBOARD_DEV_ASSETS=1`, names hardcoded: `index.html`, `style.css`); G301 — 0o755 → **minor hardening** | `internal/attest/trust.go:339` |
+| SA1019 | 5 | **Genuine**: deprecated `crypto/ecdsa.PublicKey.X/Y` (Go 1.26), `elliptic.Curve.IsOnCurve`, `http2.Transport` | `internal/oidc/oidc.go:545` |
+| SA9003 / SA6002 / SA4009 | 10 | **Genuine signal**: empty branches, `sync.Pool.Put([]byte)` allocation, `ctx` overwritten before use | `internal/store/memstore/memstore.go:55`, `internal/engine/buffer_pool.go:97` |
 
-## 5. 1-bosqich taklifi: eng ko'p muammo beradigan 3 qoida
+## 5. Phase 1 proposal: the 3 rules producing the most issues
 
-| Qoida | Yo'q qilinadi | Jami ulush | Ish hajmi (taxmin) | Risk |
+| Rule | Eliminated | Total share | Workload (estimate) | Risk |
 |---|---:|---:|---|---|
-| errcheck (365) | 365 | 49.5% | 48 fayl: 323 `Fprint*` ni `_ = fmt.Fprint*(...)` yoki bitta helper bilan ifodalash; 42 `Close`/`RemoveAll` ni alohida audit qilish — **1-2 kishi-kuni + review** | past, lekin yozish xatolarining aniq yashirilishi yozib qo'yilishi shart |
-| revive / exported-comment (152) | 152 | 20.6% | 33 faylga doc comment qo'shish — **~0.5-1 kishi-kuni** | deyarli yo'q (faqat comment) |
-| QF1012 (72) | 72 | 9.8% | 6 faylda `WriteString(fmt.Sprintf(...))` → `fmt.Fprintf(&b, ...)`; `--fix` bilan sinash mumkin (scratch branchda) — **~0.5 kishi-kuni** | past |
+| errcheck (365) | 365 | 49.5% | 48 files: express 323 `Fprint*` calls as `_ = fmt.Fprint*(...)` or with a single helper; audit the 42 `Close`/`RemoveAll` cases separately — **1-2 person-days + review** | low, but the explicit hiding of write errors must be documented |
+| revive / exported-comment (152) | 152 | 20.6% | add doc comments to 33 files — **~0.5-1 person-days** | negligible (comments only) |
+| QF1012 (72) | 72 | 9.8% | in 6 files, `WriteString(fmt.Sprintf(...))` → `fmt.Fprintf(&b, ...)`; can try with `--fix` (on a scratch branch) — **~0.5 person-days** | low |
 
-**Jami: 589 / 738 = 79.8%** muammo yo'qoladi, qoladi 149 ta (20.2%).
-Tavsiya etilgan bajarish tartibi: QF1012 → revive comment → errcheck (eng katta, lekin eng ko'p faylga tegadi).
+**Total: 589 / 738 = 79.8%** of issues will be eliminated; 149 remain (20.2%).
+Recommended execution order: QF1012 → revive comment → errcheck (the largest, but touches the most files).
 
-## 6. Nega `only-new-issues` ratchet hozircha olinmasligi kerak
+## 6. Why the `only-new-issues` ratchet should not be removed yet
 
-1. 738 ta mavjud topilma 138 faylga tarqalgan; ratchetsiz **har bir** PR lint job'ida qizil bo'ladi,
-   o'zgartirish bilan bog'liq bo'lmagan qarz tufayli CI signali yo'qoladi.
-2. Ratchet yangi muammolarning **hammasini** o'chiradi (CI da `only-new-issues: true`), shuning uchun
-   regression yashirilmaydi — faqat eski qarz blok qilmaydi.
-3. `.golangci.yml` izohida qayd etilgan 755 → 738 dinamikasi qarz kamayayotganini, lekin 0 dan
-   uzoqligini ko'rsatadi; 1-bosqichning o'zi 79.8% ni qoplasa ham 149 ta qoladi.
-4. Olib tashlash mezoni: `golangci-lint run ./...` **0 issue** berishi (yoki barcha qarzdor
-   qoidalar uchun aniq, hujjatlashtirilgan suppressiya) va bir necha ketma-ket CI run yashil o'tishi.
+1. The 738 existing findings are spread across 138 files; without the ratchet, **every** PR would be red in the lint job,
+   and the CI signal is lost because of debt unrelated to the change.
+2. The ratchet surfaces **all** new issues (CI uses `only-new-issues: true`), so regressions are not hidden —
+   only old debt does not block.
+3. The 755 → 738 dynamic recorded in the `.golangci.yml` comment shows that the debt is decreasing, but still far from 0;
+   even if Phase 1 alone covers 79.8%, 149 remain.
+4. Removal criteria: `golangci-lint run ./...` yields **0 issues** (or explicit, documented suppressions for all debt
+   rules) and several consecutive CI runs pass green.
 
-## 7. 1-bosqich bajarildi (2026-11-21)
+## 7. Phase 1 completed (2026-11-21)
 
-4 ta parallel agent 44 ta faylda ishladi. Natija: **735 → 510** issue (-225, -30.6%).
+4 parallel agents worked across 44 files. Result: **735 → 510** issues (-225, -30.6%).
 
-| Linter | Oldin | Keyin | Izoh |
+| Linter | Before | After | Notes |
 |---|---:|---:|---|
-| staticcheck | 116 | 44 | **QF1012 72 → 0** (barchasi `_, _ = fmt.Fprintf(&b, ...)` ga o'tkazildi, errcheck soni oshmadi) |
-| revive | 172 | 19 | **exported-comment 152 → 0** (doc comment qo'shildi); qolgan 19 — asosan `stutter` (API buzilishi xavfi, ataylab tegilmadi) |
-| errcheck | 365 | 365 | 2-bosqichga qoldirildi (§5) |
-| gocritic / unused / goimports / ineffassign / gosec / unconvert | 82 | 82 | 2-bosqichga qoldirildi |
+| staticcheck | 116 | 44 | **QF1012 72 → 0** (all converted to `_, _ = fmt.Fprintf(&b, ...)`; the errcheck count did not increase) |
+| revive | 172 | 19 | **exported-comment 152 → 0** (doc comments added); the remaining 19 are mainly `stutter` (risk of API breakage, deliberately left untouched) |
+| errcheck | 365 | 365 | deferred to Phase 2 (§5) |
+| gocritic / unused / goimports / ineffassign / gosec / unconvert | 82 | 82 | deferred to Phase 2 |
 
 Verification: `gofmt`, `go vet ./...`, `go build ./...`, `go test`, `go test -race`, integration,
-`gitleaks`, `actionlint`, `helm lint`, `goreleaser check` — barchasi PASS.
+`gitleaks`, `actionlint`, `helm lint`, `goreleaser check` — all PASS.
 
-**Ratchet hali olinmaydi:** 510 ta qarz qolmoqda (§6 mezoni bajarilmadi).
+**Ratchet not removed yet:** 510 debt issues remain (the §6 criteria are not met).
 
-## Cheklovlar
+## Limitations
 
-- Ushbu hisobot 2026-11-20 da yaratilgan; §7 2026-11-21 dagi 1-bosqich natijalarini qo'shadi.
-  `.golangci.yml` va CI fayllari o'zgartirilmadi; ular `only-new-issues: true` ratchet'ni saqlaydi.
-- Hisob `.golangci.yml` exclusionlari bilan olingan: testlardagi errcheck/gosec/gocritic chiqarilgan
-  (izohda exclusion olib tashlanganda **+295** qo'shimcha topilma o'lchangani qayd etilgan — bu raqam
-  mazkur o'lchovga kirmaydi); `.pb.go` va ikki scanner fayli ham chiqarilgan. To'liq gosec faqat
-  alohida `security` CI job'ida baseline bilan ishlaydi.
+- This report was created on 2026-11-20; §7 adds the results of Phase 1 dated 2026-11-21.
+  `.golangci.yml` and the CI files were not changed; they retain the `only-new-issues: true` ratchet.
+- The count was taken with `.golangci.yml` exclusions in place: errcheck/gosec/gocritic in tests are excluded
+  (the comment records that removing the exclusions was measured at **+295** additional findings — this number
+  is not included in the present measurement); `.pb.go` and two scanner files are also excluded. Full gosec runs only
+  in a separate `security` CI job with a baseline.
