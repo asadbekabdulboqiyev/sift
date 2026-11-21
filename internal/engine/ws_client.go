@@ -143,6 +143,13 @@ func (e *Engine) wsExchange(conn *websocket.Conn, ctx context.Context, step conf
 	}
 
 	if step.Body != "" {
+		// Bound the write as raw_client.go does: a peer that stops reading
+		// must not pin a socket (and a load-test worker) forever.
+		if err := conn.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
+			res := classifyNetError(err, time.Since(start))
+			res.status = http.StatusSwitchingProtocols
+			return res, nil
+		}
 		if err := conn.WriteMessage(frameType, []byte(renderBody(step.Body, vars))); err != nil {
 			res := classifyNetError(err, time.Since(start))
 			res.status = http.StatusSwitchingProtocols

@@ -21,6 +21,22 @@ import (
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/core"
 )
 
+// Resource limits for passive enumeration. A single 4 MiB crt.sh response can
+// name thousands of hosts, and each host costs up to three DNS lookups, so both
+// the name set and the resolver pool need fixed ceilings.
+const (
+	// maxPassiveNames is ~5x Guard's 2000-request scan budget and above its
+	// 4096-entry taint registry (guard.go): those bound paid HTTP probes and
+	// refusals, while discovery is local and cheap, so it gets a larger but
+	// still bounded ceiling.
+	maxPassiveNames = 10000
+
+	// resolveConcurrency caps in-flight resolutions, mirroring the 64-wide
+	// dial semaphore in portscan.go; beyond that, more goroutines only add
+	// resolver pressure.
+	resolveConcurrency = 64
+)
+
 // Test seams. Passive enumeration is network-bound, so the DNS lookups and the
 // passive-source wait are indirected through package variables. Production
 // wiring keeps the standard library resolver and the 8s window; tests replace
@@ -78,6 +94,11 @@ func EnumerateSubdomains(ctx context.Context, target string, req core.Requester)
 			s.Methods = appendUnique(s.Methods, methods...)
 			return
 		}
+		// Cap only new names: an already-discovered host keeps collecting
+		// methods even after the set is full.
+		if len(found) >= maxPassiveNames {
+			return
+		}
 		found[name] = &Subdomain{Name: name, Source: source, Methods: methods}
 	}
 
@@ -116,13 +137,30 @@ func EnumerateSubdomains(ctx context.Context, target string, req core.Requester)
 	}
 	mu.Unlock()
 
+	// Callers may pass context.Background(), so DNS gets its own bounded
+	// window too (derived from ctx, so caller cancellation still wins). The
+	// passive phase is finished, so this window is not consumed by it.
+	resolveCtx, cancelResolve := context.WithTimeout(ctx, passiveWait)
+	defer cancelResolve()
+
 	var wg sync.WaitGroup
+	sem := make(chan struct{}, resolveConcurrency)
 	resolved := int64(0)
 	for _, s := range names {
+		// Acquire before spawning: at most resolveConcurrency goroutines and
+		// DNS lookups exist at once, however large the crt.sh response was.
+		select {
+		case <-resolveCtx.Done():
+			// Stop starting new work when the budget is gone; wg.Wait below
+			// still joins everything already in flight.
+			continue
+		case sem <- struct{}{}:
+		}
 		wg.Add(1)
 		go func(s *Subdomain) {
 			defer wg.Done()
-			ips, methods := resolveHost(ctx, s.Name)
+			defer func() { <-sem }()
+			ips, methods := resolveHost(resolveCtx, s.Name)
 			if len(ips) > 0 {
 				s.IPs = ips
 				s.Methods = appendUnique(s.Methods, methods...)

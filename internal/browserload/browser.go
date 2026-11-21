@@ -20,6 +20,19 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
+const (
+	// defaultRunTimeout bounds one page load, including Chrome startup.
+	// There is no Runner-level timeout setting; 30s matches the browser
+	// startup allowance in internal/scanner/browser (probeTimeout), so a
+	// hung page cannot hold a tab or its Chrome process indefinitely.
+	defaultRunTimeout = 30 * time.Second
+
+	// maxConcurrentTabs caps simultaneous Chrome instances in RunConcurrent,
+	// matching the documented "light 5-20 tabs" guidance above. Extra tabs
+	// queue instead of failing, preserving one result slot per requested tab.
+	maxConcurrentTabs = 20
+)
+
 // RunResult describes a single browser page-load measurement.
 type RunResult struct {
 	URL        string        `json:"url"`
@@ -79,50 +92,54 @@ func normalizeURL(raw string) (string, error) {
 }
 
 // Run loads url in a headless browser and returns performance timings. The
-// context must be cancellable; Run respects ctx.Done().
+// context must be cancellable; Run respects ctx.Done() for the whole browser
+// lifetime and also bounds each load with its own timeout.
 func (r *Runner) Run(ctx context.Context, urlStr string) (*RunResult, error) {
 	urlStr, err := normalizeURL(urlStr)
 	if err != nil {
 		return nil, err
 	}
 
-	allocCtx, cancelAlloc := chromedp.NewExecAllocator(context.Background(), r.opts...)
+	// Keep the caller's context at the root so its cancellation tears down
+	// Chrome too, instead of leaving an orphaned browser process behind.
+	allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx, r.opts...)
 	defer cancelAlloc()
 
-	ctx, cancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(func(fmt string, args ...interface{}) {}))
-	defer cancel()
+	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx, chromedp.WithLogf(func(fmt string, args ...interface{}) {}))
+	defer cancelBrowser()
 
-	// Set a timeout wrapper so a hung page doesn't block forever.
-	ctx, cancel = context.WithCancel(ctx)
-	defer cancel()
+	// Set a real timeout wrapper (WithCancel had no deadline at all). Derive
+	// it from browserCtx so actions still see the allocated browser.
+	runCtx, cancelRun := context.WithTimeout(browserCtx, defaultRunTimeout)
+	defer cancelRun()
 
 	result := &RunResult{URL: urlStr}
 
 	var js jsErrorLog
-	_ = chromedp.Listen(ctx, js.handle)
+	_ = chromedp.Listen(runCtx, js.handle)
 	snapshot := js.snapshot
 
 	// Navigate first (void action)
-	if err := chromedp.Do(ctx, chromedp.Navigate(urlStr)); err != nil {
+	if err := chromedp.Do(runCtx, chromedp.Navigate(urlStr)); err != nil {
 		result.Error = err.Error()
 		result.JSErrors = snapshot()
 		return result, err
 	}
 
 	// Then evaluate timing (returning values).
-	navStart, err := chromedp.Run(ctx, chromedp.Evaluate[float64](`performance.timing.navigationStart`))
+	navStart, err := chromedp.Run(runCtx, chromedp.Evaluate[float64](`performance.timing.navigationStart`))
 	if err != nil {
 		result.Error = err.Error()
 		result.JSErrors = snapshot()
 		return result, err
 	}
-	loadEnd, err := chromedp.Run(ctx, chromedp.Evaluate[float64](`performance.timing.loadEventEnd`))
+	loadEnd, err := chromedp.Run(runCtx, chromedp.Evaluate[float64](`performance.timing.loadEventEnd`))
 	if err != nil {
 		result.Error = err.Error()
 		result.JSErrors = snapshot()
 		return result, err
 	}
-	domEnd, err := chromedp.Run(ctx, chromedp.Evaluate[float64](`performance.timing.domContentLoadedEventEnd`))
+	domEnd, err := chromedp.Run(runCtx, chromedp.Evaluate[float64](`performance.timing.domContentLoadedEventEnd`))
 	if err != nil {
 		result.Error = err.Error()
 		result.JSErrors = snapshot()
@@ -137,7 +154,7 @@ func (r *Runner) Run(ctx context.Context, urlStr string) (*RunResult, error) {
 	// depending on page/cors). EvalAwaitPromise is required: without it the
 	// result is the Promise object, not the status, and StatusCode stays 0.
 	var status int
-	if _, err := chromedp.Run(ctx, chromedp.Evaluate[int](
+	if _, err := chromedp.Run(runCtx, chromedp.Evaluate[int](
 		`fetch(window.location.href).then(r=>r.status).catch(()=>0)`,
 		chromedp.EvalAwaitPromise,
 	)); err != nil {
@@ -163,11 +180,17 @@ func (r *Runner) RunConcurrent(ctx context.Context, url string, n int) ([]*RunRe
 	results := make([]*RunResult, n)
 	errs := make([]error, n)
 
+	// One Chrome instance per tab: acquire before spawning so at most
+	// maxConcurrentTabs are live at once. Extra tabs queue (they still own a
+	// result slot) rather than creating unbounded browser processes.
+	sem := make(chan struct{}, maxConcurrentTabs)
 	var wg sync.WaitGroup
 	for i := 0; i < n; i++ {
+		sem <- struct{}{}
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
+			defer func() { <-sem }()
 			results[i], errs[i] = r.Run(ctx, url)
 		}(i)
 	}
