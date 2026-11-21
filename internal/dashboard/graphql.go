@@ -77,7 +77,7 @@ func (s *Server) handleGraphQLScan(w http.ResponseWriter, r *http.Request) {
 		owaspWriteError(w, http.StatusInternalServerError, "authorization policy error: "+err.Error())
 		return
 	}
-	auditErr := graphqlAudit(authz.Entry{Action: authz.OpScan.String(), Targets: []string{req.Endpoint}, IPs: decision.IPs, Class: decision.Class, Allowed: decision.Allowed, Rule: decision.Rule, Reason: decision.Reason, Argv: []string{"Sift dashboard", "POST /api/graphql/scan"}})
+	auditErr := graphqlAudit(authz.Entry{Action: authz.OpScan.String(), Targets: []string{req.Endpoint}, Actor: auditActor(r.Context()), IPs: decision.IPs, Class: decision.Class, Allowed: decision.Allowed, Rule: decision.Rule, Reason: decision.Reason, Argv: []string{"Sift dashboard", "POST /api/graphql/scan"}})
 	if !decision.Allowed {
 		reason := decision.Reason
 		if auditErr != nil {

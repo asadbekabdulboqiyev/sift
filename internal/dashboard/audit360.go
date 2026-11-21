@@ -113,6 +113,7 @@ func (s *Server) handleAudit360Start(w http.ResponseWriter, r *http.Request) {
 	auditErr := audit360Audit(authz.Entry{
 		Action:  authz.OpScan.String(),
 		Targets: []string{target},
+		Actor:   auditActor(r.Context()),
 		IPs:     decision.IPs,
 		Class:   decision.Class,
 		Allowed: decision.Allowed,

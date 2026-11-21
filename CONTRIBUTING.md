@@ -199,8 +199,8 @@ cached file handle) so tests that swap `SIFT_AUDIT_LOG` stay isolated.
 On Windows the advisory file lock is a no-op: writers inside one process are
 still serialized, but concurrent CLI processes on Windows retain a residual
 chain-corruption risk. The dashboard is a local-first console; run one writer
-at a time there. Load-test audit entries record the authenticated subject as
-`actor`; other scan endpoints still fall back to the process user.
+at a time there. Every decision records the authenticated subject as `actor`;
+an unauthenticated (loopback) dashboard falls back to the process user.
 
 ## Questions
 

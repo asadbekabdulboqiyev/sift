@@ -98,7 +98,7 @@ func (s *Server) handleDirBust(w http.ResponseWriter, r *http.Request) {
 		owaspWriteError(w, http.StatusInternalServerError, "authorization policy error: "+err.Error())
 		return
 	}
-	auditErr := dirbustAudit(authz.Entry{Action: authz.OpScan.String(), Targets: []string{target}, IPs: decision.IPs, Class: decision.Class, Allowed: decision.Allowed, Rule: decision.Rule, Reason: decision.Reason, Argv: []string{"Sift dashboard", "POST /api/dirbust"}})
+	auditErr := dirbustAudit(authz.Entry{Action: authz.OpScan.String(), Targets: []string{target}, Actor: auditActor(r.Context()), IPs: decision.IPs, Class: decision.Class, Allowed: decision.Allowed, Rule: decision.Rule, Reason: decision.Reason, Argv: []string{"Sift dashboard", "POST /api/dirbust"}})
 	if !decision.Allowed {
 		reason := decision.Reason
 		if auditErr != nil {

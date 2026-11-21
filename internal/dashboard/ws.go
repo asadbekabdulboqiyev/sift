@@ -9,6 +9,52 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// Per-connection budget for the expensive gated run commands (start/stop).
+// Each socket is one dashboard tab, so the bucket is a local variable in
+// handleWebSocket: only the read loop touches it, which means no Server field,
+// no shared state and no new locks (and therefore no new races).
+//
+// Sizing: capacity 16 with a 1 token/second refill. 16 is deliberately above
+// the burst the existing unsafe-target test sends on one socket (11 denied
+// starts plus a stop), and far above anything a human clicking start/stop can
+// produce, so normal dashboards are never throttled. The refill lets a
+// legitimate operator recover without reconnecting, while a script flooding
+// start cannot keep the policy gate and its audit fsync busy indefinitely.
+const (
+	wsRunCommandBurst   = 16
+	wsRunCommandRefill  = 1 // tokens replenished per second
+	wsRunCommandLimited = "too many run commands; slow down"
+)
+
+// runCommandBudget is a lazy token bucket: tokens are added only when a
+// command arrives, based on wall-clock time since the last check.
+type runCommandBudget struct {
+	tokens float64
+	last   time.Time
+}
+
+func newRunCommandBudget(now time.Time) runCommandBudget {
+	return runCommandBudget{tokens: wsRunCommandBurst, last: now}
+}
+
+// allow consumes one token when a run command is within budget. It does not
+// drive the token count below zero, so a denied command does not accumulate
+// debt that would delay an operator's recovery after the burst stops.
+func (b *runCommandBudget) allow(now time.Time) bool {
+	if elapsed := now.Sub(b.last).Seconds(); elapsed > 0 {
+		b.tokens += elapsed * wsRunCommandRefill
+		if b.tokens > wsRunCommandBurst {
+			b.tokens = wsRunCommandBurst
+		}
+		b.last = now
+	}
+	if b.tokens < 1 {
+		return false
+	}
+	b.tokens--
+	return true
+}
+
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Cap concurrent sockets so a flood of tabs cannot exhaust descriptors,
 	// memory or goroutines on the host running the dashboard.
@@ -77,6 +123,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// permission the HTTP start endpoint requires.
 	cmdCtx := r.Context()
 
+	// The command loop is the only reader of this bucket, so it needs no
+	// synchronization. It is recreated for every connection: one client
+	// exhausting its budget cannot affect any other dashboard tab.
+	runBudget := newRunCommandBudget(time.Now())
+
 	// Listen for commands
 	for {
 		// A stalled peer (partial frame, no pongs) is dropped after the
@@ -91,6 +142,21 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			Args map[string]interface{} `json:"args,omitempty"`
 		}
 		if err := json.Unmarshal(msg, &cmd); err != nil {
+			continue
+		}
+		// Only start/stop hit the expensive path (policy classification plus
+		// audit fsync). Meter them here, before authorizeRunCommand, so a
+		// burst from one client cannot burn that work. Other command types
+		// are cheap and are not charged. A spent budget sends the same
+		// command_error frame as an authorization denial and keeps reading:
+		// the socket is never torn down over a rate-limit decision.
+		if (cmd.Type == "start" || cmd.Type == "stop") && !runBudget.allow(time.Now()) {
+			frame, _ := json.Marshal(map[string]interface{}{
+				"type":    "command_error",
+				"command": cmd.Type,
+				"error":   wsRunCommandLimited,
+			})
+			_ = s.writeWS(conn, frame)
 			continue
 		}
 		// A WebSocket start is the same privileged operation as POST

@@ -533,6 +533,7 @@ func (s *Server) handleOWASPScan(w http.ResponseWriter, r *http.Request) {
 	auditErr := owaspAudit(authz.Entry{
 		Action:  op.String(),
 		Targets: []string{target},
+		Actor:   auditActor(r.Context()),
 		IPs:     decision.IPs,
 		Class:   decision.Class,
 		Allowed: decision.Allowed,

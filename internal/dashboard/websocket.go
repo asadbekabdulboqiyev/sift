@@ -70,7 +70,7 @@ func (s *Server) handleWebSocketScan(w http.ResponseWriter, r *http.Request) {
 		owaspWriteError(w, http.StatusInternalServerError, "authorization policy error: "+err.Error())
 		return
 	}
-	auditErr := websocketAudit(authz.Entry{Action: authz.OpScan.String(), Targets: []string{req.URL}, IPs: decision.IPs, Class: decision.Class, Allowed: decision.Allowed, Rule: decision.Rule, Reason: decision.Reason, Argv: []string{"Sift dashboard", "POST /api/websocket/scan"}})
+	auditErr := websocketAudit(authz.Entry{Action: authz.OpScan.String(), Targets: []string{req.URL}, Actor: auditActor(r.Context()), IPs: decision.IPs, Class: decision.Class, Allowed: decision.Allowed, Rule: decision.Rule, Reason: decision.Reason, Argv: []string{"Sift dashboard", "POST /api/websocket/scan"}})
 	if !decision.Allowed {
 		reason := decision.Reason
 		if auditErr != nil {

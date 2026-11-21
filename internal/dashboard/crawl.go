@@ -216,6 +216,7 @@ func (s *Server) handleCrawlScan(w http.ResponseWriter, r *http.Request) {
 	auditErr := crawlAudit(authz.Entry{
 		Action:  authz.OpScan.String(),
 		Targets: []string{target},
+		Actor:   auditActor(r.Context()),
 		IPs:     decision.IPs,
 		Class:   decision.Class,
 		Allowed: decision.Allowed,
