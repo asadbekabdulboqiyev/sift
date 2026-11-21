@@ -101,8 +101,10 @@ the worker's registered public key. Verification failure → worker marked
   signature → telemetry rejected.
 - **No key material on wire:** Only public keys are enrolled; signatures never
   reveal private keys.
-- **Replay resistance:** Each snapshot includes a monotonically increasing
-  sequence number; the coordinator rejects out-of-order or duplicate snapshots.
+- **Replay resistance:** Every signed statement binds worker_id, run_id and a
+  timestamp, and the master accepts telemetry only for its active run. Frames
+  signed for an earlier run are rejected. Progress snapshots are cumulative, so
+  an exact replay within the active run carries no new claims.
 
 ---
 

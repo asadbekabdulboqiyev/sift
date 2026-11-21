@@ -183,6 +183,79 @@ func signedProgress(t *testing.T, kp *attest.Keypair, workerID, runID string, sn
 	}
 }
 
+// TestAttestationRejectsFrameFromInactiveRun pins the replay-context guard: a
+// correctly signed frame captured from an earlier run must not be accepted as
+// this run's telemetry or final report.
+func TestAttestationRejectsFrameFromInactiveRun(t *testing.T) {
+	const (
+		activeRun = "run-active"
+		staleRun  = "run-stale"
+	)
+
+	t.Run("progress", func(t *testing.T) {
+		kp, err := attest.GenerateKeypair()
+		if err != nil {
+			t.Fatalf("keypair: %v", err)
+		}
+		master := attestationTestMaster(t, "w1", kp)
+		master.mu.Lock()
+		master.runID = activeRun
+		master.mu.Unlock()
+
+		const staleAddr = "10.0.0.31:50061"
+		stale := signedProgress(t, kp, "w1", staleRun, attestationTestSnapshot())
+		if master.handleRunProgress(staleAddr, stale, nil) {
+			t.Fatal("progress signed for an inactive run must be rejected")
+		}
+		if got := master.RejectedWorkers(); got[staleAddr] == "" {
+			t.Fatalf("stale-run progress not recorded as rejected: %v", got)
+		}
+
+		const freshAddr = "10.0.0.32:50061"
+		fresh := signedProgress(t, kp, "w1", activeRun, attestationTestSnapshot())
+		if !master.handleRunProgress(freshAddr, fresh, nil) {
+			t.Fatalf("progress signed for the active run must be accepted (rejected: %v)", master.RejectedWorkers())
+		}
+	})
+
+	t.Run("report", func(t *testing.T) {
+		kp, err := attest.GenerateKeypair()
+		if err != nil {
+			t.Fatalf("keypair: %v", err)
+		}
+		master := attestationTestMaster(t, "w1", kp)
+		master.mu.Lock()
+		master.runID = activeRun
+		master.mu.Unlock()
+
+		ts := time.Now().UnixMilli()
+		staleReport := &distproto.Report{Name: "stale", TotalRequests: 10, Rps: 5}
+		staleSig, err := SignReport(kp, "w1", staleRun, ts, staleReport)
+		if err != nil {
+			t.Fatalf("sign stale report: %v", err)
+		}
+		const staleAddr = "10.0.0.33:50061"
+		stale := &distproto.RunCompleted{RunId: staleRun, Timestamp: ts, Report: staleReport, WorkerId: "w1", Signature: staleSig}
+		if master.handleRunCompleted(staleAddr, stale, nil) {
+			t.Fatal("final report signed for an inactive run must be rejected")
+		}
+		if got := master.RejectedWorkers(); got[staleAddr] == "" {
+			t.Fatalf("stale-run report not recorded as rejected: %v", got)
+		}
+
+		freshReport := &distproto.Report{Name: "fresh", TotalRequests: 20, Rps: 10}
+		freshSig, err := SignReport(kp, "w1", activeRun, ts, freshReport)
+		if err != nil {
+			t.Fatalf("sign active report: %v", err)
+		}
+		const freshAddr = "10.0.0.34:50061"
+		fresh := &distproto.RunCompleted{RunId: activeRun, Timestamp: ts, Report: freshReport, WorkerId: "w1", Signature: freshSig}
+		if !master.handleRunCompleted(freshAddr, fresh, nil) {
+			t.Fatalf("final report signed for the active run must be accepted (rejected: %v)", master.RejectedWorkers())
+		}
+	})
+}
+
 // TestSignedProgressAccepted is the happy path: a snapshot signed by the pinned
 // worker key is aggregated, the connection is bound to that identity, and
 // nothing is marked failed or rejected.

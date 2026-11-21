@@ -278,6 +278,23 @@ func (m *Master) syncAttestationModeLocked() {
 	m.agg.SetRequireVerified(m.attestationRequiredLocked())
 }
 
+// activeRunID returns the run the master currently accepts telemetry for. An
+// empty string means no run has been started (for example in unit tests that
+// drive the handlers directly); in that case the context check is skipped.
+func (m *Master) activeRunID() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.runID
+}
+
+// runIDMatchesActive reports whether frameRun belongs to the active run. It is
+// the replay-context guard: a correctly signed frame from an earlier run must
+// not be accepted as this run's telemetry or final report.
+func (m *Master) runIDMatchesActive(frameRun string) bool {
+	active := m.activeRunID()
+	return active == "" || frameRun == active
+}
+
 // boundWorkerID returns the worker id already attested for a connection address.
 func (m *Master) boundWorkerID(addr string) (string, bool) {
 	m.mu.Lock()
@@ -374,6 +391,10 @@ func (m *Master) handleRunProgress(addr string, rp *distproto.RunProgress, strea
 		m.rejectWorker(addr, "", "progress carries no worker_id while attestation is required", stream)
 		return false
 	}
+	if !m.runIDMatchesActive(rp.GetRunId()) {
+		m.rejectWorker(addr, workerID, fmt.Sprintf("progress run_id %q does not match the active run %q", rp.GetRunId(), m.activeRunID()), stream)
+		return false
+	}
 	if bound, ok := m.boundWorkerID(addr); ok && bound != workerID {
 		m.rejectWorker(addr, workerID, fmt.Sprintf("worker_id %q does not match the identity %q already attested on this connection", workerID, bound), stream)
 		return false
@@ -408,6 +429,10 @@ func (m *Master) handleRunCompleted(addr string, rc *distproto.RunCompleted, str
 	workerID := rc.GetWorkerId()
 	if workerID == "" {
 		m.rejectWorker(addr, "", "final report carries no worker_id while attestation is required", stream)
+		return false
+	}
+	if !m.runIDMatchesActive(rc.GetRunId()) {
+		m.rejectWorker(addr, workerID, fmt.Sprintf("final report run_id %q does not match the active run %q", rc.GetRunId(), m.activeRunID()), stream)
 		return false
 	}
 	if bound, ok := m.boundWorkerID(addr); ok && bound != workerID {
