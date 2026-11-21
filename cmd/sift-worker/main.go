@@ -41,6 +41,7 @@ var (
 	tlsKey     = flag.String("tls-key", "", "TLS server private key (pair with -tls-cert)")
 	tlsCA      = flag.String("tls-ca", "", "CA bundle used to verify the master this worker registers with")
 	tlsSkip    = flag.Bool("tls-skip-verify", false, "Disable master verification when self-registering (self-signed demo fleets only)")
+	tlsRequire = flag.Bool("tls-require", false, "require TLS for outgoing fleet dials (fails if no CA or skip-verify)")
 	httpAddr   = flag.String("http-addr", "0.0.0.0:9091", "HTTP health/metrics listen address (/healthz /readyz /metrics); empty disables")
 	attestKey  = flag.String("attest-key", "", "Ed25519 keypair PEM (from `Sift keygen`); signs telemetry so an attested master accepts it")
 )
@@ -142,6 +143,7 @@ func main() {
 		KeyFile:            *tlsKey,
 		CAFile:             *tlsCA,
 		InsecureSkipVerify: *tlsSkip,
+		RequireTLS:         *tlsRequire,
 	}
 	serverCreds, err := tlsOpts.ServerCreds()
 	if err != nil {

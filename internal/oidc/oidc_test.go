@@ -1113,3 +1113,111 @@ func TestVerifyIDTokenRejectsInvalidJWT(t *testing.T) {
 		})
 	}
 }
+
+// --- JWKS metadata filter (audit §5.3) ---------------------------------------
+
+// TestJWKUsableForSigning covers the metadata filter that keeps ill-declared
+// keys out of the verification cache. It is defense in depth on top of the
+// algorithm pinning in verifyIDToken, which remains the primary control.
+func TestJWKUsableForSigning(t *testing.T) {
+	cases := []struct {
+		name string
+		key  jwkKey
+		want bool
+	}{
+		{"empty use accepted", jwkKey{Kty: "RSA", Use: "", Alg: "RS256"}, true},
+		{"sig use accepted", jwkKey{Kty: "EC", Use: "sig", Alg: "ES256", Crv: "P-256"}, true},
+		{"enc use rejected", jwkKey{Kty: "RSA", Use: "enc", Alg: "RS256"}, false},
+		{"unknown use rejected", jwkKey{Kty: "RSA", Use: "other"}, false},
+		{"RS256 with RSA accepted", jwkKey{Kty: "RSA", Alg: "RS256"}, true},
+		{"RS256 with EC rejected", jwkKey{Kty: "EC", Alg: "RS256", Crv: "P-256"}, false},
+		{"ES256 with EC P-256 accepted", jwkKey{Kty: "EC", Alg: "ES256", Crv: "P-256"}, true},
+		{"ES256 with EC P-384 rejected", jwkKey{Kty: "EC", Alg: "ES256", Crv: "P-384"}, false},
+		{"ES256 with RSA rejected", jwkKey{Kty: "RSA", Alg: "ES256"}, false},
+		{"unknown alg rejected", jwkKey{Kty: "RSA", Alg: "RS512"}, false},
+		{"empty alg with RSA accepted", jwkKey{Kty: "RSA", Alg: ""}, true},
+		{"empty alg with EC accepted", jwkKey{Kty: "EC", Alg: "", Crv: "P-256"}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.key.usableForSigning(); got != tc.want {
+				t.Fatalf("usableForSigning() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestLoadKeysFiltersJWKSMetadata exercises the filter through loadKeys with a
+// real JWKS response, including the all-rejected error path.
+func TestLoadKeysFiltersJWKSMetadata(t *testing.T) {
+	rsaPub := &genRSAKey(t).PublicKey
+	ecPub := &genECKey(t).PublicKey
+
+	with := func(src map[string]any, field, value string) map[string]any {
+		out := make(map[string]any, len(src)+1)
+		for k, v := range src {
+			out[k] = v
+		}
+		out[field] = value
+		return out
+	}
+	without := func(src map[string]any, field string) map[string]any {
+		out := make(map[string]any, len(src))
+		for k, v := range src {
+			if k != field {
+				out[k] = v
+			}
+		}
+		return out
+	}
+
+	goodRSA := rsaJWK("rsa-good", rsaPub)                           // use=sig, alg=RS256
+	goodECNoUse := without(ecJWK("ec-good", ecPub), "use")          // use absent, alg=ES256
+	goodRSANoAlg := without(rsaJWK("rsa-noalg", rsaPub), "alg")     // use=sig, alg absent
+	encRSA := with(rsaJWK("rsa-enc", rsaPub), "use", "enc")         // encryption-only
+	mismatchEC := with(ecJWK("ec-mismatch", ecPub), "alg", "RS256") // alg contradicts kty
+	unknownAlg := with(rsaJWK("rsa-unknown", rsaPub), "alg", "RS512")
+
+	serve := func(t *testing.T, docs ...map[string]any) *Client {
+		t.Helper()
+		raw, err := json.Marshal(map[string]any{"keys": docs})
+		if err != nil {
+			t.Fatalf("marshal jwks: %v", err)
+		}
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(raw)
+		}))
+		t.Cleanup(srv.Close)
+		return &Client{jwksURI: srv.URL, http: srv.Client()}
+	}
+
+	t.Run("all keys rejected by metadata keep the original error", func(t *testing.T) {
+		c := serve(t, encRSA, mismatchEC, unknownAlg)
+		_, err := c.loadKeys(t.Context())
+		if err == nil || !strings.Contains(err.Error(), "jwks contained no usable keys") {
+			t.Fatalf("loadKeys error = %v, want jwks contained no usable keys", err)
+		}
+	})
+
+	t.Run("usable keys are kept and unusable keys are skipped", func(t *testing.T) {
+		c := serve(t, encRSA, mismatchEC, unknownAlg, goodRSA, goodECNoUse, goodRSANoAlg)
+		keys, err := c.loadKeys(t.Context())
+		if err != nil {
+			t.Fatalf("loadKeys: %v", err)
+		}
+		for _, kid := range []string{"rsa-good", "ec-good", "rsa-noalg"} {
+			if _, ok := keys[kid]; !ok {
+				t.Errorf("usable key %q was dropped", kid)
+			}
+		}
+		for _, kid := range []string{"rsa-enc", "ec-mismatch", "rsa-unknown"} {
+			if _, ok := keys[kid]; ok {
+				t.Errorf("unusable key %q was loaded", kid)
+			}
+		}
+		if len(keys) != 3 {
+			t.Errorf("len(keys) = %d, want 3", len(keys))
+		}
+	})
+}

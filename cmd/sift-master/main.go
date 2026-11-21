@@ -57,6 +57,7 @@ var (
 	tlsKey      = flag.String("tls-key", "", "TLS server private key (pair with -tls-cert)")
 	tlsCA       = flag.String("tls-ca", "", "CA bundle used to verify workers the master dials (static fleet)")
 	tlsSkip     = flag.Bool("tls-skip-verify", false, "Disable peer verification when dialing workers (self-signed demo fleets only)")
+	tlsRequire  = flag.Bool("tls-require", false, "require TLS for outgoing fleet dials (fails if no CA or skip-verify)")
 	httpAddr    = flag.String("http-addr", "0.0.0.0:9090", "HTTP health/metrics listen address (/healthz /readyz /metrics); empty disables")
 	requireAtt  = flag.Bool("require-attestation", false, "Discard worker telemetry that is not signed by the pinned key of its worker id (fail closed)")
 	authorizedK = flag.String("authorized-keys", "", "Comma-separated worker_id=hex Ed25519 public keys to pin (implies -require-attestation)")
@@ -176,6 +177,7 @@ func main() {
 		KeyFile:            *tlsKey,
 		CAFile:             *tlsCA,
 		InsecureSkipVerify: *tlsSkip,
+		RequireTLS:         *tlsRequire,
 	}
 	serverCreds, err := tlsOpts.ServerCreds()
 	if err != nil {

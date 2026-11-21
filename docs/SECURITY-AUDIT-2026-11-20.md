@@ -10,7 +10,7 @@
 | Branch / HEAD | `main` / `773fa564f5ef64546dcffd0bd7160bf43c2b18fb` |
 | Sana | 2026-11-20 |
 | Usul | Statik manba ko'rib chiqish va chaqiruv zanjirlarini qidirish (`rg`/`grep`) |
-| Bajarilmagan ishlar | Ilova ishga tushirilmadi; DAST/tarmoq skaneri, dependency scanner, ekspluatatsiya urinishlari yo'q |
+| Bajarilmagan ishlar | Ilova ishga tushirilmadi; DAST/tarmoq skaneri, ekspluatatsiya urinishlari yo'q. Dependency scanner ushbu audit tomonidan ishga tushirilmadi, lekin CI da doimiy ishlaydi (§5.7) |
 
 Ko'rib chiqilgan yo'nalishlar: authz/RBAC va `DialControl`, CSRF/rate limiting/CSP, sertifikat verifikatsiyasi (CWE-347/345), HTTP/3 TLS, OIDC token loglash va JWT tekshiruvi, fingerprint dialeri, port validatsiyasi, dashboard JS XSS, insights fayl yo'llari, coordinator TLS, CLI auth ulanishi.
 
@@ -95,7 +95,7 @@ return nil, nil
 - **Maxfiy ma'lumotlarning log'ga chiqishi (CWE-532):** `internal/oidc/oidc.go:314-351` da provider xato tanasi o'rniga faqat sanitized `error` kodi ishlatiladi; topilmadi.
 - **DNS rebinding:** `internal/authz/dial.go:30-40,54-89` va `internal/engine/client.go:55-98,110-134` da soket darajasida qayta tekshirish bor; tasdiqlangan bypass topilmadi.
 
-**Baholanmadi (shu audit doirasida):** SQL/NoSQL/command injection, XXE, dependency vulnerability scan, runtime va tarmoq testlari. Bu kategoriyalar bo'yicha "topilmadi" degan xulosa berilmaydi.
+**Baholanmadi (shu audit doirasida):** SQL/NoSQL/command injection, XXE, runtime va tarmoq testlari. CI ning avtomatik dependency skanlari (govulncheck/Trivy) ushbu auditning qismi hisoblanmaydi. Bu kategoriyalar bo'yicha "topilmadi" degan xulosa berilmaydi.
 
 ## 4. Oldingi tuzatishlar holati
 
@@ -113,11 +113,11 @@ return nil, nil
 
 1. **F-01 — RBAC qamrovi.** ~~`sift run --dashboard` da RBAC yoqib bo'lmaydi~~ — §6 da tuzatildi: OIDC/RBAC flaglari qo'shildi.
 2. **F-02 — trust anchor ixtiyoriy.** ~~Trust store bo'lmasa va `--require-anchor` berilmasa, `IssuerUnpinned` statusi xato emas~~ — §6 da tuzatildi: anchor default majburiy.
-3. **OIDC JWKS filteri.** `internal/oidc/oidc.go:111-121` da `use` va `alg` maydonlari mavjud, lekin `:499-506` da faqat `kid` bo'yicha yuklanadi: `keys[k.Kid] = pub`. JWT tomonida algoritm qat'iy pinlangan (`:363-399`: faqat `RS256`/`ES256` + kalit turi tekshiruvi), shuning uchun xavf past; JWKS nazorati IdP da bo'lishi shart.
-4. **Coordinator TLS.** `internal/dist/coordinator/tls.go:53-70`: CA ham, `-tls-skip-verify` ham berilmasa `return nil, nil` — plaintext ulanish; self-signed uchun `InsecureSkipVerify` opt-in. Productionda CA majburiy qilinishi kerak.
+3. **OIDC JWKS filteri.** ~~`:499-506` da faqat `kid` bo'yicha yuklanadi~~ — **TUZATILDI (2026-11-21)**: `jwkKey.usableForSigning()` qo'shildi — `use` faqat `""`/`"sig"`, `alg` bo'lsa faqat `RS256`→RSA yoki `ES256`→EC/P-256 mos kelganda qabul qilinadi. Bu qo'shimcha filtr (JWT algoritm pinlash o'zgarishsiz). Test: `TestJWKUsableForSigning` (12 holat), `TestLoadKeysFiltersJWKSMetadata`. JWKS nazorati IdP da bo'lishi shartligi o'z kuchida qoladi.
+4. **Coordinator TLS.** ~~CA ham, `-tls-skip-verify` ham berilmasa `return nil, nil` — plaintext ulanish~~ — **TUZATILDI (2026-11-21)**: `TLSOptions.RequireTLS` maydoni va `--tls-require` flagi qo'shildi (`cmd/sift-master`, `cmd/sift-worker`). Opt-in: `RequireTLS=true` bo'lib, CA va skip-verify ikkisi ham yo'q bo'lsa `ClientCreds()` xato qaytaradi. Default (`false`) o'zgarishsiz — mavjud plaintext fleets ishlayveradi. Test: `TestTLSOptionsRequireTLS` (5 subtest).
 5. **Gate darajasidagi DNS xatosi.** `internal/dashboard/handlers_run.go:122-128`: classify xatosida `authz.ClassPublic, "", false` qaytariladi; lekin `:141-149` orqali bu class `authz.DialControl` ga uzatilib, soketda qayta tekshiriladi. Xavf past, lekin gate darajasida fail-open.
-6. **HTTP/3 probe.** `internal/http3/h3.go:136`: `req := "GET / HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\n\r\n"` — xom Host qatoriga asoslangan; production chaqiruvi topilmadi, dinamik sinov qilinmadi. Kelajakda ulansa, `authz.DialControl` bilan birga tekshirish va host validatsiyasi talab qilinadi.
-7. **Audit qamrovi.** Faqat statik ko'rib chiqish: dependency audit, DAST, runtime konfiguratsiya, tarmoq va ko'p ijarachi (multi-tenant) integratsiya testlari qamrab olinmadi. Uchinchi tomon pentesti bilan almashtirib bo'lmaydi.
+6. **HTTP/3 probe.** ~~`req := "GET / HTTP/1.1\r\nHost: " + host + ...` xom Host qatoriga asoslangan~~ — **TUZATILDI (2026-11-21)**: `hostHeader()` yordamchisi dial'dan oldin bo'sh host va CR/LF ni rad etadi (header injection oldini olish), IPv6 literalni `[::1]` ko'rinishida o'rash orqali to'g'ri HTTP/1.1 Host hosil qiladi. Test: `TestHostHeader`, `TestCheckAltSvcRejectsUnsafeHost`, `TestCheckAltSvcIPv6HostHeader`. Production chaqiruvi hali yo'q; kelajakda ulansa `authz.DialControl` bilan birga tekshirish talab qilinadi.
+7. **Audit qamrovi.** Faqat statik ko'rib chiqish: DAST, runtime konfiguratsiya, tarmoq va ko'p ijarachi (multi-tenant) integratsiya testlari qamrab olinmadi. Dependency skan ushbu audit tomonidan ishga tushirilmadi, lekin CI da bajariladi: `govulncheck` (Go reachability, `.github/workflows/security.yml:24-45`), Trivy image scan + enforcing gate (HIGH/CRITICAL, `security.yml:189-262`), `dependency-review` (PR, high), Dependabot (gomod/actions/docker). Lokal `trivy fs --scanners vuln --severity HIGH,CRITICAL .` (2026-11-21): **0 vulnerability** (gomod). Uchinchi tomon pentesti bilan almashtirib bo'lmaydi.
 
 ---
 
@@ -151,8 +151,33 @@ Defaults o'zgarmadi: RBAC hali ham o'chirilgan holda boshlanadi; faqat imkoniyat
 
 ### Qolgan xavflar (tuzatilmadi)
 
-Trust store bo'lmasa va `--allow-unpinned` berilsa, status yana `IssuerUnpinned` va chiqish kodi 0 bo'ladi — bu endi **oniqli opt-in**, tasodifiy default emas. Uchinchi tomon pentest, DAST, dependency scan va compliance sertifikati hali ham yo'q (§2, §5.7).
+Trust store bo'lmasa va `--allow-unpinned` berilsa, status yana `IssuerUnpinned` va chiqish kodi 0 bo'ladi — bu endi **oniqli opt-in**, tasodifiy default emas. Uchinchi tomon pentesti, DAST va compliance sertifikati hali ham yo'q; dependency scan CI da mavjud va lokal tekshiruvda 0 HIGH/CRITICAL berdi (§5.7).
 
 ---
 
-Xavfsizlik Muhandisi, 2026-11-20. Audit natijasida `docs/SECURITY-AUDIT-2026-11-20.md` yaratildi; F-01/F-02 tuzatishlari §6 da hujjatlashtirildi. Barcha integratsiya va git operatsiyalarini Bosh Direktor bajardi.
+## 7. Auditdan keyingi qo'shimcha ishlar (2026-11-21)
+
+### 7.1 Dependency scan qamrovi tuzatildi
+
+Audit yozilayotganda §1/§3/§5.7/§6 da "dependency scan yo'q" deb noto'g'ri yozilgan edi. Aslida ushbu joblar audit HEAD'ida (`773fa564`) ham mavjud edi: `govulncheck` (symbol-level reachability, har push/PR + haftalik cron), Trivy image scan + enforcing gate (`exit-code: 1`, HIGH/CRITICAL), `dependency-review` (PR, high), Dependabot (gomod/actions/docker). Lokal `trivy fs --scanners vuln --severity HIGH,CRITICAL .` (2026-11-21): **0 vulnerability** (gomod). Hisobotdagi tegishli satrlar tuzatildi.
+
+### 7.2 Coordinator TLS — opt-in fail-closed (§5.4)
+
+`TLSOptions.RequireTLS` va `--tls-require` flaglari qo'shildi (`cmd/sift-master`, `cmd/sift-worker`, `internal/dist/coordinator/tls.go`). `RequireTLS=true` bo'lib CA va skip-verify yo'q bo'lsa, `ClientCreds()` xato qaytaradi — tasodifiy plaintext dial endi ko'rinadi. Default o'zgarishsiz. `TestTLSOptionsRequireTLS` (5 subtest) qo'shildi; `go test ./internal/dist/coordinator/... ./cmd/sift-master/... ./cmd/sift-worker/...` yashil.
+
+### 7.3 OIDC JWKS metadata filtri (§5.3)
+
+`internal/oidc/oidc.go` da `jwkKey.usableForSigning()` qo'shildi va `loadKeys()` da `publicKey()` dan oldin chaqirildi: `use=enc` rad etiladi, `alg` e'lon qilinganda faqat mos `kty`/`crv` qabul qilinadi (`RS256`→RSA, `ES256`→EC/P-256), noma'lum `alg` rad etiladi. Xato xabari va JWT algoritm pinlash o'zgarishsiz. `TestJWKUsableForSigning` (12 holat) + `TestLoadKeysFiltersJWKSMetadata` qo'shildi; `go test ./internal/oidc/...` yashil.
+
+### 7.4 HTTP/3 probe Host hardening (§5.6)
+
+`internal/http3/h3.go` da `hostHeader()` qo'shildi — bo'sh host, CR yoki LF dial'dan oldin rad etiladi, IPv6 literal `[::1]` shaklida o'raladi. `TestHostHeader`, `TestCheckAltSvcRejectsUnsafeHost`, `TestCheckAltSvcIPv6HostHeader` qo'shildi; `go test ./internal/http3/...` yashil.
+
+### 7.5 Qolgan xavflar
+
+- §5.5 (gate darajasidagi DNS fail-open): `authz.DialControl` soket darajasida qayta tekshiradi — hujjatda yozilgan, o'zgartirilmadi.
+- Uchinchi tomon pentesti, DAST, runtime/multi-tenant testlari va compliance sertifikati hali ham yo'q — ular ushbu lokal audit doirasiga kirmaydi.
+
+---
+
+Xavfsizlik Muhandisi, 2026-11-20. Audit natijasida `docs/SECURITY-AUDIT-2026-11-20.md` yaratildi; F-01/F-02 tuzatishlari §6 da, 2026-11-21 dagi qo'shimcha ishlar §7 da hujjatlashtirildi. Barcha integratsiya va git operatsiyalarini Bosh Direktor bajardi.

@@ -19,16 +19,22 @@ import (
 //     own CA (recommended for fleets with a shared CA).
 //   - InsecureSkipVerify  disables peer verification for self-signed demo
 //     fleets. Never combine with real credentials on untrusted networks.
+//   - RequireTLS          turns an unconfigured outgoing dial from silent
+//     plaintext into a configuration error. Opt-in only: the default stays
+//     plaintext so existing fleets keep working unchanged.
 //
 // When CertFile/KeyFile are empty the server stays plaintext; when CAFile and
 // InsecureSkipVerify are both empty outgoing dials stay plaintext. A fleet
 // must agree on TLS or not — a TLS client dialing a plaintext server (or the
-// reverse) fails fast with a handshake error, which is intentional.
+// reverse) fails fast with a handshake error, which is intentional. Setting
+// RequireTLS closes that silent fallback: without -tls-ca or -tls-skip-verify
+// ClientCreds fails, so a production fleet cannot accidentally dial plaintext.
 type TLSOptions struct {
 	CertFile           string
 	KeyFile            string
 	CAFile             string
 	InsecureSkipVerify bool
+	RequireTLS         bool
 }
 
 // Enabled reports whether a certificate pair was supplied for serving.
@@ -51,8 +57,12 @@ func (o TLSOptions) ServerCreds() (credentials.TransportCredentials, error) {
 }
 
 // ClientCreds builds transport credentials for outgoing dials. It returns nil
-// (plaintext) when neither -tls-ca nor -tls-skip-verify is configured.
+// (plaintext) when neither -tls-ca nor -tls-skip-verify is configured, unless
+// RequireTLS is set — then that combination is a configuration error.
 func (o TLSOptions) ClientCreds() (credentials.TransportCredentials, error) {
+	if o.RequireTLS && o.CAFile == "" && !o.InsecureSkipVerify {
+		return nil, fmt.Errorf("coordinator: TLS required for outgoing dials but neither -tls-ca nor -tls-skip-verify is configured")
+	}
 	if o.CAFile != "" {
 		pem, err := os.ReadFile(o.CAFile)
 		if err != nil {

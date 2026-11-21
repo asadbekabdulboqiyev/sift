@@ -2,7 +2,17 @@ package coordinator
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"net"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -188,4 +198,94 @@ func TestTLSOptionsValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+// testCAFile writes a fresh self-signed CA certificate into a temp dir and
+// returns its path, so ClientCreds can be exercised with a parseable bundle.
+func testCAFile(t *testing.T) string {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate CA key: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "sift-test-ca"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create CA cert: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "ca.pem")
+	doc := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	if err := os.WriteFile(path, doc, 0o600); err != nil {
+		t.Fatalf("write CA cert: %v", err)
+	}
+	return path
+}
+
+// TestTLSOptionsRequireTLS covers the opt-in guard from audit 5.4: setting
+// RequireTLS must fail fast instead of silently dialing plaintext, while the
+// default (RequireTLS=false) behaviour stays byte-for-byte compatible.
+func TestTLSOptionsRequireTLS(t *testing.T) {
+	validCA := testCAFile(t)
+
+	t.Run("required without CA or skip-verify fails", func(t *testing.T) {
+		creds, err := (TLSOptions{RequireTLS: true}).ClientCreds()
+		if err == nil {
+			t.Fatal("RequireTLS without -tls-ca or -tls-skip-verify must fail")
+		}
+		if creds != nil {
+			t.Fatalf("failed ClientCreds must return nil creds, got %v", creds)
+		}
+		if !strings.Contains(err.Error(), "TLS required for outgoing dials") {
+			t.Fatalf("error should explain TLS is required: %v", err)
+		}
+	})
+
+	t.Run("default without CA or skip-verify stays plaintext", func(t *testing.T) {
+		creds, err := (TLSOptions{}).ClientCreds()
+		if err != nil || creds != nil {
+			t.Fatalf("default should stay plaintext (nil, nil), got (%v, %v)", creds, err)
+		}
+	})
+
+	t.Run("required with bad CA path keeps read error", func(t *testing.T) {
+		missing := filepath.Join(t.TempDir(), "missing.pem")
+		creds, err := (TLSOptions{RequireTLS: true, CAFile: missing}).ClientCreds()
+		if err == nil {
+			t.Fatal("RequireTLS with a missing CA file must fail")
+		}
+		if creds != nil {
+			t.Fatalf("failed ClientCreds must return nil creds, got %v", creds)
+		}
+		if !strings.Contains(err.Error(), "read -tls-ca") {
+			t.Fatalf("missing CA should keep the original read error: %v", err)
+		}
+	})
+
+	t.Run("required with valid CA succeeds", func(t *testing.T) {
+		creds, err := (TLSOptions{RequireTLS: true, CAFile: validCA}).ClientCreds()
+		if err != nil {
+			t.Fatalf("ClientCreds with valid CA: %v", err)
+		}
+		if creds == nil {
+			t.Fatal("valid CA should produce dial credentials")
+		}
+	})
+
+	t.Run("required with skip-verify succeeds", func(t *testing.T) {
+		creds, err := (TLSOptions{RequireTLS: true, InsecureSkipVerify: true}).ClientCreds()
+		if err != nil {
+			t.Fatalf("ClientCreds with skip-verify: %v", err)
+		}
+		if creds == nil {
+			t.Fatal("skip-verify should produce dial credentials")
+		}
+	})
 }

@@ -498,6 +498,9 @@ func (c *Client) loadKeys(ctx context.Context) (map[string]crypto.PublicKey, err
 
 	keys := make(map[string]crypto.PublicKey, len(doc.Keys))
 	for _, k := range doc.Keys {
+		if !k.usableForSigning() {
+			continue // defense in depth: metadata rules out signature verification
+		}
 		pub, err := k.publicKey()
 		if err != nil {
 			continue // ignore unusable keys (e.g. unsupported curves)
@@ -512,6 +515,36 @@ func (c *Client) loadKeys(ctx context.Context) (map[string]crypto.PublicKey, err
 	c.keys = keys
 	c.mu.Unlock()
 	return keys, nil
+}
+
+// usableForSigning applies the JWK metadata checks that complement the strict
+// algorithm pinning in verifyIDToken. It is defense in depth: a key declared
+// encryption-only, or whose alg contradicts kty/crv, must never reach the
+// verification cache. An empty use or alg means the provider placed no
+// restriction on that member.
+func (k jwkKey) usableForSigning() bool {
+	switch k.Use {
+	case "", "sig":
+	default:
+		return false
+	}
+
+	switch k.Alg {
+	case "":
+		// No declared algorithm; kty/crv are checked by publicKey.
+	case "RS256":
+		if k.Kty != "RSA" {
+			return false
+		}
+	case "ES256":
+		if k.Kty != "EC" || k.Crv != "P-256" {
+			return false
+		}
+	default:
+		// Anything else (none, RS512, ES384, ...) is outside the supported set.
+		return false
+	}
+	return true
 }
 
 // publicKey converts a JWK into an rsa or ecdsa public key.

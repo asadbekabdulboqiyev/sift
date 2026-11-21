@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func TestCheckAltSvcAdvertisesH3(t *testing.T) {
@@ -154,5 +155,105 @@ func TestQUICTLSConfigVerificationDefaultsSecure(t *testing.T) {
 	insecure := quicTLSConfig("example.com", ProbeOptions{InsecureSkipVerify: true})
 	if !insecure.InsecureSkipVerify {
 		t.Error("explicit InsecureSkipVerify was ignored")
+	}
+}
+
+// --- Host header hardening (audit §5.6) -------------------------------------
+
+func TestHostHeader(t *testing.T) {
+	cases := []struct {
+		name    string
+		host    string
+		want    string
+		wantErr bool
+	}{
+		{"ipv6 literal is bracketed", "::1", "[::1]", false},
+		{"full ipv6 literal is bracketed", "2001:db8::1", "[2001:db8::1]", false},
+		{"ipv4 literal stays bare", "127.0.0.1", "127.0.0.1", false},
+		{"dns name stays bare", "example.com", "example.com", false},
+		{"empty host", "", "", true},
+		{"crlf injection", "example.com\r\nX-Evil: 1", "", true},
+		{"lf injection", "example.com\nX-Evil: 1", "", true},
+		{"bare cr", "example.com\rX", "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := hostHeader(tc.host)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("hostHeader(%q) = %q, want an error", tc.host, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("hostHeader(%q): %v", tc.host, err)
+			}
+			if got != tc.want {
+				t.Errorf("hostHeader(%q) = %q, want %q", tc.host, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestCheckAltSvcRejectsUnsafeHost verifies validation happens before any dial.
+func TestCheckAltSvcRejectsUnsafeHost(t *testing.T) {
+	for _, host := range []string{"", "example.com\r\nHost: evil.example", "example.com\nX-Evil: 1"} {
+		t.Run(strconv.Quote(host), func(t *testing.T) {
+			got, err := checkAltSvc(host, 443, true)
+			if err == nil {
+				t.Fatal("checkAltSvc must reject an unsafe host before dialing")
+			}
+			if got {
+				t.Error("checkAltSvc must not report H3 for an unsafe host")
+			}
+		})
+	}
+}
+
+// TestCheckAltSvcIPv6HostHeader checks the value that actually reaches the wire.
+// It skips on machines without an IPv6 loopback listener.
+func TestCheckAltSvcIPv6HostHeader(t *testing.T) {
+	lis, err := net.Listen("tcp", "[::1]:0")
+	if err != nil {
+		t.Skipf("IPv6 loopback unavailable: %v", err)
+	}
+
+	hosts := make(chan string, 1)
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case hosts <- r.Host:
+		default:
+		}
+		w.Header().Set("Alt-Svc", `h3=":443"; ma=86400`)
+		w.WriteHeader(http.StatusOK)
+	}))
+	_ = srv.Listener.Close()
+	srv.Listener = lis
+	srv.StartTLS()
+	defer srv.Close()
+
+	_, portStr, err := net.SplitHostPort(lis.Addr().String())
+	if err != nil {
+		t.Fatalf("split: %v", err)
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		t.Fatalf("parse port: %v", err)
+	}
+
+	got, err := checkAltSvc("::1", port, true)
+	if err != nil {
+		t.Fatalf("checkAltSvc: %v", err)
+	}
+	if !got {
+		t.Error("expected the h3 Alt-Svc advertisement to be detected")
+	}
+	select {
+	case host := <-hosts:
+		if host != "[::1]" {
+			t.Errorf("request Host = %q, want [::1]", host)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("the probe never reached the server")
 	}
 }

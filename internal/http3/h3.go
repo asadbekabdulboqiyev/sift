@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"time"
 
 	quic "github.com/quic-go/quic-go"
@@ -114,10 +115,30 @@ const (
 	altSvcMaxHeader   = 64 << 10
 )
 
+// hostHeader validates and renders the Host header value for the Alt-Svc GET.
+// A raw CR or LF would let a hostile host value inject extra request headers;
+// a bare IPv6 literal must be bracketed to be a valid HTTP/1.1 Host.
+func hostHeader(host string) (string, error) {
+	if host == "" {
+		return "", errors.New("http3: empty host")
+	}
+	if strings.ContainsAny(host, "\r\n") {
+		return "", errors.New("http3: host contains CR or LF")
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.To4() == nil {
+		return "[" + host + "]", nil
+	}
+	return host, nil
+}
+
 // checkAltSvc attempts a TLS handshake and reads the Alt-Svc header to see if
 // the server advertises HTTP/3. Returns true if "h3=" or "h3-29=" appears.
 // insecure must be opted into explicitly; the default verifies the certificate.
 func checkAltSvc(host string, port int, insecure bool) (bool, error) {
+	hostHeaderValue, err := hostHeader(host)
+	if err != nil {
+		return false, err
+	}
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	dialer := &net.Dialer{Timeout: altSvcDialTimeout}
 	cfg := &tls.Config{
@@ -133,7 +154,7 @@ func checkAltSvc(host string, port int, insecure bool) (bool, error) {
 
 	// Alt-Svc is a response header, so we need an HTTP response. Send a minimal
 	// GET and read the header block.
-	req := "GET / HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\n\r\n"
+	req := "GET / HTTP/1.1\r\nHost: " + hostHeaderValue + "\r\nConnection: close\r\n\r\n"
 	if _, err := conn.Write([]byte(req)); err != nil {
 		return false, err
 	}
