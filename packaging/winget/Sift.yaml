@@ -1,50 +1,31 @@
-# Windows Package Manager manifest for Sift.
+# Windows Package Manager — ROOT VERSION manifest for Sift.
 #
-# Put this directory in a winget-pkgs fork as:
+# In winget-pkgs this file goes to:
 #   manifests/a/asadbekabdulboqiyev/Sift/0.18.1/Sift.yaml
-#   manifests/a/asadbekabdulboqiyev/Sift/0.18.1/
-#       Sift.installer.yaml   (see packaging/winget/)
 #
-# Both SHA-256 values below are the ones in the release's checksums.txt.
-# Re-check them before submitting: a stale hash installs nothing.
-
+# A version manifest contains ONLY these five keys. The previous revision of
+# this file mixed installer fields (`InstallerType`, `Installers`, ...) with
+# version/locale fields, which winget rejects. Split the data across siblings:
+#
+#   Sift.installer.yaml       -> Platform, InstallerType, ReleaseDate,
+#                                Installers, InstallerSwitches, FileExtensions,
+#                                Commands, ManifestType: installer
+#   Sift.defaultLocale.yaml   -> Publisher, Author, PackageName, License,
+#                                Homepage, ShortDescription, Tags,
+#                                ReleaseNotes, ReleaseNotesUrl,
+#                                ManifestType: defaultLocale
+#
+# All three files must declare the SAME PackageIdentifier, PackageVersion and
+# ManifestVersion. The checked-in installer manifest currently lists only
+# arm64; add this x64 entry there (hash verified against the published
+# v0.18.1 checksums.txt):
+#
+#   - Architecture: x64
+#     InstallerUrl: https://github.com/asadbekabdulboqiyev/Sift/releases/download/v0.18.1/Sift_0.18.1_windows_amd64.zip
+#     InstallerSha256: 26eb5cab1d203efa6ac1b56a06107374af1d0626fe9854667c0ec018c0cfb66d
+#
 PackageIdentifier: asadbekabdulboqiyev.Sift
 PackageVersion: 0.18.1
 DefaultLocale: en-US
-ManifestType: installer
-InstallerType: zip
-License: Apache-2.0
-Publisher: asadbekabdulboqiyev
-Author: Sift maintainers
-Homepage: https://github.com/asadbekabdulboqiyev/Sift
-ReleaseNotes: https://github.com/asadbekabdulboqiyev/Sift/releases/tag/v0.18.1
-ReleaseNotesUrl: https://github.com/asadbekabdulboqiyev/Sift/releases/tag/v0.18.1
-InstallationNotes: |
-  Pure Go build: no libpcap, no C runtime, no system dependencies.
-
-  To reach high virtual-user counts, run the distributed worker with a raised
-  file-descriptor limit, or use WSL2 with the Linux worker package and:
-    LimitNOFILE=1048576
-Tags:
-  - load-testing
-  - performance
-  - benchmarking
-  - go
-ReleaseDate: 2026-11-18T00:00:00Z
-Platform:
-  - Windows.Desc
-  - Windows.X64
-Architectures:
-  - x64
-InstallerSwitches:
-  Custom: Sift.exe
-
-Installers:
-  - Architecture: x64
-    InstallerUrl: https://github.com/asadbekabdulboqiyev/Sift/releases/download/v0.18.1/Sift_0.18.1_windows_amd64.zip
-    InstallerSha256: 26eb5cab1d203efa6ac1b56a06107374af1d0626fe9854667c0ec018c0cfb66d
-
-FileExtensions:
-  - ss
-Commands:
-  - name: Sift
+ManifestType: version
+ManifestVersion: 1.10.0

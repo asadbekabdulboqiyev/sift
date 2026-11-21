@@ -20,9 +20,10 @@ on:
 permissions:
   contents: read
   packages: write
-  # cosign keyless signing of the pushed image, plus build provenance.
+  # cosign keyless signing of the pushed image needs OIDC. buildx emits the
+  # image provenance itself (`provenance: mode=max`), so no attestations
+  # permission is required here — GitHub's attest API is not used.
   id-token: write
-  attestations: write
 
 env:
   REGISTRY_GHCR: ghcr.io

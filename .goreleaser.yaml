@@ -246,7 +246,9 @@ nfpms:
       - src: README.md
         dst: /usr/share/doc/Sift/README.md
 
-# ── Homebrew formula + Scoop manifest, auto-updated on release ─────────────
+# ── Release metadata ─────────────────────────────────────────────────────────
+# No `brews` or Scoop section here: packaging/homebrew/sift.rb and
+# packaging/scoop/Sift.json are maintained manually after each release.
 release:
   prerelease: auto
   # Re-running the release job for an existing tag used to fail with GitHub's
@@ -257,9 +259,10 @@ release:
   footer: |
     ## Verifying this release
 
-    Only `checksums.txt` is signed (see `signs` above). Archives and SBOMs do
-    **not** have their own `.pem`/`.sig` files; verify the signed checksum file
-    first, then check the files you downloaded against it.
+    Both `checksums.txt` and every generated SBOM are signed keylessly (see
+    `signs` above), so each has a sibling `.pem`/`.sig`. Verify the signed
+    checksum file first, then check the files you downloaded against it, and
+    verify any SBOM with the same command using its own `.pem`/`.sig`.
 
     ```
     cosign verify-blob \

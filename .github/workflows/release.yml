@@ -31,9 +31,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
@@ -91,9 +91,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
@@ -120,11 +120,11 @@ jobs:
     # Keep -trimpath and no cgo so the same tag produces byte-identical
     # binaries on any runner.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0 # GoReleaser needs tags + full history
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
@@ -133,11 +133,14 @@ jobs:
       # and cosign for the `signs` section. Neither ships with the runner, so
       # without these steps `goreleaser release` dies with
       # `syft failed: executable file not found in $PATH`.
+      # Signing/release critical path: every action below is pinned to the
+      # exact commit its major tag resolves to (verified with git ls-remote),
+      # so a moved tag cannot swap in a different release/signing tool.
       - name: Install syft (SBOM generator for the `sboms` section)
-        uses: anchore/sbom-action/download-syft@v0
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0
 
       - name: Install cosign (keyless signing for the `signs` section)
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1 (same pin as docker.yml)
 
       # Re-running this workflow for an existing tag used to fail at upload with
       # GitHub's 422 `already_exists` (checksums.txt was typically the first
@@ -170,7 +173,7 @@ jobs:
           done <<< "$assets"
 
       - name: Install GoReleaser
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -263,7 +266,7 @@ jobs:
           gh release download "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --dir dist
 
       - name: Attest build provenance (SLSA)
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: |
             dist/*.tar.gz
@@ -319,7 +322,7 @@ jobs:
 
       - name: Attest SBOM
         if: steps.probe.outputs.ok == 'true'
-        uses: actions/attest-sbom@v2
+        uses: actions/attest-sbom@bd218ad0dbcb3e146bd073d1d9c6d78e08aa8a0b # v2
         with:
           subject-path: ${{ steps.probe.outputs.subject }}
           sbom-path: ${{ steps.probe.outputs.sbom }}
@@ -341,7 +344,7 @@ jobs:
       CERT_IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}
       CERT_OIDC_ISSUER: https://token.actions.githubusercontent.com
     steps:
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1 (same pin as docker.yml)
 
       - name: Download release assets
         env:

@@ -51,7 +51,9 @@ echo "[sla] building ./bin/demo-store ..."
 export GOFLAGS=-buildvcs=false CGO_ENABLED=0
 go build -o bin/demo-store ./examples/demo_store
 
-LOG="$(mktemp -t voltstore.XXXXXX.log)"
+# Explicit path template: BSD mktemp does not substitute X's when a suffix
+# follows them, so keep the X's at the end (the .log suffix is cosmetic).
+LOG="$(mktemp "${TMPDIR:-/tmp}/voltstore.XXXXXX")"
 bin/demo-store -addr "$ADDR" -protect -rate-limit 100 -burst 300 \
   -block-after 6 >"$LOG" 2>&1 &
 SERVER_PID=$!

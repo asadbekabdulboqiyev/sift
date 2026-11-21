@@ -7,17 +7,41 @@
     "timezone": "browser",
     "schemaVersion": 36,
     "version": 1,
+    "templating": {
+      "list": [
+        {
+          "name": "DS_PROMETHEUS",
+          "label": "Prometheus",
+          "type": "datasource",
+          "query": "prometheus",
+          "refresh": 1,
+          "hide": 0
+        }
+      ]
+    },
     "panels": [
       {
         "type": "stat",
         "title": "Requests",
-        "targets": [{"expr": "ss_requests_total"}],
+        "description": "ss_requests_total — scrape the Sift /metrics endpoint (see deploy/charts/sift/values.yaml annotations)",
+        "targets": [
+          {
+            "expr": "ss_requests_total",
+            "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }
+          }
+        ],
         "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4}
       },
       {
         "type": "stat",
         "title": "Errors",
-        "targets": [{"expr": "ss_errors_total"}],
+        "description": "ss_errors_total — scrape the Sift /metrics endpoint (see deploy/charts/sift/values.yaml annotations)",
+        "targets": [
+          {
+            "expr": "ss_errors_total",
+            "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" }
+          }
+        ],
         "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4}
       }
     ]

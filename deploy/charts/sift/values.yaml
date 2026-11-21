@@ -35,8 +35,13 @@ auth:
 master:
   replicaCount: 1
   image:
+    # The chart runs `Sift master` (see templates/master-deployment.yaml), so
+    # it needs the all-in-one `sift` image — the `sift-master` image contains
+    # only /usr/local/bin/Sift-master and a different ENTRYPOINT.
+    # docker.yml publishes release tags as `v<VERSION>` (type=ref,event=tag),
+    # hence `v0.18.1` here, not bare `0.18.1`.
     repository: ghcr.io/asadbekabdulboqiyev/sift
-    tag: "0.18.1"
+    tag: "v0.18.1"
     pullPolicy: IfNotPresent
   grpcPort: 50051
   httpPort: 9090
@@ -91,13 +96,21 @@ master:
       # Dedicated ClusterIP Service in front of the httpPort for Prometheus.
       enabled: true
       type: ClusterIP
-      annotations: {}
+      # Annotation-based Kubernetes service discovery (a ServiceMonitor is an
+      # alternative if the Prometheus Operator is installed). Port/path must
+      # match master.httpPort and the /metrics handler.
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9090"
 
 worker:
   replicaCount: 3
   image:
+    # Same all-in-one image as master: the chart runs `Sift worker`, not the
+    # separate sift-worker image. Release tag format matches docker.yml.
     repository: ghcr.io/asadbekabdulboqiyev/sift
-    tag: "0.18.1"
+    tag: "v0.18.1"
     pullPolicy: IfNotPresent
   grpcPort: 50061
   httpPort: 9091
@@ -150,7 +163,13 @@ worker:
     service:
       enabled: true
       type: ClusterIP
-      annotations: {}
+      # See master.metrics.service.annotations; this port follows
+      # worker.httpPort (9091). Dashboard panels use ss_requests_total /
+      # ss_errors_total from these /metrics endpoints.
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9091"
 
 service:
   type: ClusterIP

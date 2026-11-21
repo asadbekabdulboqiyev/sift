@@ -82,13 +82,16 @@ fi
 if [[ -n "$SS_MASTER" ]]; then
   ARGS="${ARGS} -master ${SS_MASTER}"
 fi
+# cmd/sift-worker defines a `-token` FLAG and never reads a TOKEN env var; the
+# systemd unit only expands $WORKER_ARGS into ExecStart. The token must
+# therefore be part of WORKER_ARGS — a separate `TOKEN=` line was ignored.
+if [[ -n "${SS_TOKEN:-}" ]]; then
+  ARGS="${ARGS} -token ${SS_TOKEN}"
+fi
 
 cat > /etc/Sift/worker.env <<EOF
 WORKER_ARGS=${ARGS}
 EOF
-if [[ -n "$SS_TOKEN" ]]; then
-  echo "TOKEN=${SS_TOKEN}" >> /etc/Sift/worker.env
-fi
 chmod 600 /etc/Sift/worker.env
 chown root:Sift /etc/Sift/worker.env
 log_ok "wrote /etc/Sift/worker.env"

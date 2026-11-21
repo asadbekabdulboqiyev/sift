@@ -26,8 +26,9 @@ if [ ! -x "$BIN" ]; then
 fi
 
 DEMO_ADDR="${DEMO_ADDR:-127.0.0.1:8899}"
-DEMO_LOG="$(mktemp -t bench-demo.XXXXXX)"
-REPORT_DIR="$(mktemp -d -t bench-reports.XXXXXX)"
+# Explicit path templates work on both BSD/macOS and GNU mktemp (`-t` differs).
+DEMO_LOG="$(mktemp "${TMPDIR:-/tmp}/bench-demo.XXXXXX")"
+REPORT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/bench-reports.XXXXXX")"
 go run ./examples/demo_server.go "$DEMO_ADDR" >"$DEMO_LOG" 2>&1 &
 DEMO_PID=$!
 trap 'kill $DEMO_PID 2>/dev/null || true; rm -rf "$DEMO_LOG" "$REPORT_DIR"' EXIT

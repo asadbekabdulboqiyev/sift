@@ -27,8 +27,9 @@ DEMO_ADDR="${DEMO_ADDR:-127.0.0.1:8899}"
 BENCH_SECONDS="${BENCH_SECONDS:-100}"
 BENCH_USERS="${BENCH_USERS:-500}"
 BENCH_URL="${BENCH_URL:-http://$DEMO_ADDR/}"
-REPORT_DIR="$(mktemp -d -t bench-compare.XXXXXX)"
-DEMO_LOG="$(mktemp -t bench-demo-compare.XXXXXX)"
+# Explicit path templates work on both BSD/macOS and GNU mktemp (`-t` differs).
+REPORT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/bench-compare.XXXXXX")"
+DEMO_LOG="$(mktemp "${TMPDIR:-/tmp}/bench-demo-compare.XXXXXX")"
 
 trap 'rm -rf "$REPORT_DIR" "$DEMO_LOG"' EXIT
 

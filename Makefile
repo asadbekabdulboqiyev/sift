@@ -11,7 +11,7 @@
 #   make gosec-test  Self-test the ratchet's own logic (no gosec needed)
 #   make secrets     Scan the full git history and the worktree for secrets (gitleaks)
 #   make clean       Remove bin/ and reports/
-#   make release     Cross-compile for all platforms
+#   make release     Local GoReleaser snapshot (publishing is release.yml's job)
 #   make docker      Build Docker image
 #   make run         Build and run demo server
 #   make help        List all targets
@@ -127,7 +127,7 @@ verify: ## Full local gate: build, vet, gofmt, tests, linux build, gosec ratchet
 		echo "  GOBIN=$$(go env GOPATH)/bin go install github.com/securego/gosec/v2/cmd/gosec@v2.29.0"; \
 		exit 1; \
 	}
-	@tmp=$$(mktemp -t gosec-verify-XXXXXX).sarif; \
+	@tmp=$$(mktemp "$${TMPDIR:-/tmp}/gosec-verify-XXXXXX").sarif; \
 	trap 'rm -f "$$tmp"' EXIT; \
 	$(GOSEC) -quiet -no-fail -fmt sarif -out "$$tmp" ./... >/dev/null 2>&1 || true; \
 	bash scripts/gosec-ratchet.sh "$$tmp"
@@ -137,8 +137,14 @@ clean: ## Remove bin/ and reports/
 	rm -rf $(BIN_DIR) $(DIST_DIR) reports coverage.out coverage.html gosec.sarif
 
 .PHONY: release
-release: ## Cross-compile for all platforms into ./dist
-	VERSION=$(VERSION) ./scripts/release.sh v$(VERSION)
+release: ## Local GoReleaser snapshot into ./dist (no publish; see .goreleaser.yaml)
+	@command -v goreleaser >/dev/null || { \
+		echo "goreleaser is not on PATH. Install v2.5.1 (the version release.yml pins):"; \
+		echo "  go install github.com/goreleaser/goreleaser/v2@v2.5.1"; \
+		echo "Publishing happens in .github/workflows/release.yml on a v* tag."; \
+		exit 1; \
+	}
+	goreleaser release --snapshot --clean
 
 .PHONY: docker
 docker: ## Build Docker image

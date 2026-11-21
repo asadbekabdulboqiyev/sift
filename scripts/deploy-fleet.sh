@@ -249,27 +249,37 @@ done
 
 # --- report ---------------------------------------------------------------------
 banner "fleet ready — ${#WORKER_ADDRS[@]} worker(s)"
+# Never print the shared secret: the suggested commands reference an env var
+# that the operator exports in the shell where the master is started.
+# (bash history / screen shares / CI logs must not leak the workers' token.)
+if [[ -z "$TOKEN" ]]; then
+  TOKEN_LINE=""
+else
+  TOKEN_LINE='    -token "${SS_TOKEN}"'
+fi
 if [[ $STATIC -eq 1 ]]; then
   echo "static mode — run the master on your control box:"
   echo
   echo "  Sift-master -workers \"$(IFS=,; echo "${WORKER_ADDRS[*]}")\" \\"
   echo "    -url https://target.example.com -users 500 -duration 120 \\"
-  [[ -z "$TOKEN" ]] || echo "    -token ${TOKEN}"
+  [[ -z "$TOKEN" ]] || echo "${TOKEN_LINE}"
 else
   echo "auto-discovery — start the master (it waits for these workers):"
   echo
   echo "  Sift-master -listen 0.0.0.0:50051 \\"
   echo "    -wait-workers ${#WORKER_ADDRS[@]} -wait-timeout 30 \\"
   echo "    -url https://target.example.com -users 500 -duration 120 \\"
-  [[ -z "$TOKEN" ]] || echo "    -token ${TOKEN} \\"
+  [[ -z "$TOKEN" ]] || echo "${TOKEN_LINE} \\"
   echo "    -timeline -quiet"
 fi
 echo
 echo "smoke test right after the master is up:"
 echo "  Sift-master -wait-workers ${#WORKER_ADDRS[@]} -wait-timeout 30 \\"
 echo "    -url https://example.com -users 8 -duration 6 \\"
-[[ -z "$TOKEN" ]] || echo "    -token ${TOKEN} \\"
+[[ -z "$TOKEN" ]] || echo "${TOKEN_LINE} \\"
 echo "    -tls-fingerprint chrome   # expect 0 errors"
+[[ -z "$TOKEN" ]] || echo
+[[ -z "$TOKEN" ]] || echo "  export SS_TOKEN='<the token you passed with --token>'  # not shown here"
 echo
 log_info "firewall: open each worker's gRPC port (50061) to the master host."
 [[ $STATIC -eq 1 ]] || log_info "and the master port (50051) to anything that starts runs."

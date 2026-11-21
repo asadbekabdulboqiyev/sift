@@ -61,18 +61,38 @@ if ! command -v go >/dev/null 2>&1; then
   exit 1
 fi
 
+# Port checks below rely on lsof. Without it the `if lsof ...` tests would
+# silently report "port free" and reuse a port that is actually occupied.
+if ! command -v lsof >/dev/null 2>&1; then
+  err "lsof is not installed; start.sh needs it to check ports ${DEMO_PORT}/${DASH_PORT}."
+  say "  # macOS: built in. Linux (Debian/Ubuntu): sudo apt-get install -y lsof"
+  exit 1
+fi
+
 # --- 1. build (first run only, or when sources changed) ----------------------
 
+BUILD_STAMP="bin/.build-stamp"
 NEED_RUN=false
 for cmd in bin/Sift bin/demo-server; do
   [[ -x "$cmd" ]] || NEED_RUN=true
 done
 
+if [[ "$NEED_RUN" == false ]]; then
+  # Rebuild when a Go source, go.mod or go.sum is newer than the last build.
+  # The stamp keeps this correct for BOTH binaries with a single comparison.
+  if [[ ! -f "$BUILD_STAMP" ]] || \
+     [[ -n "$(find cmd internal examples -type f -name '*.go' -newer "$BUILD_STAMP" -print -quit 2>/dev/null || true)" ]] || \
+     [[ go.mod -nt "$BUILD_STAMP" ]] || [[ go.sum -nt "$BUILD_STAMP" ]]; then
+    NEED_RUN=true
+  fi
+fi
+
 if $NEED_RUN; then
-  step "first run detected — building (takes a few seconds)..."
+  step "building (first run or sources changed — takes a few seconds)..."
   mkdir -p bin
   go build -trimpath -buildvcs=false -o bin/Sift ./cmd/sift
   go build -trimpath -buildvcs=false -o bin/demo-server ./examples/demo_server.go
+  touch "$BUILD_STAMP"
   ok "built bin/Sift and bin/demo-server"
 fi
 

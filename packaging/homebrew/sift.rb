@@ -1,17 +1,18 @@
 # Homebrew formula for Sift.
 #
-# Maintained automatically by GoReleaser (`brews` section of .goreleaser.yaml)
-# after every release. This checked-in copy is the fallback / template for the
-# very first formula, before any release has been published.
+# Maintained MANUALLY: .goreleaser.yaml has no `brews` section, so no release
+# job updates this file. Bump url/version/sha256 together after publishing a
+# tag. The sha256 below is copied from the signed v0.18.1 release checksums.txt
+# (Sift_0.18.1_darwin_arm64.tar.gz) — never invent it.
 #
 # Test with:   brew tap asadbekabdulboqiyev/tap && brew install Sift
 class Sift < Formula
   desc "Distributed load testing and network simulator written in Go"
   homepage "https://github.com/asadbekabdulboqiyev/sift"
-  url "https://github.com/asadbekabdulboqiyev/sift/releases/download/v0.16.6/Sift_0.16.6_darwin_arm64.tar.gz"
-  version "0.16.6"
+  url "https://github.com/asadbekabdulboqiyev/sift/releases/download/v0.18.1/Sift_0.18.1_darwin_arm64.tar.gz"
+  version "0.18.1"
   license "Apache-2.0"
-  sha256 "2d6ce1f7f6bc0f0841ab50535e5ac4b1e7384df1a737042eb392c1c892427b6f"
+  sha256 "2d5ad2265315a9ac4bea1536e7945840206381b5c6f7caaeb17eba27fc6233d7"
   head "https://github.com/asadbekabdulboqiyev/sift.git", branch: "main"
 
   # Pure Go: no system dependencies, no libpcap.
