@@ -32,6 +32,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/chromedp/chromedp"
+
 	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 )
 
@@ -102,6 +104,65 @@ func startGuardProxy(control dialControl, timeout time.Duration) (*guardProxy, e
 // addr returns the value Chromium expects for --proxy-server.
 func (p *guardProxy) addr() string {
 	return "http://" + p.ln.Addr().String()
+}
+
+// guardProxyFlag is an inspectable description of one Chromium launch flag.
+// Keeping the values separate from the chromedp option construction lets tests
+// assert the actual proxy address, bypass and egress policy — not just a count.
+type guardProxyFlag struct {
+	name  string
+	value any
+}
+
+// guardProxyFlagValues returns the guard flags for a proxy address. A single
+// source of truth for Browser and the independent browser stacks.
+func guardProxyFlagValues(proxyAddr string) []guardProxyFlag {
+	return []guardProxyFlag{
+		{"proxy-server", proxyAddr},
+		// Chromium implicitly bypasses the proxy for localhost AND 169.254/16
+		// (cloud metadata); "<-loopback>" subtracts those implicit rules, so
+		// even those destinations must pass the guard proxy.
+		{"proxy-bypass-list", "<-loopback>"},
+		// Defense in depth: an Alt-Svc cache must not make Chromium race a
+		// QUIC/HTTP3 connection straight to the origin behind the proxy.
+		{"disable-quic", true},
+		// WebRTC/STUN is UDP and cannot traverse the HTTP proxy. Blocking
+		// non-proxied UDP removes that egress path.
+		{"force-webrtc-ip-handling-policy", "disable_non_proxied_udp"},
+	}
+}
+
+// guardProxyFlags returns the allocator options that make Chromium use p for
+// every connection. Kept in one place so Browser and the other browser stacks
+// cannot drift apart on the bypass/egress flags.
+func guardProxyFlags(p *guardProxy) []chromedp.ExecAllocatorOption {
+	values := guardProxyFlagValues(p.addr())
+	opts := make([]chromedp.ExecAllocatorOption, 0, len(values))
+	for _, f := range values {
+		opts = append(opts, chromedp.Flag(f.name, f.value))
+	}
+	return opts
+}
+
+// GuardProxyOptions returns the allocator options that force any chromedp
+// browser through a loopback guard proxy applying control, plus the closer
+// that tears the proxy down. It exists so independent browser stacks (e.g.
+// internal/browserload) cannot bypass the scan gate the way Chromium crawl
+// mode did before this proxy was introduced.
+//
+// A nil control means no gate decision is available: no proxy is started, no
+// flags are returned, and the closer is a no-op — the historical direct
+// behavior for dev/availability checks. The caller MUST invoke close after its
+// last browser run, even on error paths.
+func GuardProxyOptions(control func(network, address string, c syscall.RawConn) error) ([]chromedp.ExecAllocatorOption, func() error, error) {
+	proxy, err := startGuardProxy(control, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	if proxy == nil {
+		return nil, func() error { return nil }, nil
+	}
+	return guardProxyFlags(proxy), proxy.close, nil
 }
 
 // close stops accepting, closes every active connection (unblocking tunnels)

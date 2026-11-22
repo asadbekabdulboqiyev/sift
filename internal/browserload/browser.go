@@ -15,9 +15,12 @@ import (
 	"fmt"
 	"net/url"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/chromedp/chromedp"
+
+	"github.com/asadbekabdulboqiyev/sift/internal/scanner/browser"
 )
 
 const (
@@ -45,32 +48,68 @@ type RunResult struct {
 
 // Runner executes page loads in a real browser.
 type Runner struct {
-	opts []chromedp.ExecAllocatorOption
+	opts  []chromedp.ExecAllocatorOption
+	close func() error
 }
 
-// NewRunner creates a headless Chrome runner. It attempts to find a Chrome
-// binary on the system; if none is found, Run() will return an error.
+// defaultRunnerOptions are the launch flags shared by controlled and
+// uncontrolled runners. Authorization flags are added separately by
+// NewRunnerWithControl so the two stacks cannot drift apart.
+func defaultRunnerOptions() []chromedp.ExecAllocatorOption {
+	return []chromedp.ExecAllocatorOption{
+		chromedp.Flag("headless", "new"),
+		chromedp.Flag("disable-gpu", true),
+		chromedp.Flag("no-sandbox", true),
+		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.Flag("disable-background-timer-throttling", true),
+		chromedp.Flag("disable-backgrounding-occluded-windows", true),
+		chromedp.Flag("disable-renderer-backgrounding", true),
+		chromedp.Flag("disable-features", "TranslateUI"),
+		chromedp.Flag("disable-ipc-flooding-protection", true),
+		chromedp.Flag("no-first-run", true),
+		chromedp.Flag("no-default-browser-check", true),
+		chromedp.Flag("disable-default-apps", true),
+		chromedp.Flag("disable-sync", true),
+		chromedp.Flag("metrics-recording-only", true),
+		chromedp.Flag("mute-audio", true),
+		chromedp.Flag("remote-debugging-port", "0"),
+	}
+}
+
+// NewRunner creates a headless Chrome runner with direct network access. It
+// attempts to find a Chrome binary on the system; if none is found, Run() will
+// return an error. Use NewRunnerWithControl inside the pentest gate.
 func NewRunner() *Runner {
 	return &Runner{
-		opts: []chromedp.ExecAllocatorOption{
-			chromedp.Flag("headless", "new"),
-			chromedp.Flag("disable-gpu", true),
-			chromedp.Flag("no-sandbox", true),
-			chromedp.Flag("disable-dev-shm-usage", true),
-			chromedp.Flag("disable-background-timer-throttling", true),
-			chromedp.Flag("disable-backgrounding-occluded-windows", true),
-			chromedp.Flag("disable-renderer-backgrounding", true),
-			chromedp.Flag("disable-features", "TranslateUI"),
-			chromedp.Flag("disable-ipc-flooding-protection", true),
-			chromedp.Flag("no-first-run", true),
-			chromedp.Flag("no-default-browser-check", true),
-			chromedp.Flag("disable-default-apps", true),
-			chromedp.Flag("disable-sync", true),
-			chromedp.Flag("metrics-recording-only", true),
-			chromedp.Flag("mute-audio", true),
-			chromedp.Flag("remote-debugging-port", "0"),
-		},
+		opts:  defaultRunnerOptions(),
+		close: func() error { return nil },
 	}
+}
+
+// NewRunnerWithControl creates a runner whose Chromium traffic is forced
+// through the same guard proxy used by browser crawl mode. Every navigation
+// and page-initiated fetch is class-checked with control before a socket is
+// opened, so browser load testing cannot be turned into an SSRF primitive
+// when it is wired into a scan. The caller MUST call Close after the last Run.
+func NewRunnerWithControl(control func(network, address string, c syscall.RawConn) error) (*Runner, error) {
+	flags, closeFn, err := browser.GuardProxyOptions(control)
+	if err != nil {
+		return nil, fmt.Errorf("browserload: guard proxy: %w", err)
+	}
+	r := NewRunner()
+	r.opts = append(r.opts, flags...)
+	r.close = closeFn
+	return r, nil
+}
+
+// Close releases resources owned by the Runner — the guard proxy listener and
+// its in-flight tunnels when one was configured. Per-Run browser contexts are
+// cancelled by Run itself. It is safe to call more than once.
+func (r *Runner) Close() error {
+	if r == nil || r.close == nil {
+		return nil
+	}
+	return r.close()
 }
 
 // normalizeURL parses a target URL and supplies the default scheme.

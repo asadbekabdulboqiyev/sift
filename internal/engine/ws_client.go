@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 	"github.com/asadbekabdulboqiyev/sift/internal/config"
 )
 
@@ -24,8 +25,17 @@ const wsWriteWait = 5 * time.Second
 // passed down to the underlying TCP dial so the authorization decision also
 // covers the socket used by the WebSocket upgrade.
 func newWSDialer(ctx context.Context, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) *websocket.Dialer {
+	return newWSDialerWithProxy(ctx, timeout, control, http.ProxyFromEnvironment)
+}
+
+// newWSDialerWithProxy is the testable core: proxyBase is injectable so tests
+// can prove the destination check without depending on the process environment.
+func newWSDialerWithProxy(_ context.Context, timeout time.Duration, control func(network, address string, c syscall.RawConn) error, proxyBase func(*http.Request) (*url.URL, error)) *websocket.Dialer {
 	return &websocket.Dialer{
-		Proxy:            http.ProxyFromEnvironment,
+		// The socket Control hook sees only the proxy address behind an HTTP
+		// proxy, so re-check the ws/wss destination before the proxy dial
+		// (CWE-290). A nil control keeps the direct selector untouched.
+		Proxy:            authz.ProxyWithControl(proxyBase, control),
 		HandshakeTimeout: timeout,
 		NetDialContext: func(netCtx context.Context, network, addr string) (net.Conn, error) {
 			d := &net.Dialer{Timeout: timeout, Control: control}

@@ -195,11 +195,25 @@ In `internal/http3/h3.go`, `hostHeader()` was added — an empty host, CR, or LF
 
 Verification: pure-Go proxy suite (listen/close, class allow/refuse, CONNECT, absolute-form, control-on-destination-and-socket, malformed authorities, open-proxy refusals, method/scheme allow-list, tunnel teardown under `-race -count=3`); Chromium-gated integration tests proving an approved loopback page renders and an unapproved one is refused with zero upstream hits; crawler wiring test with a fake factory. `go vet`, `go build ./...` and the affected package tests are green.
 
-### 8.3 Residual (tracked separately)
+### 8.3 Residual browser paths — closed in the follow-up phase (2026-11-22)
 
-`internal/scanner/auth/auth.go:loginBrowserLocked()` (`--auth-browser-login-url`) still calls `browser.New()` with no control. Its navigation target is the operator-configured login URL, not attacker-controlled crawled content, so it does not expose the DOM-SSRF primitive from §8.1 in the same way; it is nonetheless the same unwired second process. Recommended follow-up: thread the gate's `DialControl` through `AuthConfig` into `loginBrowserLocked()`. Not changed in this phase to keep the commit scoped to the confirmed crawl finding.
+A follow-up phase closed the paths listed here as residual in the first browser phase:
 
-`internal/browserload/browser.go` (`NewRunner()`/`Run()`) is a second, independent chromedp stack with no dial control. It has no production callers at this HEAD (tests only), so it is not on any pentest request path; it would need the same guard-proxy treatment before being wired into scanning.
+- `internal/scanner/auth/auth.go`: `AuthConfig.DialControl` (runtime-only, `json:"-"`) carries the gate decision into `loginBrowserLocked()`, which builds the browser through the `newAuthBrowser` seam with `browser.WithDialControl` and always calls `Close()` (including on login failure). The CLI passes `e.cfg.gate.DialControl()` through `pentestBuildAuthSessionWithControl`. Tests with a fake browser prove exact control propagation, teardown on error, and nil-control preservation.
+- `internal/scanner/auth/auth.go`: the form-login `authClient` now installs the same control on its transport. `ClientWithDialControl` only covered the public client, so the login POST was a second uncontrolled egress path; both now share one `controlledTransport` helper.
+- `internal/scanner/verify.go`: `NewVerifierWithControl` installs the dial check on the verifier client. Verification re-tests URLs taken from crawled (attacker-controlled) findings, so `pentestDeepScan` now passes the gate control instead of constructing `NewVerifier` directly.
+- `internal/scanner/browser/guardproxy.go`: `GuardProxyOptions` exposes the guard flags + closer as a shared helper, extracted from `browser.New`. `internal/browserload` gains `NewRunnerWithControl` + `Runner.Close()` on top of it, so the independent Chromium load-test stack can no longer bypass the gate when it is wired into scanning.
+- `internal/browserload/browser.go`: `NewRunner()` stays direct and is used only by tests/dev; there are no production callers. Any future production wiring must use `NewRunnerWithControl`.
+- `internal/authz/proxy.go`: `ProxyWithControl` wraps a transport's proxy selector so the destination is re-checked with `CheckDialTarget` whenever an HTTP proxy carries the request. A `net.Dialer.Control` hook sees only the proxy address, so without this the Go HTTP clients that pair `ProxyFromEnvironment` with a dial control (form/login client, verifier, vulnerability scanner, plain-HTTP crawler) could be pointed at metadata/private space through an egress proxy while the socket check approved the proxy (CWE-290). This mirrors the existing `Guard.checkProxyTarget` behavior; it is a no-op with no proxy or no control. Unit tests prove the destination is refused before the proxy socket opens and that an approved destination still passes.
+- `internal/engine/ws_client.go`: the load-test WebSocket dialer had the same CWE-290 gap — `ProxyFromEnvironment` plus a socket `Control` hook sees only the proxy. The dialer's proxy selector now goes through the same `authz.ProxyWithControl`, with an injectable proxy base for deterministic tests. `internal/engine/client.go`'s duplicate `proxyWithControl` now delegates to the shared helper so the two cannot drift.
+
+Accepted residual: when an HTTP proxy carries a request, the destination is re-resolved and checked in the client process, but the proxy resolves and connects independently. A hostile proxy or a split-horizon/rebind between the two lookups can still reach a blocked address; this is the same accepted limit that already applied to `Guard.checkProxyTarget` and the engine clients. The only airtight path is the guard proxy, which dials the checked literal IP directly. This residual is not reachable on the pentest path without an operator-configured egress proxy.
+
+Verification for this phase: seam-based auth tests, socket-level form-login and verifier control tests, proxy-environment CWE-290 tests (HTTP plus WebSocket), shared-helper and browserload option tests, CLI source-level wiring tests, plus the existing full Go and Chromium-gated suites.
+
+### 8.4 Still out of scope (by design, not scan traffic)
+
+Service integrations (notify/webhook/SIEM/Telegram, OIDC IdP, NVD, crt.sh, GitHub) use fixed or operator-configured endpoints and have no `scanner.Guard` in scope. The dist coordinator's gRPC worker dials, the local demo-store, and `replay`'s explicit destination allowlist are separate trust models. `EnsureAvailable()` navigates only `about:blank`. `internal/http3.checkAltSvc` has no production caller. None of these are on a pentest request path.
 
 ---
 

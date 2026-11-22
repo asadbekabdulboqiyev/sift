@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/browser"
 )
 
@@ -75,6 +76,11 @@ type AuthConfig struct {
 	// BrowserAuth fields (AuthBrowser): browser-based login flow fields
 	BrowserSelectors map[string]string `json:"browser_selectors,omitempty"` // username_selector, password_selector, submit_selector (CSS)
 	BrowserWaitURL   string            `json:"browser_wait_url,omitempty"`  // URL keyword to wait for after login
+	// DialControl is the scan gate's dial-time class decision. AuthBrowser
+	// passes it to browser.WithDialControl so Chromium's independent network
+	// stack is constrained by the same gate as every Go-side request. It is a
+	// runtime-only hook and is never serialized with the config.
+	DialControl func(network, address string, c syscall.RawConn) error `json:"-"`
 }
 
 // authRetryKey marks requests that have already been retried after a
@@ -224,6 +230,12 @@ func NewAuthSession(cfg AuthConfig, timeout time.Duration) (*AuthSession, error)
 			return nil
 		},
 	}
+	// The login POST is real egress too. Without this hook a rebind of the
+	// operator-configured login host would bypass the same gate every other
+	// scanner request obeys.
+	if cfg.DialControl != nil {
+		s.authClient.Transport = controlledTransport(timeout, cfg.DialControl)
+	}
 
 	if cfg.Type == AuthForm {
 		s.mu.Lock()
@@ -243,6 +255,21 @@ func NewAuthSession(cfg AuthConfig, timeout time.Duration) (*AuthSession, error)
 // The client follows redirects and applies the configured timeout.
 func (s *AuthSession) Client() *http.Client { return s.client }
 
+// controlledTransport builds a transport whose socket dial is authorized by
+// control. Shared by the login client and by ClientWithDialControl so the two
+// cannot drift on proxy/timeout/keepalive settings.
+func controlledTransport(timeout time.Duration, control func(network, address string, c syscall.RawConn) error) *http.Transport {
+	return &http.Transport{
+		// The socket Control hook sees only the proxy address when one applies,
+		// so wrap the selector to re-check the destination itself (CWE-290).
+		Proxy:               authz.ProxyWithControl(http.ProxyFromEnvironment, control),
+		DialContext:         (&net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second, Control: control}).DialContext,
+		TLSHandshakeTimeout: timeout,
+		MaxIdleConns:        100,
+		IdleConnTimeout:     90 * time.Second,
+	}
+}
+
 // ClientWithDialControl returns a copy of the authenticated client whose
 // transport dials only through control. The credential injection layer is
 // rebuilt on top of the controlled transport so authentication survives:
@@ -253,14 +280,7 @@ func (s *AuthSession) ClientWithDialControl(control func(network, address string
 		return s.client
 	}
 	clone := *s.client
-	tr := &http.Transport{
-		Proxy:               http.ProxyFromEnvironment,
-		DialContext:         (&net.Dialer{Timeout: s.client.Timeout, KeepAlive: 30 * time.Second, Control: control}).DialContext,
-		TLSHandshakeTimeout: s.client.Timeout,
-		MaxIdleConns:        100,
-		IdleConnTimeout:     90 * time.Second,
-	}
-	var rt http.RoundTripper = tr
+	var rt http.RoundTripper = controlledTransport(s.client.Timeout, control)
 	switch s.cfg.Type {
 	case AuthHeader:
 		rt = &headerInjector{base: rt, name: http.CanonicalHeaderKey(strings.TrimSpace(s.cfg.HeaderName)), value: s.cfg.HeaderValue}
@@ -453,15 +473,33 @@ func sortedKeys(m map[string]string) []string {
 	return keys
 }
 
+// authBrowser is the part of browser.Browser used by the interactive login
+// flow. Keeping it an interface lets tests verify DialControl propagation and
+// browser teardown without launching Chromium.
+type authBrowser interface {
+	LoginForm(loginURL, usernameSel, passwordSel, username, password string, extraFields map[string]string, successMatch string, timeout time.Duration) (bool, string, []*http.Cookie, error)
+	Close() error
+}
+
+// newAuthBrowser is the seam for browser construction. It forwards the gate's
+// dial control into browser.New so the login Chromium cannot bypass the scan
+// gate the way browser crawl mode could before the guard proxy was added.
+var newAuthBrowser = func(control func(network, address string, c syscall.RawConn) error) (authBrowser, error) {
+	return browser.New(browser.WithDialControl(control))
+}
+
 // loginBrowserLocked performs the login flow in browser (OAuth, SAML,
 // SSO, etc.). The user fills in the form in browser, submits it, and the
 // session cookie is stored in AuthSession.jar.
 // Callers must hold s.mu.
 func (s *AuthSession) loginBrowserLocked() error {
-	br, err := browser.New()
+	br, err := newAuthBrowser(s.cfg.DialControl)
 	if err != nil {
 		return fmt.Errorf("auth: browser auth: %w", err)
 	}
+	// The guard proxy is owned by the Browser. Release it on every path,
+	// including a failed login, or the loopback listener and its tunnels leak.
+	defer func() { _ = br.Close() }()
 
 	usernameSel := orDefault(s.cfg.BrowserSelectors["username_selector"], "input[type='text'], input[type='email'], input[name='username'], input[name='email']")
 	passwordSel := orDefault(s.cfg.BrowserSelectors["password_selector"], "input[type='password'], input[name='password']")

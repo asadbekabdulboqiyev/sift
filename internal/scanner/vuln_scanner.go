@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 	proreport "github.com/asadbekabdulboqiyev/sift/internal/report"
 )
 
@@ -135,6 +136,9 @@ func NewVulnScannerWithControl(target string, control func(network, address stri
 			KeepAlive: 30 * time.Second,
 			Control:   control,
 		}).DialContext
+		// The socket hook sees only the proxy address behind an HTTP proxy, so
+		// re-check the target itself before the proxy dial (CWE-290).
+		tr.Proxy = authz.ProxyWithControl(tr.Proxy, control)
 	}
 	return &VulnScanner{
 		Target: target,

@@ -83,20 +83,7 @@ func New(options ...Option) (*Browser, error) {
 			return nil, err
 		}
 		b.proxy = proxy
-		opts = append(opts,
-			chromedp.Flag("proxy-server", proxy.addr()),
-			// Chromium implicitly bypasses the proxy for localhost AND
-			// 169.254/16 (cloud metadata); "<-loopback>" subtracts those implicit
-			// rules, so even those destinations must pass the guard proxy.
-			chromedp.Flag("proxy-bypass-list", "<-loopback>"),
-			// Defense in depth: an Alt-Svc cache must not make Chromium race a
-			// QUIC/HTTP3 connection straight to the origin behind the proxy.
-			chromedp.Flag("disable-quic", true),
-			// WebRTC/STUN is UDP and cannot traverse the HTTP proxy. Blocking
-			// non-proxied UDP removes that egress path (it cannot return a DOM
-			// body, but it can leak the runner's network topology).
-			chromedp.Flag("force-webrtc-ip-handling-policy", "disable_non_proxied_udp"),
-		)
+		opts = append(opts, guardProxyFlags(proxy)...)
 	}
 	b.opts = opts
 

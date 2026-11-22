@@ -20,11 +20,15 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
+
+	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 )
 
 // ---------------------------------------------------------------------------
@@ -68,6 +72,32 @@ func NewVerifier(timeout time.Duration) *Verifier {
 		},
 		Timeout: timeout,
 	}
+}
+
+// NewVerifierWithControl creates a verifier whose client dials only through
+// control. Finding URLs are derived from crawled pages and are therefore
+// attacker-controlled; without a dial-time class check, verification would be
+// an SSRF path independent of the already-controlled vulnerability scanner.
+// A nil control preserves NewVerifier's direct-network behavior.
+func NewVerifierWithControl(timeout time.Duration, control func(network, address string, c syscall.RawConn) error) *Verifier {
+	v := NewVerifier(timeout)
+	if control == nil || v.Client == nil {
+		return v
+	}
+	v.Client.Transport = &http.Transport{
+		// The socket Control hook sees only the proxy address when one applies;
+		// re-check the finding URL itself (CWE-290).
+		Proxy: authz.ProxyWithControl(http.ProxyFromEnvironment, control),
+		DialContext: (&net.Dialer{
+			Timeout:   v.Timeout,
+			KeepAlive: 30 * time.Second,
+			Control:   control,
+		}).DialContext,
+		TLSHandshakeTimeout: v.Timeout,
+		MaxIdleConns:        100,
+		IdleConnTimeout:     90 * time.Second,
+	}
+	return v
 }
 
 // Check re-verifies a single finding and returns its confidence verdict.

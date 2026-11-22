@@ -102,29 +102,9 @@ func baseTransportWithControl(keepAlive bool, tlsFP fingerprint.Profile, control
 //
 // A nil control leaves the base proxy selector untouched.
 func proxyWithControl(base func(*http.Request) (*url.URL, error), control func(network, address string, c syscall.RawConn) error) func(*http.Request) (*url.URL, error) {
-	if control == nil || base == nil {
-		return base
-	}
-	return func(req *http.Request) (*url.URL, error) {
-		proxyURL, err := base(req)
-		if err != nil || proxyURL == nil {
-			return proxyURL, err // no proxy for this request; the dial hook sees the real target
-		}
-		host := req.URL.Hostname()
-		port := req.URL.Port()
-		if port == "" {
-			port = "80"
-			if strings.EqualFold(req.URL.Scheme, "https") || strings.EqualFold(req.URL.Scheme, "wss") {
-				port = "443"
-			}
-		}
-		if err := authz.CheckDialTarget(req.Context(), host, port, control); err != nil {
-			// Returning an error from Proxy aborts the request before any socket
-			// to the proxy is opened.
-			return nil, err
-		}
-		return proxyURL, nil
-	}
+	// Delegate to the shared helper so the engine and the pentest transports
+	// cannot drift on CWE-290 handling.
+	return authz.ProxyWithControl(base, control)
 }
 
 // maxConnsPerHostCap bounds the per-host connection limit. Go's transport
