@@ -52,11 +52,24 @@ func DialControl(approved Class) func(network, address string, c syscall.RawConn
 // resolved address the hook refuses all produce an error. A caller that ignores
 // this error is a caller that did not check.
 func CheckDialTarget(ctx context.Context, host, port string, control func(network, address string, c syscall.RawConn) error) error {
+	_, err := CheckedDialIPs(ctx, host, port, control)
+	return err
+}
+
+// CheckedDialIPs resolves host and applies control to EVERY answer, returning
+// the addresses that passed. It is the same fail-closed check as
+// CheckDialTarget, with the approved answers exposed for callers that must pin
+// the address they dial (e.g. an in-process proxy whose client did its own DNS
+// and would otherwise get a second, unchecked resolution at connect time).
+//
+// Dialing one of these literals still requires the Control hook: a resolver
+// answer is a snapshot, and keeping the hook closes the resolve/connect race.
+func CheckedDialIPs(ctx context.Context, host, port string, control func(network, address string, c syscall.RawConn) error) ([]net.IP, error) {
 	if control == nil {
-		return nil
+		return nil, nil
 	}
 	if host == "" || port == "" {
-		return fmt.Errorf("authz: cannot check dial target with empty host or port")
+		return nil, fmt.Errorf("authz: cannot check dial target with empty host or port")
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -70,23 +83,28 @@ func CheckDialTarget(ctx context.Context, host, port string, control func(networ
 	}
 
 	if literal := net.ParseIP(host); literal != nil {
-		return check(literal)
+		if err := check(literal); err != nil {
+			return nil, err
+		}
+		return []net.IP{literal}, nil
 	}
-	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	answers, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 	if err != nil {
-		return fmt.Errorf("authz: cannot resolve proxy dial target %q: %w", host, err)
+		return nil, fmt.Errorf("authz: cannot resolve proxy dial target %q: %w", host, err)
 	}
-	if len(ips) == 0 {
-		return fmt.Errorf("authz: proxy dial target %q resolved to no addresses", host)
+	if len(answers) == 0 {
+		return nil, fmt.Errorf("authz: proxy dial target %q resolved to no addresses", host)
 	}
 	// Every answer is checked: the dialer is free to pick any of them, so one
 	// restricted address is enough to refuse the request.
-	for _, ip := range ips {
-		if err := check(ip.IP); err != nil {
-			return err
+	ips := make([]net.IP, 0, len(answers))
+	for _, a := range answers {
+		if err := check(a.IP); err != nil {
+			return nil, err
 		}
+		ips = append(ips, a.IP)
 	}
-	return nil
+	return ips, nil
 }
 
 // DenyClasses returns a net.Dialer.Control hook that refuses a connection to

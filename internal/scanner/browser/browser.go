@@ -30,13 +30,36 @@ import (
 
 // Browser is a simple wrapper around headless Chromium.
 type Browser struct {
-	opts []chromedp.ExecAllocatorOption
-	mu   sync.Mutex
+	opts  []chromedp.ExecAllocatorOption
+	proxy *guardProxy
+	mu    sync.Mutex
+}
+
+// Option configures browser construction. The zero options preserve the
+// historical direct-network behavior.
+type Option func(*browserOptions)
+
+type browserOptions struct {
+	control dialControl
+}
+
+// WithDialControl routes every Chromium connection through an in-process guard
+// proxy that applies this hook to the real destination (resolved host + port),
+// the same decision the scanner's Go clients enforce with net.Dialer.Control.
+// Pass the Guard's DialControl() so browser mode cannot bypass the scan gate via
+// DNS rebinding or a direct fetch to metadata/private space. A nil control is a
+// no-op.
+func WithDialControl(control dialControl) Option {
+	return func(o *browserOptions) { o.control = control }
 }
 
 // New creates a browser instance. Returns an error if Chrome/Chromium is not
 // installed or cannot start.
-func New() (*Browser, error) {
+func New(options ...Option) (*Browser, error) {
+	var cfg browserOptions
+	for _, apply := range options {
+		apply(&cfg)
+	}
 	opts := append([]chromedp.ExecAllocatorOption{},
 		chromedp.NoFirstRun,
 		chromedp.NoDefaultBrowserCheck,
@@ -47,7 +70,35 @@ func New() (*Browser, error) {
 		chromedp.Flag("disable-setuid-sandbox", true),
 		chromedp.UserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"),
 	)
-	b := &Browser{opts: opts}
+	b := &Browser{}
+
+	// When the caller supplies an authorization control, force all browser
+	// traffic through our guard proxy. The explicit "<-loopback>" bypass entry
+	// removes Chromium's default "don't proxy localhost" rule: a page that
+	// resolves to 127.0.0.1 must be judged by the same class check as any other
+	// destination, not slip past it by being local.
+	if cfg.control != nil {
+		proxy, err := startGuardProxy(cfg.control, 0)
+		if err != nil {
+			return nil, err
+		}
+		b.proxy = proxy
+		opts = append(opts,
+			chromedp.Flag("proxy-server", proxy.addr()),
+			// Chromium implicitly bypasses the proxy for localhost AND
+			// 169.254/16 (cloud metadata); "<-loopback>" subtracts those implicit
+			// rules, so even those destinations must pass the guard proxy.
+			chromedp.Flag("proxy-bypass-list", "<-loopback>"),
+			// Defense in depth: an Alt-Svc cache must not make Chromium race a
+			// QUIC/HTTP3 connection straight to the origin behind the proxy.
+			chromedp.Flag("disable-quic", true),
+			// WebRTC/STUN is UDP and cannot traverse the HTTP proxy. Blocking
+			// non-proxied UDP removes that egress path (it cannot return a DOM
+			// body, but it can leak the runner's network topology).
+			chromedp.Flag("force-webrtc-ip-handling-policy", "disable_non_proxied_udp"),
+		)
+	}
+	b.opts = opts
 
 	// Check that Chrome/Chromium is available. The probe must run on the
 	// chromedp context, not on the plain timeout context: chromedp.Run looks up
@@ -64,9 +115,21 @@ func New() (*Browser, error) {
 	defer cancelBrowser()
 
 	if _, err := chromedp.Run(browserCtx, chromedp.Navigate("about:blank")); err != nil {
+		_ = b.Close()
 		return nil, fmt.Errorf("browser: chromium not found or failed to start: %w (install Google Chrome / Chromium)", err)
 	}
 	return b, nil
+}
+
+// Close releases resources owned by the Browser itself. Per-page contexts are
+// still cancelled by their callers; Close tears down the guard proxy listener
+// and any connections still passing through it. It is safe to call more than
+// once and is a no-op when no proxy was configured.
+func (b *Browser) Close() error {
+	if b == nil || b.proxy == nil {
+		return nil
+	}
+	return b.proxy.close()
 }
 
 // probeTimeout is how long New() waits for the browser to come up.
@@ -368,6 +431,9 @@ func loginSucceeded(finalBody, successMatch string) bool {
 
 // EnsureAvailable checks that the browser is available.
 func EnsureAvailable() error {
-	_, err := New()
-	return err
+	b, err := New()
+	if err != nil {
+		return err
+	}
+	return b.Close()
 }

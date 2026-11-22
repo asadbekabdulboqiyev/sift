@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/browser"
@@ -69,6 +70,12 @@ type Crawler struct {
 	StartURL string
 	Options  CrawlOptions
 	Client   *http.Client
+	// DialControl is the gate's dial-time authorization hook. The plain HTTP
+	// crawler gets it through Client.Transport; browser mode instead hands it
+	// to browser.New(), which installs it on a guard proxy because Chromium
+	// owns its own network stack and never touches Client. Nil leaves browser
+	// mode with its historical direct network access.
+	DialControl func(network, address string, c syscall.RawConn) error
 
 	queue     []crawlJob
 	visited   map[string]bool
@@ -255,6 +262,23 @@ func (c *Crawler) crawlHTTP() *CrawlResult {
 	return res
 }
 
+// browserPage is the part of browser.Browser the crawler uses. Keeping it an
+// interface lets tests verify control propagation without launching Chromium.
+type browserPage interface {
+	Page(targetURL string, timeout time.Duration) (string, error)
+	Close() error
+}
+
+// newCrawlBrowser is the seam for browser construction. It forwards the gate's
+// dial control so Chromium is constrained by the same class decision as the
+// plain HTTP path; tests replace it with a fake that records the control.
+var newCrawlBrowser = func(control func(network, address string, c syscall.RawConn) error) (browserPage, error) {
+	if control == nil {
+		return browser.New()
+	}
+	return browser.New(browser.WithDialControl(control))
+}
+
 // crawlBrowser crawls using headless Chromium (chromedp). This mode finds
 // deep endpoints in JavaScript-rendered (SPA / React / Vue / Angular) pages.
 // Browser mode is lighter and slower, so Concurrency is set to 1.
@@ -268,11 +292,12 @@ func (c *Crawler) crawlBrowser() *CrawlResult {
 		return res
 	}
 
-	br, err := browser.New()
+	br, err := newCrawlBrowser(c.DialControl)
 	if err != nil {
 		res.Duration = elapsedSince(start)
 		return res
 	}
+	defer func() { _ = br.Close() }()
 
 	c.visited = map[string]bool{}
 	c.endpoints = map[string]Endpoint{}

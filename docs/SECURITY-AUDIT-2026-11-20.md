@@ -179,4 +179,28 @@ In `internal/http3/h3.go`, `hostHeader()` was added — an empty host, CR, or LF
 
 ---
 
-Security Engineer, 2026-11-20. As a result of the audit, `docs/SECURITY-AUDIT-2026-11-20.md` was created; the F-01/F-02 fixes are documented in §6, and the additional work on 2026-11-21 is documented in §7. All integration and git operations were performed by the CEO.
+## 8. Browser Crawl DialControl Closure (2026-11-22)
+
+### 8.1 Confirmed gap
+
+`--browser` crawl mode launched headless Chromium through chromedp. Chromium is a separate process with its own DNS resolver and socket stack, so it never touched `crawler.Client` and the gate's `authz.DialControl` hook was inert. A rendered page could fetch `169.254.169.254` or RFC1918 space directly and return the body through the DOM — an SSRF path every other pentest probe closes. `browser.New()` had no dial-control parameter, and `crawlBrowser()` never passed one.
+
+### 8.2 Fix
+
+- `internal/authz/dial.go`: added `CheckedDialIPs`, which resolves a host, applies `control` to every answer, and returns the approved IPs. `CheckDialTarget` now delegates to it; its semantics are unchanged.
+- `internal/scanner/browser/guardproxy.go` (new): a loopback-only HTTP/CONNECT forward proxy. For every CONNECT and absolute-form request it calls `CheckedDialIPs`, then dials the **checked IP literal** with `net.Dialer{Control: control}` still installed (closing the resolve/connect rebinding race). It enforces a method allow-list, http-only absolute-form targets, bounded concurrent connections (64), and timeouts; malformed or empty authorities are refused before any socket is opened. Go's `http.ReadRequest` derives the authority from the request-target for both CONNECT and absolute-form, so the address that is class-checked is the address that is dialed. The listener is `127.0.0.1:0` only and is not an open relay.
+- `internal/scanner/browser/browser.go`: `New(...Option)` with `WithDialControl`; when a control is present, Chromium is launched with `--proxy-server=http://127.0.0.1:PORT`, `--proxy-bypass-list=<-loopback>` (removes Chromium's implicit direct bypass for localhost **and `169.254/16`**), `--disable-quic`, and `--force-webrtc-ip-handling-policy=disable_non_proxied_udp`. Added `Browser.Close()` to tear down the listener and in-flight tunnels. No control ⇒ no proxy ⇒ historical direct behavior (dev/availability checks).
+- `internal/scanner/crawl/crawler.go`: `Crawler.DialControl` and a `newCrawlBrowser` seam; browser mode forwards the control to `browser.New()` and always closes the browser.
+- `cmd/sift/cmd_pentest.go`: passes `e.cfg.gate.DialControl()` into the crawler; pinned by a source-level regression test at the CLI boundary.
+
+Verification: pure-Go proxy suite (listen/close, class allow/refuse, CONNECT, absolute-form, control-on-destination-and-socket, malformed authorities, open-proxy refusals, method/scheme allow-list, tunnel teardown under `-race -count=3`); Chromium-gated integration tests proving an approved loopback page renders and an unapproved one is refused with zero upstream hits; crawler wiring test with a fake factory. `go vet`, `go build ./...` and the affected package tests are green.
+
+### 8.3 Residual (tracked separately)
+
+`internal/scanner/auth/auth.go:loginBrowserLocked()` (`--auth-browser-login-url`) still calls `browser.New()` with no control. Its navigation target is the operator-configured login URL, not attacker-controlled crawled content, so it does not expose the DOM-SSRF primitive from §8.1 in the same way; it is nonetheless the same unwired second process. Recommended follow-up: thread the gate's `DialControl` through `AuthConfig` into `loginBrowserLocked()`. Not changed in this phase to keep the commit scoped to the confirmed crawl finding.
+
+`internal/browserload/browser.go` (`NewRunner()`/`Run()`) is a second, independent chromedp stack with no dial control. It has no production callers at this HEAD (tests only), so it is not on any pentest request path; it would need the same guard-proxy treatment before being wired into scanning.
+
+---
+
+Security Engineer, 2026-11-20. As a result of the audit, `docs/SECURITY-AUDIT-2026-11-20.md` was created; the F-01/F-02 fixes are documented in §6, the additional work on 2026-11-21 is documented in §7, and the browser-crawl DialControl closure on 2026-11-22 is documented in §8. All integration and git operations were performed by the CEO.
