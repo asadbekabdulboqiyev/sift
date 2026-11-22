@@ -79,6 +79,15 @@ message RunFailed {
   string run_id = 1;
   int64 timestamp = 2;
   string error = 3;
+  // Same attestation shape as RunProgress/RunCompleted. Without this an
+  // on-path attacker could end an attested run by injecting an unsigned failure
+  // event, which the master would treat as terminal. worker_id names the signer
+  // and signature is Ed25519 over the canonical failure statement — see
+  // internal/dist/coordinator/attest.go. Additive: an unattested worker leaves
+  // both empty and the coordinator accepts the failure only when not requiring
+  // attestation.
+  string worker_id = 4;
+  bytes signature = 5;
 }
 
 message StatusReport {
@@ -279,11 +288,21 @@ message RegisterRequest {
   string worker_id = 1;
   string address = 2;  // reachable address of the worker
   CapabilitiesResponse capabilities = 3;
+  // Identity proof for an attested coordinator. The first registration call
+  // leaves this empty and receives a one-time challenge; the retry signs that
+  // challenge together with the claimed worker_id and address, proving
+  // possession of the private key pinned by the coordinator. Without it anyone
+  // who knows an allowlisted worker id could register a fake address and receive
+  // the full scenario. Empty is accepted only by an unattested coordinator.
+  bytes signature = 4;
 }
 
 message RegisterResponse {
   bool accepted = 1;
   string message = 2;
+  // Non-empty when the coordinator requires attestation: the worker must sign
+  // this challenge and retry registration before it is accepted.
+  bytes challenge = 3;
 }
 
 // Regenerate the Go code with `make proto` or `go generate ./internal/dist/proto`.

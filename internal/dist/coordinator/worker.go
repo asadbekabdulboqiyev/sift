@@ -127,14 +127,19 @@ func (w *Worker) send(stream distproto.MasterWorker_CoordinateServer, event *dis
 }
 
 func (w *Worker) sendFailure(stream distproto.MasterWorker_CoordinateServer, runID, msg string) {
+	rf := &distproto.RunFailed{
+		RunId:     runID,
+		Timestamp: time.Now().UnixMilli(),
+		Error:     msg,
+	}
+	// An attested master rejects an unsigned failure, so never send a partial
+	// one: if signing breaks, rely on the master's liveness timeout instead.
+	if err := w.attestFailed(rf); err != nil {
+		w.cfg.Logf("run failure attestation failed for %s: %v (not sending unsigned failure)", runID, err)
+		return
+	}
 	_ = w.send(stream, &distproto.WorkerEvent{
-		Payload: &distproto.WorkerEvent_RunFailed{
-			RunFailed: &distproto.RunFailed{
-				RunId:     runID,
-				Timestamp: time.Now().UnixMilli(),
-				Error:     msg,
-			},
-		},
+		Payload: &distproto.WorkerEvent_RunFailed{RunFailed: rf},
 	})
 }
 

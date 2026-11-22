@@ -719,10 +719,19 @@ func (x *RunCompleted) GetSignature() []byte {
 }
 
 type RunFailed struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	Timestamp     int64                  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	Error         string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	RunId     string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Timestamp int64                  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Error     string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	// Same attestation shape as RunProgress/RunCompleted. Without this an
+	// on-path attacker could end an attested run by injecting an unsigned failure
+	// event, which the master would treat as terminal. worker_id names the signer
+	// and signature is Ed25519 over the canonical failure statement — see
+	// internal/dist/coordinator/attest.go. Additive: an unattested worker leaves
+	// both empty and the coordinator accepts the failure only when not requiring
+	// attestation.
+	WorkerId      string `protobuf:"bytes,4,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
+	Signature     []byte `protobuf:"bytes,5,opt,name=signature,proto3" json:"signature,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -776,6 +785,20 @@ func (x *RunFailed) GetError() string {
 		return x.Error
 	}
 	return ""
+}
+
+func (x *RunFailed) GetWorkerId() string {
+	if x != nil {
+		return x.WorkerId
+	}
+	return ""
+}
+
+func (x *RunFailed) GetSignature() []byte {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
 }
 
 type StatusReport struct {
@@ -2460,10 +2483,17 @@ func (x *CapabilitiesResponse) GetSupportsSessions() bool {
 }
 
 type RegisterRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	WorkerId      string                 `protobuf:"bytes,1,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
-	Address       string                 `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"` // reachable address of the worker
-	Capabilities  *CapabilitiesResponse  `protobuf:"bytes,3,opt,name=capabilities,proto3" json:"capabilities,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	WorkerId     string                 `protobuf:"bytes,1,opt,name=worker_id,json=workerId,proto3" json:"worker_id,omitempty"`
+	Address      string                 `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"` // reachable address of the worker
+	Capabilities *CapabilitiesResponse  `protobuf:"bytes,3,opt,name=capabilities,proto3" json:"capabilities,omitempty"`
+	// Identity proof for an attested coordinator. The first registration call
+	// leaves this empty and receives a one-time challenge; the retry signs that
+	// challenge together with the claimed worker_id and address, proving
+	// possession of the private key pinned by the coordinator. Without it anyone
+	// who knows an allowlisted worker id could register a fake address and receive
+	// the full scenario. Empty is accepted only by an unattested coordinator.
+	Signature     []byte `protobuf:"bytes,4,opt,name=signature,proto3" json:"signature,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2519,10 +2549,20 @@ func (x *RegisterRequest) GetCapabilities() *CapabilitiesResponse {
 	return nil
 }
 
+func (x *RegisterRequest) GetSignature() []byte {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
+}
+
 type RegisterResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Accepted      bool                   `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
-	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Accepted bool                   `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
+	Message  string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	// Non-empty when the coordinator requires attestation: the worker must sign
+	// this challenge and retry registration before it is accepted.
+	Challenge     []byte `protobuf:"bytes,3,opt,name=challenge,proto3" json:"challenge,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2569,6 +2609,13 @@ func (x *RegisterResponse) GetMessage() string {
 		return x.Message
 	}
 	return ""
+}
+
+func (x *RegisterResponse) GetChallenge() []byte {
+	if x != nil {
+		return x.Challenge
+	}
+	return nil
 }
 
 var File_internal_dist_proto_coordinator_proto protoreflect.FileDescriptor
@@ -2624,11 +2671,13 @@ const file_internal_dist_proto_coordinator_proto_rawDesc = "" +
 	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp\x12)\n" +
 	"\x06report\x18\x03 \x01(\v2\x11.sift.dist.ReportR\x06report\x12\x1b\n" +
 	"\tworker_id\x18\x04 \x01(\tR\bworkerId\x12\x1c\n" +
-	"\tsignature\x18\x05 \x01(\fR\tsignature\"V\n" +
+	"\tsignature\x18\x05 \x01(\fR\tsignature\"\x91\x01\n" +
 	"\tRunFailed\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x1c\n" +
 	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error\"\xb6\x01\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\x12\x1b\n" +
+	"\tworker_id\x18\x04 \x01(\tR\bworkerId\x12\x1c\n" +
+	"\tsignature\x18\x05 \x01(\fR\tsignature\"\xb6\x01\n" +
 	"\fStatusReport\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x18\n" +
 	"\ahealthy\x18\x02 \x01(\bR\ahealthy\x12\x1f\n" +
@@ -2825,14 +2874,16 @@ const file_internal_dist_proto_coordinator_proto_rawDesc = "" +
 	"\tmax_users\x18\x02 \x01(\x05R\bmaxUsers\x12(\n" +
 	"\x10max_duration_sec\x18\x03 \x01(\x05R\x0emaxDurationSec\x12!\n" +
 	"\fsupports_tls\x18\x04 \x01(\bR\vsupportsTls\x12+\n" +
-	"\x11supports_sessions\x18\x05 \x01(\bR\x10supportsSessions\"\x8d\x01\n" +
+	"\x11supports_sessions\x18\x05 \x01(\bR\x10supportsSessions\"\xab\x01\n" +
 	"\x0fRegisterRequest\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12C\n" +
-	"\fcapabilities\x18\x03 \x01(\v2\x1f.sift.dist.CapabilitiesResponseR\fcapabilities\"H\n" +
+	"\fcapabilities\x18\x03 \x01(\v2\x1f.sift.dist.CapabilitiesResponseR\fcapabilities\x12\x1c\n" +
+	"\tsignature\x18\x04 \x01(\fR\tsignature\"f\n" +
 	"\x10RegisterResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage2\xa4\x02\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12\x1c\n" +
+	"\tchallenge\x18\x03 \x01(\fR\tchallenge2\xa4\x02\n" +
 	"\fMasterWorker\x12B\n" +
 	"\n" +
 	"Coordinate\x12\x18.sift.dist.WorkerCommand\x1a\x16.sift.dist.WorkerEvent(\x010\x01\x127\n" +

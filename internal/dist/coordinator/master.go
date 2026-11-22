@@ -3,6 +3,7 @@ package coordinator
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/subtle"
 	"errors"
 	"fmt"
@@ -38,6 +39,22 @@ const (
 // so an entry older than this belongs to a dead worker and is pruned so
 // auto-discovery never waits on — or selects — a corpse.
 var registerTTL = 35 * time.Second
+
+// registerChallengeTTL bounds how long a registration nonce can be replayed.
+// It is short: a worker signs and returns the proof within one RPC round trip,
+// so a challenge older than this is stale and must be re-requested. Combined
+// with one-time consumption, this stops a captured proof from being replayed to
+// register the same identity from a different address later.
+const registerChallengeTTL = 30 * time.Second
+
+// registerChallenge is the one-time nonce the master issues during the first
+// Register call of an attested worker. The worker must sign it (bound to its
+// worker_id and address) and retry; the master consumes it on success or
+// failure so no nonce can be used twice.
+type registerChallenge struct {
+	nonce   []byte
+	expires time.Time
+}
 
 // MasterConfig configures a distributed coordinator.
 type MasterConfig struct {
@@ -85,9 +102,12 @@ type Master struct {
 	streams      map[string]distproto.MasterWorker_CoordinateClient
 	registered   map[string]*distproto.RegisterRequest
 	registeredAt map[string]time.Time
-	reports      map[string]*report.Report
-	finished     map[string]bool
-	failed       []string
+	// registerChallenges holds outstanding registration nonces, keyed by
+	// worker_id, for the challenge-response proof of key possession (F-1).
+	registerChallenges map[string]*registerChallenge
+	reports            map[string]*report.Report
+	finished           map[string]bool
+	failed             []string
 	// lastSeen tracks the most recent event (progress, heartbeat, status)
 	// per connected worker; the liveness loop uses it to spot silent workers.
 	lastSeen map[string]time.Time
@@ -127,22 +147,23 @@ func NewMaster(cfg MasterConfig) *Master {
 	}
 	cfg.Logf = logf
 	m := &Master{
-		cfg:            cfg,
-		conns:          make(map[string]*grpc.ClientConn),
-		clients:        make(map[string]distproto.MasterWorkerClient),
-		streams:        make(map[string]distproto.MasterWorker_CoordinateClient),
-		registered:     make(map[string]*distproto.RegisterRequest),
-		registeredAt:   make(map[string]time.Time),
-		reports:        make(map[string]*report.Report),
-		finished:       make(map[string]bool),
-		lastSeen:       make(map[string]time.Time),
-		statusReports:  make(map[string]*distproto.StatusReport),
-		workerPubs:     make(map[string]ed25519.PublicKey),
-		workerIDs:      make(map[string]string),
-		rejected:       make(map[string]string),
-		failureReasons: make(map[string]string),
-		agg:            NewAggregator(),
-		doneCh:         make(chan struct{}),
+		cfg:                cfg,
+		conns:              make(map[string]*grpc.ClientConn),
+		clients:            make(map[string]distproto.MasterWorkerClient),
+		streams:            make(map[string]distproto.MasterWorker_CoordinateClient),
+		registered:         make(map[string]*distproto.RegisterRequest),
+		registeredAt:       make(map[string]time.Time),
+		registerChallenges: make(map[string]*registerChallenge),
+		reports:            make(map[string]*report.Report),
+		finished:           make(map[string]bool),
+		lastSeen:           make(map[string]time.Time),
+		statusReports:      make(map[string]*distproto.StatusReport),
+		workerPubs:         make(map[string]ed25519.PublicKey),
+		workerIDs:          make(map[string]string),
+		rejected:           make(map[string]string),
+		failureReasons:     make(map[string]string),
+		agg:                NewAggregator(),
+		doneCh:             make(chan struct{}),
 	}
 	// Seed the pin table from the static config too. Register applies the same
 	// map for self-registering workers, but a static fleet never registers, so
@@ -211,6 +232,50 @@ func (m *Master) Register(ctx context.Context, req *distproto.RegisterRequest) (
 		m.workerPubs[req.WorkerId] = pub
 		m.syncAttestationModeLocked()
 	}
+
+	// Proof of key possession (F-1). Knowing an allowlisted worker_id used to
+	// be enough to register a fake address and receive the full scenario. When
+	// attestation is on, require a challenge-response: call 1 gets a random
+	// nonce, call 2 must sign it (bound to worker_id + address) with the key
+	// pinned for that id. Verify against the pin directly while holding m.mu —
+	// VerifyWorkerSignature would re-take the lock and deadlock here.
+	if m.attestationRequiredLocked() {
+		pub, pinned := m.workerPubs[req.WorkerId]
+		if !pinned {
+			m.mu.Unlock()
+			return &distproto.RegisterResponse{Accepted: false, Message: fmt.Sprintf("worker %q has no pinned key; attested registration is required", req.WorkerId)}, nil
+		}
+		if len(req.GetSignature()) == 0 {
+			// First phase: issue a fresh one-time nonce. Do not register yet.
+			nonce := make([]byte, 32)
+			if _, err := rand.Read(nonce); err != nil {
+				m.mu.Unlock()
+				return &distproto.RegisterResponse{Accepted: false, Message: "could not issue registration challenge"}, nil
+			}
+			m.registerChallenges[req.WorkerId] = &registerChallenge{nonce: nonce, expires: time.Now().Add(registerChallengeTTL)}
+			m.mu.Unlock()
+			return &distproto.RegisterResponse{Accepted: false, Message: "registration challenge issued", Challenge: nonce}, nil
+		}
+		// Second phase: verify the proof against OUR stored nonce (never one
+		// supplied by the caller), then consume it so it cannot be replayed.
+		ch, ok := m.registerChallenges[req.WorkerId]
+		if !ok || time.Now().After(ch.expires) {
+			delete(m.registerChallenges, req.WorkerId)
+			m.mu.Unlock()
+			return &distproto.RegisterResponse{Accepted: false, Message: "registration challenge missing or expired; retry"}, nil
+		}
+		msg := RegistrationAttestationMessage(req.WorkerId, req.Address, ch.nonce)
+		if !attest.VerifySig(pub, msg, req.GetSignature()) {
+			// Keep the nonce on a bad proof: a bogus/guessed signature from a
+			// different source must not invalidate the honest worker's pending
+			// challenge. Verification is unforgeable, so allowing another try
+			// leaks nothing. Only success consumes the nonce.
+			m.mu.Unlock()
+			return &distproto.RegisterResponse{Accepted: false, Message: "invalid registration proof"}, nil
+		}
+		delete(m.registerChallenges, req.WorkerId)
+	}
+
 	m.registered[req.WorkerId] = req
 	m.registeredAt[req.WorkerId] = time.Now()
 	m.pruneRegisteredLocked()
@@ -640,6 +705,11 @@ func (m *Master) recvLoop(addr string, stream distproto.MasterWorker_CoordinateC
 			m.workerFinished(addr, false)
 			return
 		case *distproto.WorkerEvent_RunFailed:
+			// Fail-closed like progress/final-report: in an attested fleet an
+			// unsigned or replayed failure must not be able to end the run.
+			if !m.handleRunFailed(addr, p.RunFailed, stream) {
+				return
+			}
 			msg := ""
 			if p.RunFailed != nil {
 				msg = p.RunFailed.Error

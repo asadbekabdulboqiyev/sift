@@ -688,7 +688,13 @@ func (g *VeriGate) serveChallenge(w http.ResponseWriter, r *http.Request, reason
 	}
 	// Only ever redirect back to this same origin: reject absolute URLs and
 	// protocol-relative paths (//evil.com) to avoid an open redirect.
-	redirect := r.URL.Path
+	// r.URL.Path is already percent-decoded, so an incoming /%5cevil.com reaches
+	// here as "/\evil.com". Browsers' WHATWG URL parser treats "\" as a path
+	// separator for http(s), resolving that to https://evil.com — a second form
+	// of protocol-relative URL that the "//" check alone does not catch.
+	// Normalizing every backslash to "/" before validating closes that gap:
+	// "/\evil.com" becomes "//evil.com" and is rejected below.
+	redirect := strings.ReplaceAll(r.URL.Path, "\\", "/")
 	if !strings.HasPrefix(redirect, "/") || strings.HasPrefix(redirect, "//") {
 		redirect = "/"
 	}

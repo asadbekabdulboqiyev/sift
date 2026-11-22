@@ -188,7 +188,7 @@ func main() {
 
 	stop := make(chan struct{})
 	if *masterAddr != "" {
-		go registrationLoop(*masterAddr, *workerID, advertised, *token, clientCreds, worker.Capabilities(), stop)
+		go registrationLoop(*masterAddr, *workerID, advertised, *token, clientCreds, worker.Capabilities(), keypair, stop)
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -273,6 +273,11 @@ func startOpsServer(addr string, serving *atomic.Bool) *opsserver.Server {
 const (
 	regSteadyInterval = 10 * time.Second
 	regBackoffMax     = 30 * time.Second
+	// regChallengeWait is the pause between receiving an attested master's
+	// one-time challenge and sending the signed proof. It is short so the
+	// handshake completes quickly, but non-zero so a hostile/buggy master that
+	// issues challenges forever cannot spin the loop at full speed.
+	regChallengeWait = 250 * time.Millisecond
 )
 
 var regBackoffSeq = [...]time.Duration{1 * time.Second, 2 * time.Second, 5 * time.Second, 10 * time.Second, 20 * time.Second, 30 * time.Second}
@@ -290,7 +295,7 @@ func nextRegBackoff(i int) (time.Duration, int) {
 // RPC. The dial is deliberately re-created when the backoff saturates so a
 // master that moved addresses (or a stale connection) is retried from a clean
 // state, not just retried over a dead pipe.
-func registrationLoop(masterAddr, id, advertised, token string, clientCreds credentials.TransportCredentials, caps *distproto.CapabilitiesResponse, stop <-chan struct{}) {
+func registrationLoop(masterAddr, id, advertised, token string, clientCreds credentials.TransportCredentials, caps *distproto.CapabilitiesResponse, keypair *attest.Keypair, stop <-chan struct{}) {
 	creds := insecure.NewCredentials()
 	if clientCreds != nil {
 		creds = clientCreds
@@ -315,13 +320,34 @@ func registrationLoop(masterAddr, id, advertised, token string, clientCreds cred
 	lastErr := ""
 	var wait time.Duration
 	backoffIdx := 0
+	// pendingChallenge is the one-time nonce an attested master issued on the
+	// previous call. It is signed and returned on the next call to prove this
+	// worker holds the private key pinned by the coordinator.
+	var pendingChallenge []byte
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		resp, err := client.Register(ctx, &distproto.RegisterRequest{
+		req := &distproto.RegisterRequest{
 			WorkerId:     id,
 			Address:      advertised,
 			Capabilities: caps,
-		})
+		}
+		if len(pendingChallenge) > 0 {
+			sig, err := coordinator.SignRegistration(keypair, id, advertised, pendingChallenge)
+			if err != nil {
+				log.Printf("Could not sign registration challenge for master %s: %v", masterAddr, err)
+				pendingChallenge = nil
+				wait, backoffIdx = nextRegBackoff(backoffIdx)
+				cancel()
+				select {
+				case <-stop:
+					return
+				case <-time.After(wait):
+				}
+				continue
+			}
+			req.Signature = sig
+		}
+		resp, err := client.Register(ctx, req)
 		cancel()
 		switch {
 		case err != nil:
@@ -340,9 +366,24 @@ func registrationLoop(masterAddr, id, advertised, token string, clientCreds cred
 					wait = regBackoffMax
 				} else {
 					client = distproto.NewMasterWorkerClient(conn)
+					pendingChallenge = nil // a new master has no memory of our nonce
 				}
 			}
+		case len(resp.GetChallenge()) > 0:
+			// The master requires proof of key possession. Keep the nonce and
+			// answer it promptly on the next iteration. Without a keypair we
+			// can never satisfy it, so fall back to the normal rejection path.
+			if keypair == nil {
+				log.Printf("Master %s requires worker attestation but no -attest-key was configured", masterAddr)
+				pendingChallenge = nil
+				wait, backoffIdx = nextRegBackoff(backoffIdx)
+				break
+			}
+			pendingChallenge = append([]byte(nil), resp.GetChallenge()...)
+			wait = regChallengeWait
+			backoffIdx = 0
 		case resp.GetAccepted():
+			pendingChallenge = nil
 			if lastErr != "" {
 				log.Printf("Re-registered with master %s", masterAddr)
 				lastErr = ""
@@ -350,6 +391,7 @@ func registrationLoop(masterAddr, id, advertised, token string, clientCreds cred
 			wait = regSteadyInterval
 			backoffIdx = 0
 		default:
+			pendingChallenge = nil
 			log.Printf("Master %s rejected registration: %s", masterAddr, resp.GetMessage())
 			wait, backoffIdx = nextRegBackoff(backoffIdx)
 		}

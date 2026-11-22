@@ -325,6 +325,48 @@ func TestScenarioTargets(t *testing.T) {
 	}
 }
 
+// TestScenarioTargetsNestedIfSteps pins that authorization sees every target a
+// scenario can dial, including those inside type:"if" branches. The engine
+// executes nested steps (internal/engine/stepflow.go runIfStep), so leaving them
+// out of target extraction would authorize the run with zero targets and let
+// those URLs bypass the policy check and the audit log.
+func TestScenarioTargetsNestedIfSteps(t *testing.T) {
+	sc := &config.Scenario{
+		BaseURL: "https://base.example/",
+		Steps: []config.Step{
+			{
+				Type: "if",
+				Steps: []config.Step{
+					{URL: "https://nested.example/"},
+					{
+						Type: "if",
+						Steps: []config.Step{
+							{URL: "https://deep.example/"},
+							{URL: "https://nested.example/"}, // duplicate
+						},
+					},
+				},
+			},
+			{URL: "https://top.example/"},
+		},
+	}
+	got := scenarioTargets(sc)
+	want := []string{
+		"https://base.example/",
+		"https://nested.example/",
+		"https://deep.example/",
+		"https://top.example/",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("targets = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("targets = %v, want %v", got, want)
+		}
+	}
+}
+
 func TestRunAuthorizeWithGate(t *testing.T) {
 	// Pin the admin seam off: an unlock open on this machine would otherwise
 	// replace the "rule=..." outcome with an admin-unlock bypass and fail the

@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"net"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,6 +16,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/asadbekabdulboqiyev/sift/internal/attest"
+	"github.com/asadbekabdulboqiyev/sift/internal/dist/coordinator"
 	distproto "github.com/asadbekabdulboqiyev/sift/internal/dist/proto"
 )
 
@@ -86,7 +89,7 @@ func runRegistration(t *testing.T, masterAddr string, fm *fakeMaster, settle tim
 			Protocols:      []string{"http"},
 			MaxUsers:       100,
 			MaxDurationSec: 60,
-		}, stop)
+		}, nil, stop)
 		close(done)
 	}()
 	time.Sleep(settle)
@@ -125,6 +128,81 @@ func TestRegistrationLoopRecoversAfterError(t *testing.T) {
 	}
 }
 
+// challengeMaster mirrors an attested coordinator: the first Register call
+// returns a nonce, and the second is accepted only if the worker signed it with
+// the pinned key. It proves the worker's registration loop really completes the
+// proof-of-possession handshake rather than just logging the challenge.
+type challengeMaster struct {
+	distproto.UnimplementedMasterWorkerServer
+	kp        *attest.Keypair
+	calls     atomic.Int32
+	mu        sync.Mutex
+	challenge []byte
+	verified  atomic.Bool
+}
+
+func (f *challengeMaster) Register(_ context.Context, req *distproto.RegisterRequest) (*distproto.RegisterResponse, error) {
+	n := f.calls.Add(1)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if n == 1 {
+		if len(req.GetSignature()) != 0 {
+			return &distproto.RegisterResponse{Accepted: false, Message: "unexpected proof on first call"}, nil
+		}
+		f.challenge = []byte("one-time-nonce-0123456789")
+		return &distproto.RegisterResponse{Accepted: false, Challenge: f.challenge}, nil
+	}
+	msg := coordinator.RegistrationAttestationMessage(req.GetWorkerId(), req.GetAddress(), f.challenge)
+	if attest.VerifySig(f.kp.Public, msg, req.GetSignature()) {
+		f.verified.Store(true)
+		return &distproto.RegisterResponse{Accepted: true, Message: "registered"}, nil
+	}
+	return &distproto.RegisterResponse{Accepted: false, Message: "invalid proof"}, nil
+}
+
+func startMasterImpl(t *testing.T, impl distproto.MasterWorkerServer) string {
+	t.Helper()
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	srv := grpc.NewServer()
+	distproto.RegisterMasterWorkerServer(srv, impl)
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(srv.Stop)
+	return lis.Addr().String()
+}
+
+func TestRegistrationLoopCompletesAttestationChallenge(t *testing.T) {
+	kp, err := attest.GenerateKeypair()
+	if err != nil {
+		t.Fatalf("keypair: %v", err)
+	}
+	cm := &challengeMaster{kp: kp}
+	addr := startMasterImpl(t, cm)
+
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		registrationLoop(addr, "worker-test", "127.0.0.1:50052", "tok", nil, &distproto.CapabilitiesResponse{
+			Protocols: []string{"http"},
+		}, kp, stop)
+		close(done)
+	}()
+	// First call returns the nonce, the loop waits regChallengeWait (250ms),
+	// then the signed proof is sent. 1s is ample for both round trips.
+	time.Sleep(time.Second)
+	close(stop)
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("registrationLoop did not return after stop closed")
+	}
+	if !cm.verified.Load() {
+		t.Fatalf("worker never completed the attestation challenge (calls=%d)", cm.calls.Load())
+	}
+}
+
 func TestRegistrationLoopUnreachableMaster(t *testing.T) {
 	// A loopback port with nothing listening: every Register fails, so the loop
 	// keeps backing off until stop closes.
@@ -138,7 +216,7 @@ func TestRegistrationLoopUnreachableMaster(t *testing.T) {
 	stop := make(chan struct{})
 	done := make(chan struct{})
 	go func() {
-		registrationLoop(addr, "worker-test", "127.0.0.1:50052", "", nil, nil, stop)
+		registrationLoop(addr, "worker-test", "127.0.0.1:50052", "", nil, nil, nil, stop)
 		close(done)
 	}()
 	time.Sleep(300 * time.Millisecond)

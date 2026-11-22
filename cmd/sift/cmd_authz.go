@@ -281,9 +281,19 @@ func scenarioTargets(sc *config.Scenario) []string {
 		out = append(out, u)
 	}
 	add(sc.BaseURL)
-	for _, s := range sc.Steps {
-		add(s.URL)
+	// Walk nested steps as well: a type:"if" branch can contain the only real
+	// network targets of a scenario (its own URL is empty). Extracting only
+	// top-level steps would classify zero targets, make enforceAuthz() return
+	// Allowed with no policy decision and no audit record, and let the engine
+	// dial those nested targets under a permissive ClassPublic gate.
+	var walk func([]config.Step)
+	walk = func(steps []config.Step) {
+		for _, s := range steps {
+			add(s.URL)
+			walk(s.Steps)
+		}
 	}
+	walk(sc.Steps)
 	return out
 }
 

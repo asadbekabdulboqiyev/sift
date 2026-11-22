@@ -325,6 +325,37 @@ func TestUnitSplitUsers(t *testing.T) {
 	}
 }
 
+// TestUnitAggregatorRejectsOlderSnapshot pins run-internal replay protection:
+// an older signed snapshot must not roll back a worker's live counters. The
+// timestamp is part of the signed digest, so a replay cannot bump it.
+func TestUnitAggregatorRejectsOlderSnapshot(t *testing.T) {
+	a := NewAggregator()
+	newer := &distproto.TelemetrySnapshot{Timestamp: 200, TotalRequests: 20}
+	if !a.UpdateVerified("w1", newer, true) {
+		t.Fatal("newer snapshot was refused")
+	}
+	older := &distproto.TelemetrySnapshot{Timestamp: 100, TotalRequests: 10}
+	if a.UpdateVerified("w1", older, true) {
+		t.Fatal("older snapshot overwrote a newer one")
+	}
+	if got, _ := a.SnapshotOf("w1"); got.GetTotalRequests() != 20 {
+		t.Fatalf("counters rolled back: total = %d, want 20", got.GetTotalRequests())
+	}
+	// An exact re-send (equal timestamp) is harmless and must still be accepted.
+	if !a.UpdateVerified("w1", &distproto.TelemetrySnapshot{Timestamp: 200, TotalRequests: 20}, true) {
+		t.Fatal("exact replay with equal timestamp was refused")
+	}
+	// A strictly newer snapshot is accepted.
+	if !a.UpdateVerified("w1", &distproto.TelemetrySnapshot{Timestamp: 300, TotalRequests: 30}, true) {
+		t.Fatal("newer snapshot was refused")
+	}
+	// Disconnect forgets live state, so a fresh run can start from any timestamp.
+	a.Forget("w1")
+	if !a.UpdateVerified("w1", older, true) {
+		t.Fatal("fresh snapshot refused after Forget")
+	}
+}
+
 func TestUnitAggregatorRequireVerified(t *testing.T) {
 	a := NewAggregator()
 	if a.RequireVerified() {

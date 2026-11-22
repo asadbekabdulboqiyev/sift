@@ -68,6 +68,13 @@ const (
 	reportAttestDomain = "sift/worker-report-attest/v1"
 	// statusAttestDomain versions the status-heartbeat statement.
 	statusAttestDomain = "sift/worker-status-attest/v1"
+	// registrationAttestDomain versions the worker-registration challenge
+	// response. A signature over the master's one-time nonce proves possession
+	// of the pinned key before the master hands the worker a scenario.
+	registrationAttestDomain = "sift/worker-register-attest/v1"
+	// failureAttestDomain versions the run-failure statement, so an unsigned or
+	// replayed failure cannot terminate an attested run.
+	failureAttestDomain = "sift/worker-failure-attest/v1"
 )
 
 // SnapshotDigest returns the SHA-256 of the deterministic protobuf encoding of
@@ -176,6 +183,58 @@ func SignStatus(kp *attest.Keypair, workerID string, healthy bool, activeRuns in
 	return attest.Sign(kp, StatusAttestationMessage(workerID, healthy, activeRuns))
 }
 
+// RegistrationAttestationMessage is the statement a worker signs to prove it
+// holds the private key pinned for workerID. It binds the claimed address and
+// the master's one-time challenge, so a captured proof cannot be replayed from
+// a different address or on a later registration attempt. The challenge is a
+// binary nonce; storing it in a length-prefixed string field keeps the encoding
+// unambiguous.
+func RegistrationAttestationMessage(workerID, address string, challenge []byte) []byte {
+	return attestationMessage(registrationAttestDomain,
+		workerID,
+		address,
+		string(challenge),
+	)
+}
+
+// SignRegistration signs a registration challenge with the worker's identity.
+func SignRegistration(kp *attest.Keypair, workerID, address string, challenge []byte) ([]byte, error) {
+	return attest.Sign(kp, RegistrationAttestationMessage(workerID, address, challenge))
+}
+
+// FailureAttestationMessage is the statement a worker signs for a RunFailed
+// event. Binding the run id, timestamp and error text stops an on-path attacker
+// from forging or relabelling a failure to end a run early.
+func FailureAttestationMessage(workerID, runID string, timestamp int64, errMsg string) []byte {
+	return attestationMessage(failureAttestDomain,
+		workerID,
+		runID,
+		strconv.FormatInt(timestamp, 10),
+		errMsg,
+	)
+}
+
+// SignFailure signs a RunFailed event with the worker's identity.
+func SignFailure(kp *attest.Keypair, workerID, runID string, timestamp int64, errMsg string) ([]byte, error) {
+	return attest.Sign(kp, FailureAttestationMessage(workerID, runID, timestamp, errMsg))
+}
+
+// attestFailed attaches this worker's identity and Ed25519 signature to a
+// RunFailed event. A worker without a keypair leaves both fields empty, which
+// only an unattested coordinator accepts.
+func (w *Worker) attestFailed(rf *distproto.RunFailed) error {
+	if w.cfg.Keypair == nil || rf == nil {
+		return nil
+	}
+	rf.WorkerId = w.cfg.ID
+	sig, err := SignFailure(w.cfg.Keypair, w.cfg.ID, rf.GetRunId(), rf.GetTimestamp(), rf.GetError())
+	if err != nil {
+		return err
+	}
+	rf.Signature = sig
+	return nil
+}
+
 // attestProgress attaches this worker's identity and Ed25519 signature to a
 // progress snapshot. A worker without a keypair leaves both fields empty, which
 // only an unattested coordinator accepts. A keypair present but unusable is an
@@ -235,6 +294,12 @@ func (m *Master) VerifyReportSignature(workerID, runID string, timestamp int64, 
 // missing signature, or a malformed/forged signature all return false.
 func (m *Master) VerifyStatusSignature(workerID string, healthy bool, activeRuns int64, sig []byte) bool {
 	return m.VerifyWorkerSignature(workerID, StatusAttestationMessage(workerID, healthy, activeRuns), sig)
+}
+
+// VerifyFailureSignature checks a RunFailed signature against the key pinned
+// for workerID. It fails closed just like progress/report verification.
+func (m *Master) VerifyFailureSignature(workerID, runID string, timestamp int64, errMsg string, sig []byte) bool {
+	return m.VerifyWorkerSignature(workerID, FailureAttestationMessage(workerID, runID, timestamp, errMsg), sig)
 }
 
 // VerifyWorkerSignature checks sig over msg against the key pinned for
@@ -441,6 +506,42 @@ func (m *Master) handleRunCompleted(addr string, rc *distproto.RunCompleted, str
 	}
 	if !m.VerifyReportSignature(workerID, rc.GetRunId(), rc.GetTimestamp(), rc.GetReport(), rc.GetSignature()) {
 		m.rejectWorker(addr, workerID, "invalid or missing Ed25519 signature on final report", stream)
+		return false
+	}
+	if !m.bindWorker(addr, workerID) {
+		m.rejectWorker(addr, workerID, "connection is already bound to another worker identity", stream)
+		return false
+	}
+	return true
+}
+
+// handleRunFailed verifies the attestation on a RunFailed event before the
+// master treats it as terminal. Without this gate an on-path attacker (or any
+// client holding the shared control-plane token) could end an attested run by
+// injecting an unsigned failure, synthesizing a partial report and corrupting
+// SLA/regression results. It mirrors handleRunCompleted's fail-closed posture.
+func (m *Master) handleRunFailed(addr string, rf *distproto.RunFailed, stream distproto.MasterWorker_CoordinateClient) bool {
+	if rf == nil {
+		return true
+	}
+	if !m.attestationRequired() {
+		return true
+	}
+	workerID := rf.GetWorkerId()
+	if workerID == "" {
+		m.rejectWorker(addr, "", "run failure carries no worker_id while attestation is required", stream)
+		return false
+	}
+	if !m.runIDMatchesActive(rf.GetRunId()) {
+		m.rejectWorker(addr, workerID, fmt.Sprintf("run failure run_id %q does not match the active run %q", rf.GetRunId(), m.activeRunID()), stream)
+		return false
+	}
+	if bound, ok := m.boundWorkerID(addr); ok && bound != workerID {
+		m.rejectWorker(addr, workerID, fmt.Sprintf("worker_id %q does not match the identity %q already attested on this connection", workerID, bound), stream)
+		return false
+	}
+	if !m.VerifyFailureSignature(workerID, rf.GetRunId(), rf.GetTimestamp(), rf.GetError(), rf.GetSignature()) {
+		m.rejectWorker(addr, workerID, "invalid or missing Ed25519 signature on run failure", stream)
 		return false
 	}
 	if !m.bindWorker(addr, workerID) {

@@ -74,6 +74,15 @@ func (a *Aggregator) UpdateVerified(worker string, snap *distproto.TelemetrySnap
 		a.rejected++
 		return false
 	}
+	// Snapshots are cumulative per worker. An older signed snapshot replayed
+	// later in the same run must not overwrite a newer one: that would roll back
+	// counters in the live view and in any partial report synthesized from the
+	// last accepted snapshot. Timestamp is inside SnapshotDigest, so a replay
+	// cannot raise it without breaking the signature. Equal timestamps (an exact
+	// re-send) stay harmless as before.
+	if prev, ok := a.latest[worker]; ok && snap.GetTimestamp() < prev.GetTimestamp() {
+		return false
+	}
 	a.latest[worker] = snap
 	return true
 }

@@ -18,8 +18,11 @@ import (
 // local development mode) and is therefore not a failure here.
 func TestRegisterFailsClosedWhenPinned(t *testing.T) {
 	const pinnedID = "w1"
-	pubHex := "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff" // 32 bytes, valid hex
-	master := NewMaster(MasterConfig{AuthorizedWorkers: map[string]string{pinnedID: pubHex}})
+	kp, err := attest.GenerateKeypair()
+	if err != nil {
+		t.Fatalf("keypair: %v", err)
+	}
+	master := NewMaster(MasterConfig{AuthorizedWorkers: map[string]string{pinnedID: attest.PublicKeyHex(kp.Public)}})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -28,10 +31,26 @@ func TestRegisterFailsClosedWhenPinned(t *testing.T) {
 		t.Fatalf("unpinned worker w2 must be rejected: accepted=%v err=%v", resp.GetAccepted(), err)
 	}
 
-	resp, err := master.Register(ctx, &distproto.RegisterRequest{WorkerId: pinnedID, Address: "10.0.0.1:50061"})
-	if err != nil || !resp.GetAccepted() {
-		t.Fatalf("pinned worker %s must be accepted: accepted=%v err=%v msg=%s", pinnedID, resp.GetAccepted(), err, resp.GetMessage())
+	// Attested registration is a two-step handshake: an unsigned call only
+	// obtains a challenge, and the pinned key must sign it to be accepted.
+	first, err := master.Register(ctx, &distproto.RegisterRequest{WorkerId: pinnedID, Address: "10.0.0.1:50061"})
+	if err != nil || first.GetAccepted() || len(first.GetChallenge()) == 0 {
+		t.Fatalf("pinned worker must receive a challenge first: accepted=%v challenge=%d err=%v", first.GetAccepted(), len(first.GetChallenge()), err)
 	}
+	sig, err := coordinatorSignRegistrationForTest(kp, pinnedID, "10.0.0.1:50061", first.GetChallenge())
+	if err != nil {
+		t.Fatalf("sign challenge: %v", err)
+	}
+	resp, err := master.Register(ctx, &distproto.RegisterRequest{WorkerId: pinnedID, Address: "10.0.0.1:50061", Signature: sig})
+	if err != nil || !resp.GetAccepted() {
+		t.Fatalf("pinned worker %s must be accepted after proving key possession: accepted=%v err=%v msg=%s", pinnedID, resp.GetAccepted(), err, resp.GetMessage())
+	}
+}
+
+// coordinatorSignRegistrationForTest builds the exact registration statement
+// the worker signs (kept here so these tests mirror cmd/sift-worker).
+func coordinatorSignRegistrationForTest(kp *attest.Keypair, id, addr string, challenge []byte) ([]byte, error) {
+	return SignRegistration(kp, id, addr, challenge)
 }
 
 // TestRegisterAcceptsUnpinnedWhenAllowlistEmpty verifies the dev-mode default:
@@ -44,6 +63,120 @@ func TestRegisterAcceptsUnpinnedWhenAllowlistEmpty(t *testing.T) {
 	resp, err := master.Register(ctx, &distproto.RegisterRequest{WorkerId: "w1", Address: "10.0.0.1:50061"})
 	if err != nil || !resp.GetAccepted() {
 		t.Fatalf("open mode must accept registration: accepted=%v err=%v", resp.GetAccepted(), err)
+	}
+}
+
+// TestRegisterChallengeProofIsBoundAndOneTime pins the registration proof-of-
+// possession hardening (F-1): a challenge may only be answered by the pinned
+// key, only for the bound worker_id+address, before expiry, and only once.
+func TestRegisterChallengeProofIsBoundAndOneTime(t *testing.T) {
+	const id = "w1"
+	const addr = "10.0.0.1:50061"
+	kp, err := attest.GenerateKeypair()
+	if err != nil {
+		t.Fatalf("keypair: %v", err)
+	}
+	other, err := attest.GenerateKeypair()
+	if err != nil {
+		t.Fatalf("other keypair: %v", err)
+	}
+	master := NewMaster(MasterConfig{AuthorizedWorkers: map[string]string{id: attest.PublicKeyHex(kp.Public)}})
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	issue := func() []byte {
+		t.Helper()
+		resp, err := master.Register(ctx, &distproto.RegisterRequest{WorkerId: id, Address: addr})
+		if err != nil || len(resp.GetChallenge()) == 0 {
+			t.Fatalf("challenge issue failed: accepted=%v err=%v", resp.GetAccepted(), err)
+		}
+		return resp.GetChallenge()
+	}
+
+	// Wrong private key cannot satisfy the challenge.
+	ch := issue()
+	badSig, _ := SignRegistration(other, id, addr, ch)
+	if resp, err := master.Register(ctx, &distproto.RegisterRequest{WorkerId: id, Address: addr, Signature: badSig}); err != nil || resp.GetAccepted() {
+		t.Fatalf("forged registration proof accepted: %v err=%v", resp.GetAccepted(), err)
+	}
+
+	// Right key but a different address cannot reuse the challenge to register
+	// a second endpoint.
+	ch = issue()
+	addrSig, _ := SignRegistration(kp, id, "10.9.9.9:50061", ch)
+	if resp, err := master.Register(ctx, &distproto.RegisterRequest{WorkerId: id, Address: addr, Signature: addrSig}); err != nil || resp.GetAccepted() {
+		t.Fatalf("registration proof not bound to address: accepted=%v err=%v", resp.GetAccepted(), err)
+	}
+
+	// An expired challenge is refused.
+	ch = issue()
+	master.mu.Lock()
+	master.registerChallenges[id].expires = time.Now().Add(-time.Second)
+	master.mu.Unlock()
+	expSig, _ := SignRegistration(kp, id, addr, ch)
+	if resp, err := master.Register(ctx, &distproto.RegisterRequest{WorkerId: id, Address: addr, Signature: expSig}); err != nil || resp.GetAccepted() {
+		t.Fatalf("expired registration challenge accepted: accepted=%v err=%v", resp.GetAccepted(), err)
+	}
+
+	// A valid proof is accepted once, then cannot be replayed.
+	ch = issue()
+	goodSig, _ := SignRegistration(kp, id, addr, ch)
+	if resp, err := master.Register(ctx, &distproto.RegisterRequest{WorkerId: id, Address: addr, Signature: goodSig}); err != nil || !resp.GetAccepted() {
+		t.Fatalf("valid registration proof rejected: accepted=%v msg=%s err=%v", resp.GetAccepted(), resp.GetMessage(), err)
+	}
+	if resp, err := master.Register(ctx, &distproto.RegisterRequest{WorkerId: id, Address: addr, Signature: goodSig}); err != nil || resp.GetAccepted() {
+		t.Fatalf("replayed registration proof accepted: accepted=%v err=%v", resp.GetAccepted(), err)
+	}
+}
+
+// TestRunFailedRequiresAttestation pins failure-event hardening (F-2): in an
+// attested fleet an unsigned, cross-run or forged failure must not terminate a
+// run, while a correctly signed failure from the pinned identity is accepted.
+func TestRunFailedRequiresAttestation(t *testing.T) {
+	const id = "w1"
+	const addr = "10.0.0.1:50061"
+	kp, err := attest.GenerateKeypair()
+	if err != nil {
+		t.Fatalf("keypair: %v", err)
+	}
+	other, err := attest.GenerateKeypair()
+	if err != nil {
+		t.Fatalf("other keypair: %v", err)
+	}
+	master := NewMaster(MasterConfig{AuthorizedWorkers: map[string]string{id: attest.PublicKeyHex(kp.Public)}})
+	master.mu.Lock()
+	master.runID = "run-1"
+	master.mu.Unlock()
+	const ts = int64(1700000000000)
+
+	unsigned := &distproto.RunFailed{RunId: "run-1", Timestamp: ts, Error: "boom"}
+	if master.handleRunFailed(addr, unsigned, nil) {
+		t.Fatal("unsigned failure was accepted")
+	}
+	unsigned.WorkerId = id
+	if master.handleRunFailed(addr, unsigned, nil) {
+		t.Fatal("unsigned failure with a worker_id was accepted")
+	}
+
+	wrongRun := &distproto.RunFailed{RunId: "run-old", Timestamp: ts, Error: "boom", WorkerId: id}
+	wrongRun.Signature, _ = SignFailure(kp, id, "run-old", ts, "boom")
+	if master.handleRunFailed(addr, wrongRun, nil) {
+		t.Fatal("signed failure from a different run was accepted")
+	}
+
+	forged := &distproto.RunFailed{RunId: "run-1", Timestamp: ts, Error: "boom", WorkerId: id}
+	forged.Signature, _ = SignFailure(other, id, "run-1", ts, "boom")
+	if master.handleRunFailed(addr, forged, nil) {
+		t.Fatal("failure signed by the wrong key was accepted")
+	}
+
+	good := &distproto.RunFailed{RunId: "run-1", Timestamp: ts, Error: "boom", WorkerId: id}
+	good.Signature, _ = SignFailure(kp, id, "run-1", ts, "boom")
+	if !master.handleRunFailed(addr, good, nil) {
+		t.Fatal("valid signed failure was rejected")
+	}
+	if bound, ok := master.boundWorkerID(addr); !ok || bound != id {
+		t.Fatalf("accepted failure did not bind the worker identity: %q %v", bound, ok)
 	}
 }
 

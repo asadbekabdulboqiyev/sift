@@ -91,6 +91,42 @@ func TestChallengePageCapsSolverNonce(t *testing.T) {
 	}
 }
 
+// TestChallengeRedirectCannotEscapeOrigin pins the post-solve redirect to a
+// same-origin path. A request target such as /%5cevil.com is percent-decoded
+// by net/http into "/\evil.com"; browsers' WHATWG URL parser treats the
+// backslash as a separator and would navigate the victim cross-origin. Every
+// protocol-relative form (//, /\, and their encoded variants) must collapse to
+// "/", while an ordinary in-origin path with a query string is preserved.
+func TestChallengeRedirectCannotEscapeOrigin(t *testing.T) {
+	escapeCases := []string{
+		"/%5cevil.com/phish",
+		"/\\evil.com/phish",
+		"//evil.com/phish",
+		"/%2f%2fevil.com/phish",
+		"/%5c%5cevil.com/phish",
+	}
+	for _, target := range escapeCases {
+		g := newTestGate(t, nil)
+		req := httptest.NewRequest(http.MethodGet, target, nil)
+		req.RemoteAddr = "203.0.113.7:1234"
+		rec := httptest.NewRecorder()
+		g.serveChallenge(rec, req, "manual")
+		if body := rec.Body.String(); strings.Contains(body, "evil.com") {
+			t.Errorf("target %q reflected a cross-origin redirect in the challenge page", target)
+		}
+	}
+
+	g := newTestGate(t, nil)
+	req := httptest.NewRequest(http.MethodGet, "/dashboard?next=1", nil)
+	req.RemoteAddr = "203.0.113.7:1234"
+	rec := httptest.NewRecorder()
+	g.serveChallenge(rec, req, "manual")
+	body := rec.Body.String()
+	if !strings.Contains(body, "/dashboard") || !strings.Contains(body, "next=1") {
+		t.Errorf("in-origin redirect with query was not preserved: %s", body)
+	}
+}
+
 // solveProof computes a valid nonce for a challenge prefix (mirrors the
 // browser solver in vg_challenge.html).
 func solveProof(prefix string, difficulty int) string {
