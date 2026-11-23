@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 	"github.com/asadbekabdulboqiyev/sift/internal/shared"
 )
 
@@ -48,6 +50,21 @@ func NewReplayWorker(id int, config *ReplayConfig, capture *Capture, packets []*
 		IdleConnTimeout:    90 * time.Second,
 		DisableCompression: false,
 	}
+	if config.DialControl != nil {
+		// Net.Dialer.Control sees the address after resolution, so the
+		// approval is re-applied on every hop's socket, not just at gate time.
+		// Default dialer timeouts are kept so controlled replay timing matches
+		// the historical bare transport.
+		transport.DialContext = (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+			Control:   config.DialControl,
+		}).DialContext
+		// Through a proxy the socket reaches the proxy, not the target. Check
+		// the destination before allowing that dial; without a control the
+		// transport stays direct, exactly as it was before.
+		transport.Proxy = authz.ProxyWithControl(http.ProxyFromEnvironment, config.DialControl)
+	}
 
 	return &ReplayWorker{
 		id:        id,
@@ -57,17 +74,9 @@ func NewReplayWorker(id int, config *ReplayConfig, capture *Capture, packets []*
 		stopCh:    make(chan struct{}),
 		latencies: make([]time.Duration, 0, len(packets)),
 		conn: http.Client{
-			Transport: transport,
-			Timeout:   30 * time.Second,
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				if !config.FollowRedirects {
-					return http.ErrUseLastResponse
-				}
-				if len(via) >= 10 {
-					return fmt.Errorf("stopped after %d redirects", len(via))
-				}
-				return nil
-			},
+			Transport:     transport,
+			Timeout:       30 * time.Second,
+			CheckRedirect: replayRedirectCheck(config),
 		},
 	}
 }

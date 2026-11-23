@@ -184,6 +184,14 @@ Examples:
 		assertions = append(assertions, replay.Assertion{Type: "regex", Value: *assertRegex})
 	}
 
+	// Derive the socket-level approval from the operator-named base URL before
+	// any request is built. A failure here stops the run: no destination means
+	// no control, but a rejected one must never fall back to an unchecked dial.
+	control, err := replayDialControl(*baseURL)
+	if err != nil {
+		fatalf("Authorization: %v", err)
+	}
+
 	// Build config
 	config := &replay.ReplayConfig{
 		RateMultiplier:            rateMultiplier,
@@ -201,6 +209,7 @@ Examples:
 		OutputReport:              *outputJSON != "" || *outputCSV != "",
 		ReportDir:                 *reportDir,
 		Filter:                    filter,
+		DialControl:               control,
 	}
 
 	// Load capture

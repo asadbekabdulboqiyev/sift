@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -115,6 +116,11 @@ type ReplayConfig struct { //nolint:revive // reason: renaming exported identifi
 	OutputReport              bool
 	ReportDir                 string
 	Filter                    *PacketFilter
+	// DialControl is an optional socket-level authorization hook. It runs
+	// after DNS resolution on every dial, so a name approved at gate time
+	// cannot rebind to a private or metadata address before connect. Nil keeps
+	// replay's historical direct behavior for dev and tests. Runtime-only.
+	DialControl func(network, address string, c syscall.RawConn) error `json:"-"`
 }
 
 // PacketFilter selects packets by method, URL, status, latency, protocol, and host.
