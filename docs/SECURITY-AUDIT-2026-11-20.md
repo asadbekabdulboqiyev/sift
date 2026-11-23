@@ -217,4 +217,37 @@ Service integrations (notify/webhook/SIEM/Telegram, OIDC IdP, NVD, crt.sh, GitHu
 
 ---
 
-Security Engineer, 2026-11-20. As a result of the audit, `docs/SECURITY-AUDIT-2026-11-20.md` was created; the F-01/F-02 fixes are documented in §6, the additional work on 2026-11-21 is documented in §7, and the browser-crawl DialControl closure on 2026-11-22 is documented in §8. All integration and git operations were performed by the CEO.
+## 9. Egress-Gate Closure Audit (2026-11-23)
+
+### 9.1 Method
+
+A full-tree audit of every non-test `net.Dialer` / `Dial` / `Transport` / proxy / WebSocket / gRPC / QUIC site (95 call sites in 28 files) was run at `557f235` by three independent read-only security agents: scanner-path, engine-path, infra-path. Every claim was cross-verified centrally against source before any change. Agents were read-only; all edits, staging and git operations were performed by the CEO.
+
+### 9.2 Confirmed scan-path gaps fixed in this phase
+
+Three helpers on a normal `sift pentest` ran after the gate approved the target but bypassed the gate's socket decision. A DNS answer that flips to loopback/RFC1918/metadata between the initial reachability probe (`cmd_pentest.go:306`) and these phases was fetched with no `Control`, using `http.DefaultTransport` (whose proxy selector sees no destination re-check) or legacy nil-control `ScanHTTP`:
+
+| Helper | Phase | Impact | Fix |
+|---|---|---|---|
+| `pentestMiniLoadTest` | wrap-up, **default enabled** (`--skip-load-test=false`) | 50 unguarded GETs to the full target URL; stable SSRF/DoS primitive | `pentestMiniLoadTestWithControl` via `core.NewHTTPClientWithControl` |
+| `pentestScanTech` | discovery, step 1 | Ungated `Server`/`X-Powered-By` and `ScanHTTP` probes leak internal headers into the report | `pentestScanTechWithControl` threading control to both `pentestHTTPGetWithControl` and the new `scanner.ScanHTTPWithControl` re-export |
+| `pentestScanVulns` | assessment | Ungated CORS probe makes the connection even though only one header is read | `pentestScanVulnsWithControl` using the controlled HTTP helper |
+
+`pentestHTTPGet` now delegates to `pentestHTTPGetWithControl(..., nil)`; all three new `*WithControl` helpers keep the legacy wrappers nil-preserving, so dev/tests retain the historical direct behavior. The CLI passes `e.cfg.gate.DialControl()` at all three production call sites. `core.NewHTTPClientWithControl` keeps `ErrUseLastResponse`, installs `Control` on both the plain and uTLS sockets, and sets no proxy — so behavior is unchanged except for the added gate decision.
+
+Tests: socket-level allow/refuse for each controlled helper (public approval refuses loopback with `authz: refusing to connect`, loopback approval permits, nil preserves old behavior), plus a source-level CLI wiring test that all three call sites pass the gate control and no ungated call remains. Full gate: `gofmt`, `git diff --check`, `go vet ./...`, `go build ./...`, `go test ./... -count=1`, `go test -race ./cmd/sift ./internal/scanner`, `golangci-lint run ./...` (0 issues), `gitleaks`, `actionlint`, and `GOOS=windows GOARCH=amd64 go build ./...` — all green.
+
+### 9.3 Deferred findings (separate trust models, not fixed here)
+
+The same audit found issues outside the scan gate; they are deliberately excluded from this commit and tracked for separate phases:
+
+- **`internal/replay/engine.go` (HIGH, separate CLI trust model).** `sift-replay` uses a bare `http.Transport` with no `Control`; `CheckRedirect` follows cross-host/scheme redirects without pinning to the initial target, and captured custom headers survive the redirect. `--base-url` is a pre-resolution string rewrite, not a post-resolution allowlist. A HAR from an attacker plus a redirect can reach metadata/private space and write the response into the JSON report. Needs a threaded `authz.DialControl`, per-hop destination check, and redirect pinning.
+- **`internal/dist/coordinator/master.go` (MEDIUM, control-plane).** `RegisterRequest.Address` is only checked for non-emptiness; with the default empty master token and attestation disabled, an unauthenticated gRPC caller can register an arbitrary address that `ResolveWorkers` later dials via an ungated `dialWorker`, giving a reachability oracle and scenario/token leak. Needs fail-closed auth, address validation/allowlist and rate limiting. Not scan traffic; §8.4's classification holds.
+- **`internal/http3/h3.go` (LOW, latent).** QUIC and Alt-Svc TLS dials have no control path, but no production caller exists.
+- **`internal/engine/raw_client.go` (LOW, adjacent).** The TCP session pool is keyed by `userIndex` only, not target; with `Session=true` and a variable target, a socket authorized for one destination can be reused for another — cross-target misdelivery, not a new ungated egress.
+- **Infra audit verdict:** every dial in `cmd/sift-worker`, `audit360/orchestrator.go`, `authz/notify.go` and `dist/coordinator/auth.go` is operator-configured or already gated; no scan-derived URL reaches a "fixed endpoint" client. The §8.4 out-of-scope classification is confirmed for scan traffic.
+- **Accepted residual (unchanged):** `authz.ProxyWithControl` re-resolves and checks the destination in the client process, while an HTTP proxy resolves independently; a hostile/split-horizon proxy can still reach a blocked address. Documented in `internal/authz/proxy.go` and §8.3.
+
+---
+
+Security Engineer, 2026-11-20. As a result of the audit, `docs/SECURITY-AUDIT-2026-11-20.md` was created; the F-01/F-02 fixes are documented in §6, the additional work on 2026-11-21 is documented in §7, the browser-crawl DialControl closure on 2026-11-22 is documented in §8, and the egress-gate closure audit and Phase 1 pentest scan-path fixes on 2026-11-23 are documented in §9. All integration and git operations were performed by the CEO.

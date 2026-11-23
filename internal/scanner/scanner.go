@@ -197,6 +197,13 @@ func ScanHTTP(target string) (*HTTPInfo, error) {
 	return http.ScanHTTP(target)
 }
 
+// ScanHTTPWithControl re-exports http.ScanHTTPWithControl with a dial-time
+// check installed on every probe. Callers on a scan path must use this so a
+// DNS answer that flips to metadata/private space is refused at connect time.
+func ScanHTTPWithControl(target string, control func(network, address string, c syscall.RawConn) error) (*HTTPInfo, error) {
+	return http.ScanHTTPWithControl(target, control)
+}
+
 // ScanSecurity re-exports security.ScanSecurity for backward compatibility.
 func ScanSecurity(target string) (*SecurityInfo, error) {
 	return security.ScanSecurity(target)
