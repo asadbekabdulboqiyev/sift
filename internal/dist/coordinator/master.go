@@ -494,6 +494,12 @@ func isEphemeralPortPressure(err error) bool {
 	return errors.Is(err, syscall.EADDRNOTAVAIL) || errors.Is(err, syscall.EADDRINUSE)
 }
 
+// dialControlFunc is the net.Dialer.Control signature. The hook runs after the
+// socket is created but before connect(2), with the RESOLVED peer address, so
+// it is the enforcement point for a DNS answer that changed since the policy
+// check.
+type dialControlFunc = func(network, address string, c syscall.RawConn) error
+
 // Dial tunables. They are variables so the retry loop can be exercised
 // deterministically without real sockets or multi-second waits.
 var (
@@ -503,14 +509,47 @@ var (
 	dialTCP            = func(ctx context.Context, addr string) (net.Conn, error) {
 		return (&net.Dialer{Timeout: dialAttemptTimeout}).DialContext(ctx, "tcp", addr)
 	}
+	// dialTCPWithControl installs the policy hook on the actual socket. A nil
+	// control keeps the legacy dialTCP seam (static workers and dial_test.go
+	// stubs) unchanged. A non-nil control is passed to net.Dialer.Control, so
+	// an address that changed between check() and connect() is re-authorized
+	// against the peer the kernel is about to connect to.
+	dialTCPWithControl = func(ctx context.Context, addr string, control dialControlFunc) (net.Conn, error) {
+		if control == nil {
+			return dialTCP(ctx, addr)
+		}
+		target := addr
+		if workerDialTarget != nil {
+			resolved, err := workerDialTarget(ctx, addr)
+			if err != nil {
+				return nil, err
+			}
+			target = resolved
+		}
+		return (&net.Dialer{Timeout: dialAttemptTimeout, Control: control}).DialContext(ctx, "tcp", target)
+	}
+	// workerDialTarget is an injectable dial-target seam used by the rebind
+	// regression test to emulate a DNS answer changing after the policy check.
+	// It is nil in production: net.Dialer resolves the name itself.
+	workerDialTarget func(context.Context, string) (string, error)
 )
 
-// dialWorker is the dialer for master->worker gRPC connections. A burst of
-// loopback connections (a full test suite, or a master that commands many
-// local workers) can temporarily exhaust a host's ephemeral port range; while
-// those sockets sit in TIME_WAIT, connect(2) fails with EADDRNOTAVAIL even for
-// a healthy listener. Retry only that specific condition, within the caller's
-// deadline, instead of declaring a reachable worker dead.
+// dialWorker is the plain dialer used by operator-configured static workers,
+// which deliberately bypass the worker-address policy.
+func dialWorker(ctx context.Context, addr string) (net.Conn, error) {
+	return dialWorkerWithControl(ctx, addr, nil)
+}
+
+// dialWorkerWithControl is dialWorker with a socket-level authorization hook.
+// A burst of loopback connections (a full test suite, or a master that commands
+// many local workers) can temporarily exhaust a host's ephemeral port range;
+// while those sockets sit in TIME_WAIT, connect(2) fails with EADDRNOTAVAIL even
+// for a healthy listener. Retry only that specific condition, within the
+// caller's deadline, instead of declaring a reachable worker dead.
+//
+// Every retry attempt calls dialTCPWithControl with the same control, so a
+// re-resolved (rebound) address is checked on the socket that is actually
+// created — never only at policy-check time.
 //
 // The retry loop is bounded by wall-clock time rather than an attempt count:
 // gRPC hands the dialer its own connect context (≈20 s), so a count-based
@@ -518,7 +557,7 @@ var (
 // and suppress gRPC's own backoff/failover. Worker addresses are always tcp
 // (the worker server listens with net.Listen("tcp")); a custom dialer bypasses
 // gRPC's proxy handling, so unix/proxy targets are deliberately not supported.
-func dialWorker(ctx context.Context, addr string) (net.Conn, error) {
+func dialWorkerWithControl(ctx context.Context, addr string, control dialControlFunc) (net.Conn, error) {
 	deadline := time.Now().Add(dialRetryBudget)
 	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
 		deadline = ctxDeadline
@@ -537,7 +576,7 @@ func dialWorker(ctx context.Context, addr string) (net.Conn, error) {
 			attemptTimeout = remaining
 		}
 		attemptCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
-		conn, err := dialTCP(attemptCtx, addr)
+		conn, err := dialTCPWithControl(attemptCtx, addr, control)
 		cancel()
 		if err == nil {
 			return conn, nil

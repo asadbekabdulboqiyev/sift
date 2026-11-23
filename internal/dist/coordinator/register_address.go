@@ -106,15 +106,18 @@ func (p workerAddressPolicy) dialControl() func(network, address string, c sysca
 	}
 }
 
-// gatedDialWorker repeats the policy check at connect time. A registration is
-// only a snapshot: DNS can answer differently later and a re-registration can
-// race run assembly. Static --workers addresses are operator-configured and
-// deliberately keep the plain dialer (see Master.Connect).
+// gatedDialWorker repeats the policy check at connect time, then enforces the
+// same policy on the socket itself. A registration and its DNS answers are only
+// a snapshot: a name can rebind between check() and connect(2), so the Control
+// hook re-classifies the peer the kernel actually connects to. A re-registration
+// can also race run assembly. Static --workers addresses are operator-configured
+// and deliberately keep the plain dialer (see Master.Connect).
 func (m *Master) gatedDialWorker(ctx context.Context, addr string) (net.Conn, error) {
+	policy := m.addressPolicy()
 	checkCtx, cancel := context.WithTimeout(ctx, dialAttemptTimeout)
 	defer cancel()
-	if err := m.addressPolicy().check(checkCtx, addr); err != nil {
+	if err := policy.check(checkCtx, addr); err != nil {
 		return nil, fmt.Errorf("coordinator: refusing worker dial: %w", err)
 	}
-	return dialWorker(ctx, addr)
+	return dialWorkerWithControl(ctx, addr, policy.dialControl())
 }

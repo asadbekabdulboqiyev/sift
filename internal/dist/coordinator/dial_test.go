@@ -56,21 +56,46 @@ func TestIsEphemeralPortPressure(t *testing.T) {
 }
 
 // stubDial swaps the dialer and the retry tunables for the duration of a test.
+// The controlled seam is routed through the same stub so callers exercising
+// gatedDialWorker still observe one dial and keep their call-count assertions.
 func stubDial(t *testing.T, fn func(context.Context, string) (net.Conn, error)) *int32 {
 	t.Helper()
 	var calls int32
-	prevDial, prevBudget, prevDelay, prevAttempt := dialTCP, dialRetryBudget, dialRetryDelay, dialAttemptTimeout
+	prevDial, prevControlled, prevBudget, prevDelay, prevAttempt := dialTCP, dialTCPWithControl, dialRetryBudget, dialRetryDelay, dialAttemptTimeout
 	dialTCP = func(ctx context.Context, addr string) (net.Conn, error) {
 		atomic.AddInt32(&calls, 1)
 		return fn(ctx, addr)
+	}
+	dialTCPWithControl = func(ctx context.Context, addr string, _ dialControlFunc) (net.Conn, error) {
+		return dialTCP(ctx, addr)
 	}
 	dialRetryBudget = 2 * time.Second
 	dialRetryDelay = time.Millisecond
 	dialAttemptTimeout = 50 * time.Millisecond
 	t.Cleanup(func() {
-		dialTCP, dialRetryBudget, dialRetryDelay, dialAttemptTimeout = prevDial, prevBudget, prevDelay, prevAttempt
+		dialTCP, dialTCPWithControl, dialRetryBudget, dialRetryDelay, dialAttemptTimeout = prevDial, prevControlled, prevBudget, prevDelay, prevAttempt
 	})
 	return &calls
+}
+
+// TestDialTCPWithControlNilCallsStubOnce pins backward compatibility: a nil
+// control must delegate to the legacy dialTCP seam exactly once, unchanged.
+func TestDialTCPWithControlNilCallsStubOnce(t *testing.T) {
+	prev := dialTCP
+	var calls int32
+	dialTCP = func(context.Context, string) (net.Conn, error) {
+		atomic.AddInt32(&calls, 1)
+		return nil, errors.New("stub dial reached")
+	}
+	t.Cleanup(func() { dialTCP = prev })
+
+	_, err := dialTCPWithControl(context.Background(), "127.0.0.1:1", nil)
+	if err == nil || err.Error() != "stub dial reached" {
+		t.Fatalf("expected the legacy stub error, got %v", err)
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("expected exactly 1 stub call, got %d", got)
+	}
 }
 
 // TestDialWorkerRetriesUntilSuccess covers the intended path: the host is out

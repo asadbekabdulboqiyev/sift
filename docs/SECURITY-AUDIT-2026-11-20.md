@@ -284,8 +284,25 @@ Tests (`master_register_validation_test.go` plus updated fleet/attestation/integ
 
 **Operator impact:** auto-discovery fleets with no token, no pins and no attestation must now configure one of them; private/loopback self-registration additionally needs `--allow-private-workers`. The flag help text documents both changes.
 
-**Residual:** for hostname registrations a DNS rebinding race remains between the final policy check and the `net.Dialer` inside `dialWorker`. IP-literal registrations (the normal case) are exact. Closing it cleanly requires a `Control` hook on gated dials and a refactor of the shared `dialTCP` test stub; left out of this minimal fix.
+**Residual (closed):** the DNS rebinding race between the final policy check and the `net.Dialer` inside `dialWorker` was left open in this phase; it is now fixed in §10.2 by installing `workerAddressPolicy.dialControl()` on the actual socket of every gated dial attempt. IP-literal registrations remain exact; static `--workers` entries deliberately keep the plain dialer.
 
 ---
 
-Security Engineer, 2026-11-20. As a result of the audit, `docs/SECURITY-AUDIT-2026-11-20.md` was created; the F-01/F-02 fixes are documented in §6, the additional work on 2026-11-21 is documented in §7, the browser-crawl DialControl closure on 2026-11-22 is documented in §8, and the egress-gate closure audit, Phase 1 pentest scan-path fixes, Phase 2 replay engine egress closure, Phase 4 HTTP/3 + raw pool hardening and Phase 5 dist master registration closure on 2026-11-23 are documented in §9. All integration and git operations were performed by the CEO.
+## 10. Residual Closure Campaign (2026-11-23)
+
+The accepted residuals in §8.3, §9.4, §9.5, §9.6 and §5.5/§7.5 are being closed phase by phase. Each phase is integrated through an independent verification gate and its own commit/push. Bookkeeping lines below are added as each phase lands.
+
+### 10.1 Scope
+
+Five independent domains, dispatched in parallel in detached worktrees from `a0bd4fb`: replay CLI gate, dist master socket control, guard-proxy generalization, dashboard strict classification and HTTP/3 DNS-answer coverage. File ownership was disjoint between agents; only the CEO staged, committed and pushed.
+
+### 10.2 Dist master: DNS rebinding closed (Phase R2)
+
+- `internal/dist/coordinator/master.go`: added `dialControlFunc` and the `dialTCPWithControl` seam. A nil control delegates to the legacy `dialTCP` (so static `--workers` and existing `dial_test.go` stubs are unchanged); a non-nil control is installed as `net.Dialer.Control` and receives the **resolved peer** before `connect(2)`. `dialWorker` is now the nil-control wrapper; `dialWorkerWithControl` threads the hook through every retry attempt, preserving the wall-clock retry budget and `isEphemeralPortPressure` behavior byte-for-byte.
+- `internal/dist/coordinator/register_address.go`: `gatedDialWorker` now calls `dialWorkerWithControl(ctx, addr, policy.dialControl())` after the snapshot `check()`, so a hostname that rebinds between check and connect is refused at the socket even if it passed both policy snapshots.
+- Tests (`dial_control_test.go`, extended `dial_test.go`): proves the policy hook is non-nil on every retry and denies metadata while allowing public peers; a real loopback listener receives **no** connection when the approved literal rebinds to loopback; the same rebind is allowed only with `--allow-private-workers`; `Master.Connect` selects control for discovered workers and no control for static ones; nil control delegates to the legacy stub exactly once.
+- Full gate: `gofmt`, `git diff --check`, `go vet ./...`, `go build ./...`, `go test ./... -count=1`, `go test -race ./internal/dist/coordinator/...` — green.
+
+---
+
+Security Engineer, 2026-11-20. As a result of the audit, `docs/SECURITY-AUDIT-2026-11-20.md` was created; the F-01/F-02 fixes are documented in §6, the additional work on 2026-11-21 is documented in §7, the browser-crawl DialControl closure on 2026-11-22 is documented in §8, and the egress-gate closure audit, Phase 1 pentest scan-path fixes, Phase 2 replay engine egress closure, Phase 4 HTTP/3 + raw pool hardening and Phase 5 dist master registration closure on 2026-11-23 are documented in §9. The residual-closure campaign phases are documented in §10. All integration and git operations were performed by the CEO.
