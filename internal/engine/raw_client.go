@@ -38,7 +38,7 @@ func (e *Engine) rawClientForUser(userIndex int, ctx context.Context, network, t
 
 	var conn net.Conn
 	if network == "tcp" && userIndex >= 0 && e.keepAlive && step.Session {
-		conn = e.takeTCPConn(userIndex)
+		conn = e.takeTCPConnForTarget(userIndex, target)
 	}
 	if conn == nil {
 		dialer := &net.Dialer{Timeout: timeout, Control: e.dialControl}
@@ -48,7 +48,7 @@ func (e *Engine) rawClientForUser(userIndex int, ctx context.Context, network, t
 		}
 		conn = c
 		if network == "tcp" && userIndex >= 0 && e.keepAlive && step.Session {
-			e.putTCPConn(userIndex, conn)
+			e.putTCPConnForTarget(userIndex, target, conn)
 		}
 	}
 
@@ -127,8 +127,19 @@ func (e *Engine) udpExchange(conn *net.UDPConn, step config.Step, vars map[strin
 
 // --- Per-worker TCP connection pool -----------------------------------------
 
+// tcpSession keeps the destination beside the pooled socket. A session opened
+// for target A must never be replayed for target B: with {{pool}} or extracted
+// vars the target can change between iterations, and reusing A's authorized
+// socket would deliver B's body to A. The wrapper lives inside tcpConns, whose
+// map value type is fixed at net.Conn, so no other engine file has to change.
+type tcpSession struct {
+	net.Conn
+	target string
+}
+
 // takeTCPConn returns the pooled TCP connection for userIndex, or nil when no
-// session exists (first use or after a prior failure evicted the socket).
+// session exists (first use or after a prior failure evicted the socket). It
+// is the legacy helper: callers that do not track a target get the raw socket.
 func (e *Engine) takeTCPConn(userIndex int) net.Conn {
 	e.sessMu.Lock()
 	defer e.sessMu.Unlock()
@@ -137,7 +148,34 @@ func (e *Engine) takeTCPConn(userIndex int) net.Conn {
 		delete(e.tcpConns, userIndex)
 		return nil
 	}
+	if s, ok := c.(*tcpSession); ok {
+		return s.Conn
+	}
 	return c
+}
+
+// takeTCPConnForTarget reuses the pooled socket only if it was dialed for the
+// same target. A mismatch closes the old socket and drops the entry so the
+// caller re-dials through the gated path for the new destination.
+func (e *Engine) takeTCPConnForTarget(userIndex int, target string) net.Conn {
+	e.sessMu.Lock()
+	defer e.sessMu.Unlock()
+	c := e.tcpConns[userIndex]
+	if c == nil {
+		delete(e.tcpConns, userIndex)
+		return nil
+	}
+	s, ok := c.(*tcpSession)
+	if !ok || s.target != target {
+		// Unknown provenance (legacy entry) or a different destination:
+		// neither may be treated as this target's session.
+		if c != nil {
+			_ = c.Close()
+		}
+		delete(e.tcpConns, userIndex)
+		return nil
+	}
+	return s.Conn
 }
 
 // putTCPConn stores a freshly dialed TCP connection for userIndex.
@@ -146,6 +184,15 @@ func (e *Engine) putTCPConn(userIndex int, conn net.Conn) {
 	defer e.sessMu.Unlock()
 	e.initSessionMaps()
 	e.tcpConns[userIndex] = conn
+}
+
+// putTCPConnForTarget stores a freshly dialed socket together with the target
+// it reached, so the next iteration can validate reuse.
+func (e *Engine) putTCPConnForTarget(userIndex int, target string, conn net.Conn) {
+	e.sessMu.Lock()
+	defer e.sessMu.Unlock()
+	e.initSessionMaps()
+	e.tcpConns[userIndex] = &tcpSession{Conn: conn, target: target}
 }
 
 // dropTCPConn discards the pooled connection for userIndex after a failure.

@@ -18,6 +18,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"syscall"
 	"time"
 
 	quic "github.com/quic-go/quic-go"
@@ -42,6 +43,12 @@ type ProbeOptions struct {
 	// unreachable rather than silently trusted. Only set it for lab targets you
 	// own, where the self-signed certificate is expected.
 	InsecureSkipVerify bool
+
+	// DialControl is the runtime-only socket-level authorization hook. It is
+	// installed on the Alt-Svc TCP dial and on the UDP socket used for the QUIC
+	// handshake so a scan-time decision is re-checked against the address a
+	// socket actually reaches. Nil preserves the original uncontrolled dials.
+	DialControl func(network, address string, c syscall.RawConn) error
 }
 
 // Probe checks whether host:port supports HTTP/3 over QUIC with secure TLS
@@ -61,7 +68,7 @@ func ProbeWithOptions(host string, port int, opts ProbeOptions) (*ProbeResult, e
 	res := &ProbeResult{Host: host, Port: port}
 
 	// 1. Check Alt-Svc via TLS handshake to the standard HTTPS port.
-	altSvc, err := checkAltSvc(host, port, opts.InsecureSkipVerify)
+	altSvc, err := checkAltSvcWithControl(host, port, opts.InsecureSkipVerify, opts.DialControl)
 	if err == nil {
 		res.AltSvcH3 = altSvc
 	}
@@ -82,18 +89,77 @@ func ProbeWithOptions(host string, port int, opts ProbeOptions) (*ProbeResult, e
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer cancel()
-	sess, err := quic.DialAddr(ctx, addr, tlsCfg, cfg)
+
+	var negotiated string
+	var quicErr error
+	if opts.DialControl == nil {
+		negotiated, quicErr = dialQUIC(ctx, addr, tlsCfg, cfg)
+	} else {
+		negotiated, quicErr = dialQUICWithControl(ctx, addr, tlsCfg, cfg, opts.DialControl)
+	}
 	res.H3Latency = time.Since(start)
-	if err != nil {
+	if quicErr != nil {
 		res.H3Reachable = false
-		res.Error = err.Error()
+		res.Error = quicErr.Error()
 	} else {
 		res.H3Reachable = true
-		res.Negotiated = sess.ConnectionState().TLS.NegotiatedProtocol
-		_ = sess.CloseWithError(0, "probe complete")
+		res.Negotiated = negotiated
 	}
 
 	return res, nil
+}
+
+// dialQUIC keeps the original quic-go convenience path for callers without a
+// control hook: DialAddr creates the UDP socket itself and closes it with the
+// session. Keeping it separate makes the nil-control behavior unchanged.
+func dialQUIC(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (string, error) {
+	sess, err := quic.DialAddr(ctx, addr, tlsCfg, cfg)
+	if err != nil {
+		return "", err
+	}
+	negotiated := sess.ConnectionState().TLS.NegotiatedProtocol
+	_ = sess.CloseWithError(0, "probe complete")
+	return negotiated, nil
+}
+
+// dialQUICWithControl hands quic-go a UDP socket created with a Control hook.
+// In quic-go v0.59.1 DialAddr opens its own socket and offers no control option;
+// Dial is a method on Transport (there is no Transport.Dial field), so the
+// controlled net.PacketConn is installed through Transport.Conn.
+func dialQUICWithControl(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config, control func(network, address string, c syscall.RawConn) error) (string, error) {
+	udpAddr, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		return "", err
+	}
+	// ListenConfig passes the LOCAL address to Control. The gate contract
+	// expects the peer, so hand it the resolved destination while still using
+	// the real socket's RawConn.
+	lc := net.ListenConfig{Control: func(network, _ string, c syscall.RawConn) error {
+		return control(network, udpAddr.String(), c)
+	}}
+	pc, err := lc.ListenPacket(ctx, "udp", "0.0.0.0:0")
+	if err != nil {
+		return "", err
+	}
+	udpConn, ok := pc.(*net.UDPConn)
+	if !ok {
+		_ = pc.Close()
+		return "", errors.New("http3: UDP listen did not return a *net.UDPConn")
+	}
+	tr := &quic.Transport{Conn: udpConn}
+	// quic-go does not own a PacketConn created outside the library, so the
+	// socket and the transport must both be released here (on dial errors too).
+	defer func() {
+		_ = tr.Close()
+		_ = udpConn.Close()
+	}()
+	sess, err := tr.Dial(ctx, udpAddr, tlsCfg, cfg)
+	if err != nil {
+		return "", err
+	}
+	negotiated := sess.ConnectionState().TLS.NegotiatedProtocol
+	_ = sess.CloseWithError(0, "probe complete")
+	return negotiated, nil
 }
 
 // quicTLSConfig builds the TLS config for the QUIC handshake. Verification is
@@ -132,16 +198,23 @@ func hostHeader(host string) (string, error) {
 	return host, nil
 }
 
-// checkAltSvc attempts a TLS handshake and reads the Alt-Svc header to see if
-// the server advertises HTTP/3. Returns true if "h3=" or "h3-29=" appears.
-// insecure must be opted into explicitly; the default verifies the certificate.
+// checkAltSvc is the nil-control wrapper kept for existing callers.
 func checkAltSvc(host string, port int, insecure bool) (bool, error) {
+	return checkAltSvcWithControl(host, port, insecure, nil)
+}
+
+// checkAltSvcWithControl attempts a TLS handshake and reads the Alt-Svc header
+// to see if the server advertises HTTP/3. Returns true if "h3=" or "h3-29="
+// appears. insecure must be opted into explicitly; the default verifies the
+// certificate. control, when non-nil, is installed on the TCP socket before it
+// connects so the gate sees the resolved peer address.
+func checkAltSvcWithControl(host string, port int, insecure bool, control func(network, address string, c syscall.RawConn) error) (bool, error) {
 	hostHeaderValue, err := hostHeader(host)
 	if err != nil {
 		return false, err
 	}
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
-	dialer := &net.Dialer{Timeout: altSvcDialTimeout}
+	dialer := &net.Dialer{Timeout: altSvcDialTimeout, Control: control}
 	cfg := &tls.Config{
 		ServerName:         host,
 		InsecureSkipVerify: insecure, // #nosec G402 -- caller opts in for self-signed lab targets
