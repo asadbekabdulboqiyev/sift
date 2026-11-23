@@ -26,7 +26,14 @@ import (
 // WorkerId replaces the previous entry (worker restart) and that stale
 // registrations are pruned so a dead worker cannot poison auto-discovery.
 func TestRegisterDedupAndPrune(t *testing.T) {
-	master := NewMaster(MasterConfig{AutoWorkers: 1, RegisterTimeout: time.Second})
+	// Registration now needs an auth anchor and an explicit opt-in for the
+	// RFC1918 addresses this test uses; neither changes dedup/prune semantics.
+	master := NewMaster(MasterConfig{
+		AutoWorkers:         1,
+		RegisterTimeout:     time.Second,
+		Token:               "test-token",
+		AllowPrivateWorkers: true,
+	})
 
 	reg := func(id, addr string) {
 		t.Helper()

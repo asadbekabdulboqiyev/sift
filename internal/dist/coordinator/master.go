@@ -85,6 +85,11 @@ type MasterConfig struct {
 	// worker is marked failed. It is implied by a non-empty AuthorizedWorkers:
 	// pinning anyone opts the fleet into attestation.
 	RequireWorkerAttestation bool
+	// AllowPrivateWorkers permits self-registration from loopback and RFC1918
+	// addresses. Default false: an anonymous Register must not make the master
+	// dial internal infrastructure or cloud metadata. Static Workers are
+	// operator-configured and are never filtered by this flag.
+	AllowPrivateWorkers bool
 }
 
 // Master is the control plane: it distributes a scenario across workers,
@@ -105,9 +110,12 @@ type Master struct {
 	// registerChallenges holds outstanding registration nonces, keyed by
 	// worker_id, for the challenge-response proof of key possession (F-1).
 	registerChallenges map[string]*registerChallenge
-	reports            map[string]*report.Report
-	finished           map[string]bool
-	failed             []string
+	// registerLimiter caps Register attempts per remote IP (or worker id for
+	// in-process callers). It is a flood brake, not an authentication gate.
+	registerLimiter *registerLimiter
+	reports         map[string]*report.Report
+	finished        map[string]bool
+	failed          []string
 	// lastSeen tracks the most recent event (progress, heartbeat, status)
 	// per connected worker; the liveness loop uses it to spot silent workers.
 	lastSeen map[string]time.Time
@@ -154,6 +162,7 @@ func NewMaster(cfg MasterConfig) *Master {
 		registered:         make(map[string]*distproto.RegisterRequest),
 		registeredAt:       make(map[string]time.Time),
 		registerChallenges: make(map[string]*registerChallenge),
+		registerLimiter:    newRegisterLimiter(),
 		reports:            make(map[string]*report.Report),
 		finished:           make(map[string]bool),
 		lastSeen:           make(map[string]time.Time),
@@ -213,6 +222,29 @@ func (m *Master) Register(ctx context.Context, req *distproto.RegisterRequest) (
 	if req == nil || req.Address == "" {
 		return &distproto.RegisterResponse{Accepted: false, Message: "missing worker address"}, nil
 	}
+	if !m.registerLimiter.allow(registrationSourceKey(ctx, req.WorkerId), time.Now()) {
+		return &distproto.RegisterResponse{Accepted: false, Message: "too many registration attempts from this source; retry shortly"}, nil
+	}
+
+	m.mu.Lock()
+	// Fail closed: with no token, no pinned keys and no attestation
+	// requirement, Register would be the one unauthenticated entry point that
+	// seeds the dial list. Static --workers fleets never call Register, so
+	// closing it costs them nothing. Check this before resolving any supplied
+	// hostname so a no-token master cannot be used as a DNS probe either.
+	noAuthAnchor := m.cfg.Token == "" && !m.attestationRequiredLocked() && len(m.cfg.AuthorizedWorkers) == 0
+	m.mu.Unlock()
+	if noAuthAnchor {
+		return &distproto.RegisterResponse{Accepted: false, Message: "registration is disabled: configure a control-plane token, pinned worker keys, or --require-attestation"}, nil
+	}
+
+	// Validate the address BEFORE storing or dialing it. An authenticated
+	// caller must still not be able to plant an address that the master later
+	// probes with Ping and sends the scenario to.
+	if err := m.addressPolicy().check(ctx, req.Address); err != nil {
+		return &distproto.RegisterResponse{Accepted: false, Message: err.Error()}, nil
+	}
+
 	m.mu.Lock()
 	// Fail closed: when an operator has pinned worker identities, an
 	// unlisted worker (or one claiming a listed id with a different key) is
@@ -534,15 +566,26 @@ func dialWorker(ctx context.Context, addr string) (net.Conn, error) {
 // Connect dials the workers, verifies each with a Ping and records the healthy
 // ones. It errors only when no worker at all is reachable.
 func (m *Master) Connect(ctx context.Context, workers []string) ([]string, error) {
+	// Static --workers entries are an operator's explicit choice and keep the
+	// original dialer. Anything discovered through Register is re-checked at
+	// connect time in case DNS changed or a re-registration raced resolution.
+	static := make(map[string]bool, len(m.cfg.Workers))
+	for _, addr := range m.cfg.Workers {
+		static[addr] = true
+	}
 	var healthy []string
 	for _, addr := range workers {
 		creds := insecure.NewCredentials()
 		if m.cfg.ClientCreds != nil {
 			creds = m.cfg.ClientCreds
 		}
+		dialer := m.gatedDialWorker
+		if static[addr] {
+			dialer = dialWorker
+		}
 		conn, err := grpc.NewClient(addr, append([]grpc.DialOption{
 			grpc.WithTransportCredentials(creds),
-			grpc.WithContextDialer(dialWorker),
+			grpc.WithContextDialer(dialer),
 		}, ClientOptions(m.cfg.Token)...)...)
 		if err != nil {
 			m.cfg.Logf("worker %s dial failed: %v", addr, err)

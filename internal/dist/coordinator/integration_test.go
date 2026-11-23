@@ -91,10 +91,14 @@ func TestMasterAutoDiscovery(t *testing.T) {
 	addr, _ := startWorker(t, WorkerConfig{ID: "auto1", MaxUsers: 100})
 
 	// Worker registers itself with the master via the Register RPC.
+	// The test worker advertises a loopback address, so it needs the explicit
+	// opt-in; a token keeps the registration gate enabled for this master.
 	master := NewMaster(MasterConfig{
-		Scenario:        tinyScenario(t, target.URL, 2, 1),
-		AutoWorkers:     1,
-		RegisterTimeout: 5 * time.Second,
+		Scenario:            tinyScenario(t, target.URL, 2, 1),
+		AutoWorkers:         1,
+		RegisterTimeout:     5 * time.Second,
+		Token:               "auto-test-token",
+		AllowPrivateWorkers: true,
 	})
 	defer master.Close()
 

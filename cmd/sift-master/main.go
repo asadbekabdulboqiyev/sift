@@ -63,6 +63,9 @@ var (
 	httpAddr    = flag.String("http-addr", "0.0.0.0:9090", "HTTP health/metrics listen address (/healthz /readyz /metrics); empty disables")
 	requireAtt  = flag.Bool("require-attestation", false, "Discard worker telemetry that is not signed by the pinned key of its worker id (fail closed)")
 	authorizedK = flag.String("authorized-keys", "", "Comma-separated worker_id=hex Ed25519 public keys to pin (implies -require-attestation)")
+	// Default-off behavior change: self-registration from loopback/RFC1918 is
+	// refused unless an operator opts in. Static --workers dials are unaffected.
+	allowPrivateWorkers = flag.Bool("allow-private-workers", false, "Allow self-registering workers on loopback/private (RFC1918) addresses; default refuses them so an unauthenticated Register cannot make the master dial internal hosts (static --workers dials are unaffected)")
 )
 
 func main() {
@@ -214,6 +217,7 @@ func main() {
 		// mandatory for the whole fleet (see MasterConfig).
 		AuthorizedWorkers:        pins,
 		RequireWorkerAttestation: *requireAtt,
+		AllowPrivateWorkers:      *allowPrivateWorkers,
 	})
 	defer master.Close()
 

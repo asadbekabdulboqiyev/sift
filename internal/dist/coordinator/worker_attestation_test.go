@@ -14,15 +14,17 @@ import (
 // TestRegisterFailsClosedWhenPinned verifies the identity gate of the worker
 // allowlist: when the coordinator has pinned worker identities, self-registration
 // from an unpinned worker id must be rejected (fail closed), while a pinned id
-// is accepted. An empty allowlist keeps the coordinator open (single-tenant /
-// local development mode) and is therefore not a failure here.
+// is accepted. The RFC1918 test addresses need the explicit private opt-in.
 func TestRegisterFailsClosedWhenPinned(t *testing.T) {
 	const pinnedID = "w1"
 	kp, err := attest.GenerateKeypair()
 	if err != nil {
 		t.Fatalf("keypair: %v", err)
 	}
-	master := NewMaster(MasterConfig{AuthorizedWorkers: map[string]string{pinnedID: attest.PublicKeyHex(kp.Public)}})
+	master := NewMaster(MasterConfig{
+		AuthorizedWorkers:   map[string]string{pinnedID: attest.PublicKeyHex(kp.Public)},
+		AllowPrivateWorkers: true,
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -53,16 +55,16 @@ func coordinatorSignRegistrationForTest(kp *attest.Keypair, id, addr string, cha
 	return SignRegistration(kp, id, addr, challenge)
 }
 
-// TestRegisterAcceptsUnpinnedWhenAllowlistEmpty verifies the dev-mode default:
-// with no allowlist configured, registration is open (the fleet is opted into
-// pinning explicitly).
-func TestRegisterAcceptsUnpinnedWhenAllowlistEmpty(t *testing.T) {
-	master := NewMaster(MasterConfig{})
+// TestRegisterAcceptsUnpinnedWithToken checks that a shared token is a valid
+// alternative to key pinning: identity pinning is optional once Register is
+// authenticated, and a public address passes without the private opt-in.
+func TestRegisterAcceptsUnpinnedWithToken(t *testing.T) {
+	master := NewMaster(MasterConfig{Token: "test-token"})
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	resp, err := master.Register(ctx, &distproto.RegisterRequest{WorkerId: "w1", Address: "10.0.0.1:50061"})
+	resp, err := master.Register(ctx, &distproto.RegisterRequest{WorkerId: "w1", Address: "8.8.8.8:50061"})
 	if err != nil || !resp.GetAccepted() {
-		t.Fatalf("open mode must accept registration: accepted=%v err=%v", resp.GetAccepted(), err)
+		t.Fatalf("token-authenticated registration must be accepted: accepted=%v err=%v msg=%s", resp.GetAccepted(), err, resp.GetMessage())
 	}
 }
 
@@ -80,7 +82,10 @@ func TestRegisterChallengeProofIsBoundAndOneTime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("other keypair: %v", err)
 	}
-	master := NewMaster(MasterConfig{AuthorizedWorkers: map[string]string{id: attest.PublicKeyHex(kp.Public)}})
+	master := NewMaster(MasterConfig{
+		AuthorizedWorkers:   map[string]string{id: attest.PublicKeyHex(kp.Public)},
+		AllowPrivateWorkers: true,
+	})
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
