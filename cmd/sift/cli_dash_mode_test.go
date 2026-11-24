@@ -101,8 +101,14 @@ func TestDashModeUsesTargetClassAndServerTimeouts(t *testing.T) {
 	if !strings.Contains(src, "engine.NewWithControl(sc, control)") {
 		t.Error("dash mode run does not build the engine with a dial control")
 	}
-	if !strings.Contains(src, "authz.DialControl(dashboard.RunTargetClass(cfg.TargetURL))") {
-		t.Error("dash mode dial control is not derived from the run target class")
+	if strings.Contains(src, "dashboard.RunTargetClass(") {
+		t.Error("dash mode uses the legacy fallback classifier; launchers must use the strict form")
+	}
+	if !strings.Contains(src, "dashboard.RunTargetClassStrict(") {
+		t.Error("dash mode dial control is not derived from the strict run target classification")
+	}
+	if !strings.Contains(src, "approvedDashDialClass(cfg.TargetURL)") {
+		t.Error("dash mode does not refuse the run when target classification fails")
 	}
 	for _, field := range []string{"ReadTimeout:", "ReadHeaderTimeout:", "WriteTimeout:", "IdleTimeout:", "MaxHeaderBytes:"} {
 		if !strings.Contains(src, field) {

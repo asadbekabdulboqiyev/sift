@@ -246,6 +246,18 @@ Examples:
 	}
 }
 
+// approvedRunDialClass is the single seam between target classification and
+// the engine's dial-time control. It exists so launcher refusal on
+// classification failure can be tested without starting the HTTP server.
+// The returned error must abort the run before any socket control is built.
+func approvedRunDialClass(targetURL string) (authz.Class, error) {
+	class, err := dashboard.RunTargetClassStrict(targetURL)
+	if err != nil {
+		return authz.ClassPublic, fmt.Errorf("classify run target %q: %w", targetURL, err)
+	}
+	return class, nil
+}
+
 // startRun builds a real config.Scenario from the browser's RunConfig and runs
 // it on the actual load engine, streaming live telemetry to the dashboard.
 func startRun(bridge *dashboard.EngineBridge, srv *dashboard.Server, selfMetrics *prom.Metrics, runMu *sync.Mutex, runActive *bool, runCancel *context.CancelFunc, args map[string]interface{}) {
@@ -290,7 +302,16 @@ func startRun(bridge *dashboard.EngineBridge, srv *dashboard.Server, selfMetrics
 	// Classification in the start handler is not enough: DNS may answer
 	// differently when the engine actually connects. Carry the approved class
 	// into a dial-time hook so a rebound address is refused on the socket.
-	control := authz.DialControl(dashboard.RunTargetClass(config.TargetURL))
+	// Classification failures refuse the run outright; never fall back to a
+	// public class when the target could not be classified.
+	class, err := approvedRunDialClass(config.TargetURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  ✗ Run refused: %v\n", err)
+		bridge.RunFailed(err)
+		markInactive(runMu, runActive)
+		return
+	}
+	control := authz.DialControl(class)
 	eng, err := engine.NewWithControl(sc, control)
 	if err != nil {
 		fmt.Printf("  ✗ Engine setup failed: %v\n", err)

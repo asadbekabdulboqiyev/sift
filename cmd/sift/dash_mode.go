@@ -21,6 +21,19 @@ import (
 	"github.com/asadbekabdulboqiyev/sift/internal/report"
 )
 
+// approvedDashDialClass is the single seam between browser-supplied target
+// classification and the engine's dial-time control. It exists so the launcher
+// can refuse a run whose target cannot be classified, without starting the
+// dashboard server in the test. The error must abort before any socket control
+// is built; ClassPublic on error must never reach authz.DialControl.
+func approvedDashDialClass(targetURL string) (authz.Class, error) {
+	class, err := dashboard.RunTargetClassStrict(targetURL)
+	if err != nil {
+		return authz.ClassPublic, fmt.Errorf("classify run target %q: %w", targetURL, err)
+	}
+	return class, nil
+}
+
 // runWithDashboard starts the real-time web dashboard and serves live JSON
 // telemetry built from the actual load engine (no simulation). The run is
 // started from the browser's Start button using the CLI-provided scenario as
@@ -105,7 +118,19 @@ func runWithDashboard(scenario *config.Scenario, dashListen, reportDir string, d
 			// Re-apply the target's approved class at dial time: a name
 			// classified in the handler can resolve to a more restrictive
 			// address by the time the engine connects (DNS rebinding).
-			control := authz.DialControl(dashboard.RunTargetClass(cfg.TargetURL))
+			// A classification failure is a hard refusal: no engine (and no
+			// fallback-class dial control) is installed for this run.
+			class, err := approvedDashDialClass(cfg.TargetURL)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "  ✗ Run refused: %v\n", err)
+				bridge.RunFailed(err)
+				runCancel()
+				mu.Lock()
+				running = false
+				mu.Unlock()
+				return
+			}
+			control := authz.DialControl(class)
 			e, err := engine.NewWithControl(sc, control)
 			if err != nil {
 				bridge.RunFailed(err)

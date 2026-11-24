@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -118,38 +119,53 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 // refused (the admin unlock does not open it); link-local is refused unless an
 // operator deliberately unlocked the admin bypass, matching owaspGate.
 //
-// A resolution error is not treated as a refusal: an offline or unresolvable
-// host is reported by the engine, and failing closed on every DNS hiccup would
-// make the endpoint unusable. Literal addresses and the well-known metadata
-// hostnames classify without DNS, so the credential-theft destinations are
-// still caught.
-func refuseRunTarget(raw string) (authz.Class, string, bool) {
+// Classification errors are returned separately from the refusal decision.
+// Literal addresses and the well-known metadata hostnames classify without
+// DNS, so the credential-theft destinations are still caught even when DNS is
+// unavailable.
+func refuseRunTarget(raw string) (authz.Class, string, bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	tgt, err := authz.Classify(ctx, raw, nil)
 	if err != nil {
-		return authz.ClassPublic, "", false
+		return authz.ClassPublic, "", false, fmt.Errorf("classify run target %q: %w", raw, err)
 	}
 	switch tgt.Class() {
 	case authz.ClassMetadata:
-		return tgt.Class(), tgt.Host, true
+		return tgt.Class(), tgt.Host, true, nil
 	case authz.ClassLinkLocal:
 		if adminlock.Active() {
-			return tgt.Class(), tgt.Host, false
+			return tgt.Class(), tgt.Host, false, nil
 		}
-		return tgt.Class(), tgt.Host, true
+		return tgt.Class(), tgt.Host, true, nil
 	}
-	return tgt.Class(), tgt.Host, false
+	return tgt.Class(), tgt.Host, false, nil
 }
 
-// RunTargetClass returns the class the start-run refusal gate approved for a
-// target. Launchers hand it to authz.DialControl so the same decision is
-// re-applied to the address the socket actually connects to: classification
-// resolves a name once, but DNS may answer differently a moment later at dial
-// time (rebinding to a private address or instance metadata). Classification
-// failures return ClassPublic, which is fail-closed at the dial hook.
+// RunTargetClassStrict returns the approved class for a run target, or the
+// classification error. This is the API launchers MUST use when installing an
+// authz.DialControl: classification resolves a name once, but DNS may answer
+// differently at dial time (rebinding to a private address or metadata), so
+// the approved class is re-applied to the socket's actual address.
+//
+// A classification failure (malformed target, DNS error, timeout) is a hard
+// error. Callers must refuse to start the run and must NOT install a
+// DialControl built from a fallback class: "unknown" is not "public".
+func RunTargetClassStrict(raw string) (authz.Class, error) {
+	class, _, _, err := refuseRunTarget(raw)
+	if err != nil {
+		return authz.ClassPublic, err
+	}
+	return class, nil
+}
+
+// RunTargetClass is the backwards-compatible wrapper for tests and legacy
+// callers that cannot handle an error. It keeps the historical ClassPublic
+// fallback on classification failure; that fallback is fail-closed at the dial
+// hook but hides resolution problems. Launchers must use RunTargetClassStrict
+// instead so a classification failure prevents the run from starting.
 func RunTargetClass(raw string) authz.Class {
-	class, _, _ := refuseRunTarget(raw)
+	class, _, _, _ := refuseRunTarget(raw)
 	return class
 }
 

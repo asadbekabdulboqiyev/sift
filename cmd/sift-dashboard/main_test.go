@@ -159,8 +159,14 @@ func TestDashboardStartRunInstallsDialControl(t *testing.T) {
 	if !strings.Contains(src, "authz.DialControl(") {
 		t.Error("startRun does not build an authz dial control")
 	}
-	if !strings.Contains(src, "dashboard.RunTargetClass(config.TargetURL)") {
-		t.Error("dial control is not derived from the start-run target classification")
+	if strings.Contains(src, "dashboard.RunTargetClass(") {
+		t.Error("startRun uses the legacy fallback classifier; launchers must use the strict form")
+	}
+	if !strings.Contains(src, "dashboard.RunTargetClassStrict(") {
+		t.Error("dial control is not derived from the strict start-run target classification")
+	}
+	if !strings.Contains(src, "approvedRunDialClass(config.TargetURL)") {
+		t.Error("startRun does not refuse the run when target classification fails")
 	}
 }
 
