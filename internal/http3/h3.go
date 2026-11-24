@@ -7,6 +7,11 @@
 //
 // Production-grade H3 load generation (many concurrent QUIC streams) is a
 // follow-up item — see docs/ROADMAP.md.
+//
+// SCAN PATHS MUST USE ProbeWithGate. The Probe/ProbeWithOptions-without-control
+// wrappers and checkAltSvc exist only for tests and lab use: they issue
+// uncontrolled dials. No scanning code currently calls any H3 probe; wiring one
+// up is a separate feature decision.
 package http3
 
 import (
@@ -17,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -47,12 +53,20 @@ type ProbeOptions struct {
 	// DialControl is the runtime-only socket-level authorization hook. It is
 	// installed on the Alt-Svc TCP dial and on the UDP socket used for the QUIC
 	// handshake so a scan-time decision is re-checked against the address a
-	// socket actually reaches. Nil preserves the original uncontrolled dials.
+	// socket actually reaches. It is also applied to EVERY resolved UDP answer
+	// before any socket is dialed.
+	//
+	// Nil preserves the original uncontrolled dials FOR TESTS/LAB USE ONLY.
+	// Scan paths MUST supply a non-nil hook (prefer ProbeWithGate).
 	DialControl func(network, address string, c syscall.RawConn) error
 }
 
 // Probe checks whether host:port supports HTTP/3 over QUIC with secure TLS
 // verification. It is ProbeWithOptions with the zero (secure) options.
+//
+// TESTS/LAB ONLY — MUST NOT be called on a scan path. There is no authorization
+// hook on either the TCP or the UDP dial. Scan paths MUST call ProbeWithGate
+// (or ProbeWithOptions with DialControl set from the gate).
 //
 // It first tries to read the Alt-Svc header over HTTPS (port 443 by default),
 // then attempts a QUIC handshake to confirm H3 is actually reachable.
@@ -60,7 +74,29 @@ func Probe(host string, port int) (*ProbeResult, error) {
 	return ProbeWithOptions(host, port, ProbeOptions{})
 }
 
+// ProbeWithGate is the scan-path API: it REQUIRES the gate's socket-level
+// authorization hook and returns an error when none is supplied. It delegates
+// to ProbeWithOptions with that hook installed, so both the Alt-Svc TCP leg and
+// every resolved UDP answer are checked before a socket connects.
+//
+// Future scan paths MUST use this helper instead of Probe or an uncontrolled
+// ProbeWithOptions call. It is not itself wired into the scanner: H3 is still a
+// planned feature (docs/ROADMAP.md).
+func ProbeWithGate(host string, port int, control func(network, address string, c syscall.RawConn) error, insecure bool) (*ProbeResult, error) {
+	if control == nil {
+		return nil, errors.New("http3: ProbeWithGate requires a non-nil DialControl; use Probe only in tests/lab")
+	}
+	return ProbeWithOptions(host, port, ProbeOptions{
+		InsecureSkipVerify: insecure,
+		DialControl:        control,
+	})
+}
+
 // ProbeWithOptions is Probe with explicit TLS options. See ProbeOptions.
+//
+// TESTS/LAB ONLY when opts.DialControl is nil: that path performs uncontrolled
+// dials and MUST NOT be called from a scan path. Scan paths MUST call
+// ProbeWithGate, or set ProbeOptions.DialControl from the gate themselves.
 func ProbeWithOptions(host string, port int, opts ProbeOptions) (*ProbeResult, error) {
 	if port == 0 {
 		port = 443
@@ -122,44 +158,37 @@ func dialQUIC(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Co
 	return negotiated, nil
 }
 
-// dialQUICWithControl hands quic-go a UDP socket created with a Control hook.
-// In quic-go v0.59.1 DialAddr opens its own socket and offers no control option;
-// Dial is a method on Transport (there is no Transport.Dial field), so the
-// controlled net.PacketConn is installed through Transport.Conn.
-func dialQUICWithControl(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config, control func(network, address string, c syscall.RawConn) error) (string, error) {
-	udpAddr, err := net.ResolveUDPAddr("udp", addr)
+// dialQUICWithControl resolves ALL UDP answers for the target and applies the
+// authorization hook to every one of them before opening any socket. Only a
+// checked literal is dialed, with the Control hook still installed so the
+// socket-level decision is re-applied to the address actually connected.
+//
+// Fail-closed: one refused answer, an empty answer set, or a resolution error
+// aborts the probe. This mirrors authz.CheckedDialIPs, but uses "udp" for the
+// hook's network and an injectable resolver so scan-time gates that inspect
+// the network can be tested without real DNS.
+func dialQUICWithControl(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config, control dialControlFunc) (string, error) {
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", fmt.Errorf("http3: invalid QUIC target %q: %w", addr, err)
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port < 0 || port > 65535 {
+		return "", fmt.Errorf("http3: invalid QUIC port %q", portStr)
+	}
+
+	peers, err := checkedUDPAddrs(ctx, host, port, control)
 	if err != nil {
 		return "", err
 	}
-	// ListenConfig passes the LOCAL address to Control. The gate contract
-	// expects the peer, so hand it the resolved destination while still using
-	// the real socket's RawConn.
-	lc := net.ListenConfig{Control: func(network, _ string, c syscall.RawConn) error {
-		return control(network, udpAddr.String(), c)
-	}}
-	pc, err := lc.ListenPacket(ctx, "udp", "0.0.0.0:0")
-	if err != nil {
-		return "", err
+	if len(peers) == 0 {
+		return "", fmt.Errorf("http3: no approved UDP addresses for %q", host)
 	}
-	udpConn, ok := pc.(*net.UDPConn)
-	if !ok {
-		_ = pc.Close()
-		return "", errors.New("http3: UDP listen did not return a *net.UDPConn")
-	}
-	tr := &quic.Transport{Conn: udpConn}
-	// quic-go does not own a PacketConn created outside the library, so the
-	// socket and the transport must both be released here (on dial errors too).
-	defer func() {
-		_ = tr.Close()
-		_ = udpConn.Close()
-	}()
-	sess, err := tr.Dial(ctx, udpAddr, tlsCfg, cfg)
-	if err != nil {
-		return "", err
-	}
-	negotiated := sess.ConnectionState().TLS.NegotiatedProtocol
-	_ = sess.CloseWithError(0, "probe complete")
-	return negotiated, nil
+
+	// Dial the checked literal; dialCheckedQUIC keeps the socket-level hook in
+	// place so a resolve/connect race cannot change the address after the gate
+	// decided.
+	return dialCheckedQUIC(ctx, peers[0], tlsCfg, cfg, control)
 }
 
 // quicTLSConfig builds the TLS config for the QUIC handshake. Verification is
@@ -198,7 +227,9 @@ func hostHeader(host string) (string, error) {
 	return host, nil
 }
 
-// checkAltSvc is the nil-control wrapper kept for existing callers.
+// checkAltSvc is the nil-control wrapper kept for existing tests. TESTS/LAB
+// ONLY: it has no authorization hook; scan paths must use checkAltSvcWithControl
+// with the gate's hook (as ProbeWithGate does).
 func checkAltSvc(host string, port int, insecure bool) (bool, error) {
 	return checkAltSvcWithControl(host, port, insecure, nil)
 }

@@ -200,13 +200,20 @@ func splitTestAddr(t *testing.T, addr string) (string, int) {
 	return host, port
 }
 
-// startTestQUICServer starts an in-process QUIC listener so the controlled
-// dial can be exercised without external network access.
+// startTestQUICServer starts an in-process IPv4 QUIC listener so the
+// controlled dial can be exercised without external network access.
 func startTestQUICServer(t *testing.T) (string, int) {
 	t.Helper()
-	udpConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	return startTestQUICServerOn(t, "127.0.0.1")
+}
+
+// startTestQUICServerOn is startTestQUICServer bound to a specific loopback
+// host (e.g. ::1 for the IPv6 socket path).
+func startTestQUICServerOn(t *testing.T, host string) (string, int) {
+	t.Helper()
+	udpConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP(host), Port: 0})
 	if err != nil {
-		t.Fatalf("listen udp: %v", err)
+		t.Skipf("%s UDP loopback unavailable: %v", host, err)
 	}
 	ln, err := quic.Listen(udpConn, testQUICServerTLS(t), nil)
 	if err != nil {
