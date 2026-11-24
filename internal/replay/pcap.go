@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -316,6 +317,7 @@ func (s *tcpReplayStream) process() {
 		pkt.Timestamp = time.Now()
 		pkt.SrcIP = net.ParseIP(s.net.Src().String())
 		pkt.DstIP = net.ParseIP(s.net.Dst().String())
+		pkt.DstPort, _ = strconv.Atoi(s.transport.Dst().String())
 		s.parser.capture.AddPacket(pkt)
 		return true
 	})
@@ -361,11 +363,21 @@ func parseHTTPStream(src io.Reader, emit func(*Packet) bool) streamParseStats {
 		if req.URL != nil {
 			url = req.URL.String()
 		}
+		// http.ReadRequest keeps the Host header in req.Host, not in the
+		// Header map. Preserve it so replay's gate can derive an authority from
+		// an origin-form request instead of silently dialing an unchecked host.
+		headers := req.Header.Clone()
+		if headers == nil {
+			headers = make(http.Header)
+		}
+		if req.Host != "" {
+			headers.Set("Host", req.Host)
+		}
 		pkt := &Packet{
 			Protocol:  "http",
 			Method:    req.Method,
 			URL:       url,
-			Headers:   req.Header,
+			Headers:   headers,
 			Body:      body,
 			IsRequest: true,
 		}

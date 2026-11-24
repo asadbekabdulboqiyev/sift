@@ -58,6 +58,10 @@ func main() {
 	tlsKey := flag.String("tls-key", "", "TLS private key file for decryption")
 	tlsCert := flag.String("tls-cert", "", "TLS certificate file for decryption")
 
+	// Shared authorization surface: policy, ticket, audit and webhook are
+	// identical to cmd/sift's so a ticket approved there authorizes a replay.
+	bindReplayGateFlags(flag.CommandLine)
+
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, `
 ╔═══════════════════════════════════════════════════════════════╗
@@ -184,15 +188,9 @@ Examples:
 		assertions = append(assertions, replay.Assertion{Type: "regex", Value: *assertRegex})
 	}
 
-	// Derive the socket-level approval from the operator-named base URL before
-	// any request is built. A failure here stops the run: no destination means
-	// no control, but a rejected one must never fall back to an unchecked dial.
-	control, err := replayDialControl(*baseURL)
-	if err != nil {
-		fatalf("Authorization: %v", err)
-	}
-
-	// Build config
+	// Build config. DialControl is filled in only after the capture is loaded
+	// and filtered: the gate must approve every destination this run can emit,
+	// not just --base-url.
 	config := &replay.ReplayConfig{
 		RateMultiplier:            rateMultiplier,
 		MaxConcurrency:            *concurrency,
@@ -209,7 +207,6 @@ Examples:
 		OutputReport:              *outputJSON != "" || *outputCSV != "",
 		ReportDir:                 *reportDir,
 		Filter:                    filter,
-		DialControl:               control,
 	}
 
 	// Load capture
@@ -255,14 +252,22 @@ Examples:
 	}
 	fmt.Println()
 
-	// Apply filter
-	packets := capture.Packets
-	if len(filter.Methods) > 0 || len(filter.URLPatterns) > 0 || len(filter.StatusCodes) > 0 {
-		packets = capture.Filter(filter)
+	// Apply the filter to the exact packet set the engine will emit, then
+	// derive every destination from that set before any request is built.
+	packets := capture.Filter(filter)
+	if filterActive(filter) {
 		fmt.Printf("  Filtered: %d → %d packets\n", len(capture.Packets), len(packets))
 		// Override capture packets for engine
 		capture.Packets = packets
 	}
+
+	targets, err := replay.ReplayTargets(config, packets)
+	if err != nil {
+		fatalf("Authorization: %v", err)
+	}
+	// One shared decision + audit record, then a non-nil socket control built
+	// from the addresses the gate actually approved.
+	config.DialControl = replayDialControl(targets)
 
 	// Create engine
 	numWorkers := *concurrency
@@ -353,6 +358,14 @@ Examples:
 		}
 		fmt.Printf("  CSV report: %s\n", csvPath)
 	}
+}
+
+func filterActive(f *replay.PacketFilter) bool {
+	if f == nil {
+		return false
+	}
+	return len(f.Methods) > 0 || len(f.URLPatterns) > 0 || len(f.StatusCodes) > 0 ||
+		len(f.Protocols) > 0 || len(f.Hosts) > 0
 }
 
 func parseRate(s string) (float64, error) {

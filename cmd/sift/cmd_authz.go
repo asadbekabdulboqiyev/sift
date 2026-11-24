@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -11,15 +10,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/asadbekabdulboqiyev/sift/internal/adminlock"
 	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 	"github.com/asadbekabdulboqiyev/sift/internal/config"
+	"github.com/asadbekabdulboqiyev/sift/internal/gate"
 )
 
 // authzDeniedExitCode is returned when a run is blocked by the authorization
 // policy. It is distinct from 1 (runtime error) and 2 (bad usage) so CI can
 // tell "the tool broke" from "the policy refused".
-const authzDeniedExitCode = 3
+const authzDeniedExitCode = gate.DeniedExitCode
 
 // gateOptions is the CLI surface of the authorization layer.
 type gateOptions struct {
@@ -39,20 +38,42 @@ type gateOptions struct {
 }
 
 // bypassActive resolves the admin-unlock seam, defaulting to the host store.
+// Kept as a method so existing callers and tests that pin the seam still work;
+// the shared gate honours the same function through Config.AdminBypass.
 func (g gateOptions) bypassActive() bool {
-	if g.adminBypass != nil {
-		return g.adminBypass()
+	return g.gateConfig().Bypass()
+}
+
+// gateConfig projects this CLI's option struct onto the shared gate config.
+func (g gateOptions) gateConfig() gate.Config {
+	return gate.Config{
+		PolicyPath:   g.policyPath,
+		AuditPath:    g.auditPath,
+		Webhook:      g.webhook,
+		AllowPrivate: g.allowPrivate,
+		Authorized:   g.authorized,
+		AdminBypass:  g.adminBypass,
 	}
-	return adminlock.Active()
+}
+
+// gateHooks supplies cmd/sift's process seams to the shared gate.
+func gateHooks() gate.Hooks {
+	return gate.Hooks{
+		Exit:    exitProcess,
+		Fatal:   fatal,
+		Version: buildVersion,
+	}
 }
 
 // addAuthzFlags registers the shared authorization flags on a FlagSet.
 func addAuthzFlags(fs *flag.FlagSet, g *gateOptions) {
-	fs.StringVar(&g.authorized, "authorized", "", "authorization ticket id granted by an approver (required for pentest)")
-	fs.BoolVar(&g.allowPrivate, "allow-private", false, "allow RFC1918/private targets without an explicit authorization entry")
-	fs.StringVar(&g.policyPath, "policy", "", "authorization policy JSON (default ~/.Sift/authz.json)")
-	fs.StringVar(&g.auditPath, "audit-log", "", "append-only audit log path (default ~/.Sift/audit.jsonl)")
-	fs.StringVar(&g.webhook, "notify-webhook", "", "webhook URL to notify on every authorization decision")
+	gate.BindFlags(fs, gate.Bindings{
+		Authorized:   &g.authorized,
+		AllowPrivate: &g.allowPrivate,
+		PolicyPath:   &g.policyPath,
+		AuditPath:    &g.auditPath,
+		Webhook:      &g.webhook,
+	})
 }
 
 // configHome returns the directory holding Sift's local state.
@@ -72,138 +93,20 @@ func defaultAuditPath() string {
 	return authz.DefaultAuditPath()
 }
 
-// authzOutcome is the aggregate verdict for a run.
-type authzOutcome struct {
-	Allowed bool
-	Class   string
-	// ClassValue is the same class as Class, kept typed so callers can hand it
-	// to authz.DialControl and have the decision re-applied to the address the
-	// socket actually connects to.
-	ClassValue authz.Class
-	Rule       string
-	Reason     string
-	Targets    []string
-	IPs        []string
-}
+// authzOutcome is the aggregate verdict for a run. The type now lives in the
+// shared gate so cmd/sift and cmd/sift-replay cannot disagree about fields.
+type authzOutcome = gate.Outcome
 
 // evaluateAuthz classifies every target and applies the policy. A denial is an
 // outcome, not an error; error is reserved for infrastructure failures.
 func evaluateAuthz(op authz.Operation, targets []string, g gateOptions) (authzOutcome, error) {
-	policyPath := strings.TrimSpace(g.policyPath)
-	if policyPath == "" {
-		policyPath = defaultPolicyPath()
-	}
-	pol, err := authz.LoadPolicyOrDefault(policyPath)
-	if err != nil {
-		return authzOutcome{}, err
-	}
-	if g.allowPrivate {
-		pol.AllowPrivate = true
-	}
-	if env := os.Getenv("SIFT_ALLOW"); env != "" {
-		if err := pol.AddEnvRules(env); err != nil {
-			return authzOutcome{}, err
-		}
-	}
-
-	now := time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	out := authzOutcome{Allowed: true, Targets: targets}
-	worst := authz.ClassPublic
-	// The admin bypass is a local, time-limited override. It never unlocks
-	// cloud instance metadata: that path hands out credentials and stays
-	// closed no matter what the operator toggled on.
-	bypass := g.bypassActive()
-
-	for _, raw := range targets {
-		tgt, err := authz.Classify(ctx, raw, nil)
-		if err != nil {
-			return authzOutcome{}, err
-		}
-		for _, ip := range tgt.IPs {
-			out.IPs = append(out.IPs, ip.String())
-		}
-		worst = authz.Worst(worst, tgt.Class())
-
-		var d authz.Decision
-		switch {
-		case tgt.Class() == authz.ClassMetadata:
-			d = authz.Decision{Class: tgt.Class(),
-				Reason: fmt.Sprintf("refusing to send traffic to cloud instance metadata (%s) — this is the credential-theft path and the admin bypass does not unlock it", tgt.Host)}
-		case bypass:
-			d = authz.Decision{Allowed: true, Class: tgt.Class(), Rule: "admin-unlock",
-				Reason: "admin bypass active — authorization checks temporarily bypassed from this host"}
-		case op == authz.OpPentest:
-			// Offensive operation: an approval entry must exist in the policy
-			// AND the operator must name its ticket. Neither alone is enough.
-			if strings.TrimSpace(g.authorized) == "" {
-				d = authz.Decision{Class: tgt.Class(),
-					Reason: fmt.Sprintf("pentest against %s requires --authorized <ticket> naming an entry approved with `authorize add`", tgt.Host)}
-			} else if pat, ok := pol.AuthorizedBy(tgt, g.authorized, now); ok {
-				d = authz.Decision{Allowed: true, Class: tgt.Class(), Rule: pat,
-					Reason: fmt.Sprintf("authorization ticket %q (%s)", g.authorized, pat)}
-			} else {
-				d = authz.Decision{Class: tgt.Class(),
-					Reason: fmt.Sprintf("no active authorization with ticket %q covers %s", g.authorized, tgt.Host)}
-			}
-		case strings.TrimSpace(g.authorized) != "":
-			// The operator named a ticket: it must actually cover the target.
-			if pat, ok := pol.AuthorizedBy(tgt, g.authorized, now); ok {
-				d = authz.Decision{Allowed: true, Class: tgt.Class(), Rule: pat,
-					Reason: fmt.Sprintf("authorization ticket %q (%s)", g.authorized, pat)}
-			} else {
-				d = authz.Decision{Class: tgt.Class(),
-					Reason: fmt.Sprintf("no active authorization with ticket %q covers %s", g.authorized, tgt.Host)}
-			}
-		default:
-			d = pol.Check(tgt, op, now)
-		}
-
-		if !d.Allowed {
-			out.Allowed = false
-			if out.Reason == "" {
-				out.Reason = d.Reason
-				out.Rule = d.Rule
-			}
-		} else if out.Rule == "" {
-			out.Rule = d.Rule
-			out.Reason = d.Reason
-		}
-	}
-	out.Class = worst.String()
-	out.ClassValue = worst
-	return out, nil
+	return gate.Evaluate(op, targets, g.gateConfig())
 }
 
 // enforceAuthz gates a run: it classifies the targets, writes an audit record,
 // and either returns or terminates with the denial exit code.
 func enforceAuthz(op authz.Operation, targets []string, argv []string, g gateOptions) authzOutcome {
-	if len(targets) == 0 {
-		return authzOutcome{Allowed: true, ClassValue: authz.ClassPublic}
-	}
-	out := authzDecision(op, targets, argv, g)
-
-	if out.Allowed {
-		if out.Rule == "admin-unlock" {
-			fmt.Fprintln(os.Stderr, "════════════════════════════════════════════════════════════════")
-			fmt.Fprintln(os.Stderr, " WARNING: ADMIN BYPASS ACTIVE — authorization checks are OFF")
-			fmt.Fprintln(os.Stderr, " This run was allowed by the local admin unlock, not by a ticket.")
-			fmt.Fprintln(os.Stderr, " Restore the gate now:  Sift admin lock")
-			fmt.Fprintln(os.Stderr, "════════════════════════════════════════════════════════════════")
-		}
-		if out.Rule != "" {
-			fmt.Fprintf(os.Stderr, "authorization: ok (class=%s, rule=%s)\n", out.Class, out.Rule)
-		} else {
-			fmt.Fprintf(os.Stderr, "authorization: ok (class=%s)\n", out.Class)
-		}
-		return out
-	}
-
-	printAuthzDenial(targets, out)
-	exitProcess(authzDeniedExitCode)
-	return authzOutcome{}
+	return gate.Enforce(op, targets, argv, g.gateConfig(), gateHooks())
 }
 
 // authzDecision evaluates the policy and appends the audit record, without
@@ -211,59 +114,16 @@ func enforceAuthz(op authz.Operation, targets []string, argv []string, g gateOpt
 // the program; `pentest --dry-run` calls this one so it can show the decision
 // as part of the plan instead of refusing to show the plan at all.
 func authzDecision(op authz.Operation, targets []string, argv []string, g gateOptions) authzOutcome {
-	out, err := evaluateAuthz(op, targets, g)
-	if err != nil {
-		fatal(err)
-	}
-
-	recordAuthz(authz.Entry{
-		Action:  op.String(),
-		Targets: targets,
-		IPs:     out.IPs,
-		Class:   out.Class,
-		Allowed: out.Allowed,
-		Rule:    out.Rule,
-		Reason:  out.Reason,
-		Version: buildVersion,
-		Argv:    argv,
-	}, g.auditPath, g.webhook)
-
-	return out
+	return gate.Decision(op, targets, argv, g.gateConfig(), gateHooks())
 }
 
 // printAuthzDenial explains a refusal and what would lift it.
 func printAuthzDenial(targets []string, out authzOutcome) {
-	fmt.Fprintf(os.Stderr, "\nBLOCKED by authorization policy\n")
-	fmt.Fprintf(os.Stderr, "  target: %s\n", strings.Join(targets, ", "))
-	fmt.Fprintf(os.Stderr, "  reason: %s\n\n", out.Reason)
-	fmt.Fprintln(os.Stderr, "To authorize a test, have the approver add an entry:")
-	fmt.Fprintln(os.Stderr, "  Sift authorize add --pattern <host-or-ip> --approver <name> --ticket <id>")
-	fmt.Fprintln(os.Stderr, "then re-run with --authorized <id>.")
+	gate.PrintDenial(targets, out, gateHooks())
 }
 
 func recordAuthz(e authz.Entry, auditPath, webhook string) {
-	if strings.TrimSpace(auditPath) == "" {
-		auditPath = defaultAuditPath()
-	}
-	log, err := authz.Open(auditPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: cannot write audit log: %v\n", err)
-		return
-	}
-	stored, appendErr := log.Append(e)
-	_ = log.Close()
-	if appendErr != nil {
-		fmt.Fprintf(os.Stderr, "warning: cannot write audit log: %v\n", appendErr)
-	}
-
-	if strings.TrimSpace(webhook) == "" {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), authz.DefaultNotifyTimeout)
-	defer cancel()
-	if err := (authz.Notifier{URL: webhook}).Notify(ctx, stored); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: audit webhook failed: %v\n", err)
-	}
+	_ = gate.Record(e, gate.Config{AuditPath: auditPath, Webhook: webhook}, gateHooks())
 }
 
 func scenarioTargets(sc *config.Scenario) []string {

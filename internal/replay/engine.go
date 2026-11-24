@@ -257,6 +257,16 @@ func (rw *ReplayWorker) replayPacket(pkt *Packet) error {
 		reqURL = u.String()
 	} else if !rw.config.AllowOriginalDestinations {
 		return fmt.Errorf("refusing to replay capture-supplied URL %q without --base-url or --allow-original-destinations", redactURLForError(pkt.URL))
+	} else if !strings.Contains(reqURL, "://") {
+		// PCAP requests are origin-form ("/path"). The gate derived its
+		// approval from the same captured authority, so use it here too; if
+		// no authority exists, fail closed instead of letting net/http pick
+		// one implicitly.
+		resolved, err := capturedDestination(pkt)
+		if err != nil {
+			return fmt.Errorf("refusing origin-form captured URL: %w", err)
+		}
+		reqURL = resolved
 	}
 
 	// Create HTTP request

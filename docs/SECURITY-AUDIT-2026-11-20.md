@@ -258,7 +258,7 @@ The HIGH replay finding from §9.3 is fixed in a separate commit because `sift-r
 
 Tests (`internal/replay/engine_control_test.go`, `cmd/sift-replay/authz_test.go`): cross-host redirect refused (302 kept, foreign target sees 0 requests and no dial), same-host redirect allowed, both scheme-change directions refused, captured `X-Api-Key` not forwarded cross-host, loopback refused under a public approval at the socket, metadata base URL/hostname refused, and nil control preserves the historical transport + redirect behavior. Full gate: `gofmt`, `go build ./...`, `go test ./internal/replay/... ./cmd/sift-replay/... -count=1`, `go test -race ./internal/replay/...`, `go vet ./internal/replay/... ./cmd/sift-replay/...` — all green.
 
-**Residuals (unchanged / documented):** (1) with neither `--base-url` nor any gate, the socket control stays nil — redirect pinning still applies, but there is no socket-level approval for replaying straight to capture URLs; closing this requires deriving a gate from every captured URL (out of scope). (2) `sift-replay` still lacks the full `cmd/sift` policy/ticket/audit gate (class-based approval only; no `--authorized`/`--policy`). (3) the `authz.ProxyWithControl` split-horizon residual from §8.3 holds.
+**Residuals:** (1) the nil-control path when no `--base-url`/gate was derivable, and (2) the missing full policy/ticket/audit gate, are both **FIXED in §10.5**. (3) the `authz.ProxyWithControl` split-horizon residual from §8.3 is addressed by the guard-proxy generalization in §10.6.
 
 ### 9.5 HTTP/3 dial-control and raw TCP pool target-keying (2026-11-23, Phase 4)
 
@@ -314,6 +314,15 @@ Five independent domains, dispatched in parallel in detached worktrees from `a0b
 - `internal/http3/h3_dns.go` (new): `checkedUDPAddrs` resolves all UDP answers (with an injectable resolver), runs the gate hook on **every** answer, fails closed on any refusal / empty set / resolution error, and dials one checked literal with `ListenConfig.Control` still active. IPv4, IPv6 and zoned literals are handled without DNS. The wildcard bind follows the peer family.
 - `internal/http3/h3.go`: added `ProbeWithGate(host, port, control, insecure)` which requires a non-nil control; `Probe` and nil-control wrappers remain for tests only with prominent warnings directing scan paths to the controlled API. The nil-control `dialQUIC` path is untouched.
 - Tests: multi-answer hostname with a blocked answer (all answers checked, zero dials), zero-approved cases, literal families, delegation of `ProbeWithGate`, and a real IPv6 QUIC dial with control. **No production H3 caller was added** — wiring an H3 scan path remains a separate feature decision (§ROADMAP).
+
+### 10.5 Replay: shared gate and non-nil fail-closed egress (Phase R1)
+
+- `internal/gate/gate.go` (new): extracted `cmd/sift`'s evaluate+audit decision into one importable package. Both `cmd/sift` and `cmd/sift-replay` now call `Evaluate`/`Enforce` with process seams (exit, fatal, version, adminlock) injected, so the two CLIs cannot drift. `cmd/sift/cmd_authz.go` delegates to it; its observable behavior and exit codes are unchanged.
+- `internal/authz/replay_op.go` (new): additive `OpReplay Operation = 3` (existing operations untouched). `Operation.String()` was deliberately not changed; the audit/action name is mapped to `"replay"` via `gate.OperationName`. Replay requires a named `--authorized` ticket for private/loopback targets (pentest semantics); metadata is never allowed; public targets follow the ordinary policy decision.
+- `internal/authz/replay_control.go` (new): `ApprovedPeersControl` permits only the exact IPs/prefixes the gate approved and always denies metadata, CGNAT, link-local, multicast and reserved classes at every socket — including DNS rebinding.
+- `internal/replay/targets.go` (new): derives every concrete destination from the FILTERED packet set plus `--base-url`. HAR absolute URLs and PCAP origin-form URLs (resolved from captured Host/peer) are covered. No derivable destination is a hard error. `internal/replay/engine.go` now resolves origin-form captured URLs from the same authority; library-level nil-control wrappers keep their historical behavior (fail-closed applies only at the CLI boundary).
+- `cmd/sift-replay/main.go`/`authz.go`/`gate.go`: run order is capture → filter → derive targets → gate (policy+ticket+strict audit) → build non-nil control → engine. `--authorized`, `--policy`, `--audit-log`, `--allow-private`, `--notify-webhook` were added. A run with no approved destination or an unwritable audit log aborts before any request is emitted.
+- Tests: HAR metadata/loopback refusal, no-destination hard error, ticket-approved control that denies rebinding, cross-host redirect pin under the gate, and shared-gate evaluation used by both CLIs. Existing `cmd/sift` authz tests remain green.
 
 ---
 
