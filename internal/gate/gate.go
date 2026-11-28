@@ -101,7 +101,7 @@ func (h Hooks) fatal(err error) {
 		h.Fatal(err)
 		return
 	}
-	fmt.Fprintf(os.Stderr, "error: %v\n", err)
+	_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
 	os.Exit(1)
 }
 
@@ -265,19 +265,17 @@ func Evaluate(op authz.Operation, targets []string, c Config) (Outcome, error) {
 				out.Rule = d.Rule
 			}
 			out.Allowed = false
-		} else {
+		} else if out.Allowed {
 			// Once a target has been refused, later targets must not replace
 			// the reason: the audit record and denial banner have to explain
 			// the target that actually stopped the run.
-			if out.Allowed {
-				if out.Rule == "" {
-					out.Rule = d.Rule
-					out.Reason = d.Reason
-				}
-				for _, ip := range tgt.IPs {
-					if !containsIP(out.ApprovedIPs, ip) {
-						out.ApprovedIPs = append(out.ApprovedIPs, ip)
-					}
+			if out.Rule == "" {
+				out.Rule = d.Rule
+				out.Reason = d.Reason
+			}
+			for _, ip := range tgt.IPs {
+				if !containsIP(out.ApprovedIPs, ip) {
+					out.ApprovedIPs = append(out.ApprovedIPs, ip)
 				}
 			}
 		}
@@ -330,16 +328,16 @@ func Enforce(op authz.Operation, targets, argv []string, c Config, h Hooks) Outc
 
 	if out.Allowed {
 		if out.Rule == "admin-unlock" {
-			fmt.Fprintln(h.stderr(), "════════════════════════════════════════════════════════════════")
-			fmt.Fprintln(h.stderr(), " WARNING: ADMIN BYPASS ACTIVE — authorization checks are OFF")
-			fmt.Fprintln(h.stderr(), " This run was allowed by the local admin unlock, not by a ticket.")
-			fmt.Fprintln(h.stderr(), " Restore the gate now:  Sift admin lock")
-			fmt.Fprintln(h.stderr(), "════════════════════════════════════════════════════════════════")
+			_, _ = fmt.Fprintln(h.stderr(), "════════════════════════════════════════════════════════════════")
+			_, _ = fmt.Fprintln(h.stderr(), " WARNING: ADMIN BYPASS ACTIVE — authorization checks are OFF")
+			_, _ = fmt.Fprintln(h.stderr(), " This run was allowed by the local admin unlock, not by a ticket.")
+			_, _ = fmt.Fprintln(h.stderr(), " Restore the gate now:  Sift admin lock")
+			_, _ = fmt.Fprintln(h.stderr(), "════════════════════════════════════════════════════════════════")
 		}
 		if out.Rule != "" {
-			fmt.Fprintf(h.stderr(), "authorization: ok (class=%s, rule=%s)\n", out.Class, out.Rule)
+			_, _ = fmt.Fprintf(h.stderr(), "authorization: ok (class=%s, rule=%s)\n", out.Class, out.Rule)
 		} else {
-			fmt.Fprintf(h.stderr(), "authorization: ok (class=%s)\n", out.Class)
+			_, _ = fmt.Fprintf(h.stderr(), "authorization: ok (class=%s)\n", out.Class)
 		}
 		return out
 	}
@@ -377,12 +375,12 @@ func Decision(op authz.Operation, targets, argv []string, c Config, h Hooks) Out
 // PrintDenial explains a refusal and what would lift it.
 func PrintDenial(targets []string, out Outcome, h Hooks) {
 	w := h.stderr()
-	fmt.Fprintf(w, "\nBLOCKED by authorization policy\n")
-	fmt.Fprintf(w, "  target: %s\n", strings.Join(targets, ", "))
-	fmt.Fprintf(w, "  reason: %s\n\n", out.Reason)
-	fmt.Fprintln(w, "To authorize a test, have the approver add an entry:")
-	fmt.Fprintln(w, "  Sift authorize add --pattern <host-or-ip> --approver <name> --ticket <id>")
-	fmt.Fprintln(w, "then re-run with --authorized <id>.")
+	_, _ = fmt.Fprintf(w, "\nBLOCKED by authorization policy\n")
+	_, _ = fmt.Fprintf(w, "  target: %s\n", strings.Join(targets, ", "))
+	_, _ = fmt.Fprintf(w, "  reason: %s\n\n", out.Reason)
+	_, _ = fmt.Fprintln(w, "To authorize a test, have the approver add an entry:")
+	_, _ = fmt.Fprintln(w, "  Sift authorize add --pattern <host-or-ip> --approver <name> --ticket <id>")
+	_, _ = fmt.Fprintln(w, "then re-run with --authorized <id>.")
 }
 
 // Record appends one hash-chained audit entry and, when configured, notifies a
@@ -391,7 +389,7 @@ func PrintDenial(targets []string, out Outcome, h Hooks) {
 func Record(e authz.Entry, c Config, h Hooks) error {
 	log, err := authz.Open(c.auditPath())
 	if err != nil {
-		fmt.Fprintf(h.stderr(), "warning: cannot write audit log: %v\n", err)
+		_, _ = fmt.Fprintf(h.stderr(), "warning: cannot write audit log: %v\n", err)
 		if c.StrictAudit {
 			return err
 		}
@@ -400,7 +398,7 @@ func Record(e authz.Entry, c Config, h Hooks) error {
 	stored, appendErr := log.Append(e)
 	_ = log.Close()
 	if appendErr != nil {
-		fmt.Fprintf(h.stderr(), "warning: cannot write audit log: %v\n", appendErr)
+		_, _ = fmt.Fprintf(h.stderr(), "warning: cannot write audit log: %v\n", appendErr)
 		if c.StrictAudit {
 			return appendErr
 		}
@@ -413,7 +411,7 @@ func Record(e authz.Entry, c Config, h Hooks) error {
 	ctx, cancel := context.WithTimeout(context.Background(), authz.DefaultNotifyTimeout)
 	defer cancel()
 	if err := (authz.Notifier{URL: c.Webhook}).Notify(ctx, stored); err != nil {
-		fmt.Fprintf(h.stderr(), "warning: audit webhook failed: %v\n", err)
+		_, _ = fmt.Fprintf(h.stderr(), "warning: audit webhook failed: %v\n", err)
 	}
 	return nil
 }

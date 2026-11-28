@@ -24,7 +24,7 @@ func TestReplayTargetsBaseURLAndCapturedURLs(t *testing.T) {
 		nil,
 	}
 
-	got, err := ReplayTargets(cfg, packets)
+	got, err := Targets(cfg, packets)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestReplayTargetsPCAPOriginForm(t *testing.T) {
 		{Method: "GET", URL: "/api/two", DstIP: net.ParseIP("10.1.2.3"), DstPort: 9090},
 	}
 
-	got, err := ReplayTargets(cfg, packets)
+	got, err := Targets(cfg, packets)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestReplayTargetsFailClosed(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, err := ReplayTargets(tc.cfg, tc.packets)
+			_, err := Targets(tc.cfg, tc.packets)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("error = %v, want one containing %q", err, tc.want)
 			}
@@ -123,7 +123,7 @@ func TestReplayTargetsBaseURLWithoutOriginalDestinations(t *testing.T) {
 		{Method: "GET", URL: "http://captured.internal.example/a"},
 	}
 
-	got, err := ReplayTargets(cfg, packets)
+	got, err := Targets(cfg, packets)
 	if err != nil {
 		t.Fatal(err)
 	}

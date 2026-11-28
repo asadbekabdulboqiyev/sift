@@ -261,7 +261,7 @@ Examples:
 		capture.Packets = packets
 	}
 
-	targets, err := replay.ReplayTargets(config, packets)
+	targets, err := replay.Targets(config, packets)
 	if err != nil {
 		fatalf("Authorization: %v", err)
 	}

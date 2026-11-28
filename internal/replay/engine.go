@@ -243,7 +243,8 @@ func (rw *ReplayWorker) replayPacket(pkt *Packet) error {
 	// with the captured Authorization/Cookie headers, so require an explicit
 	// opt-in before doing so.
 	reqURL := pkt.URL
-	if rw.config.BaseURL != "" {
+	switch {
+	case rw.config.BaseURL != "":
 		u, err := url.Parse(pkt.URL)
 		if err != nil {
 			return fmt.Errorf("parse URL: %w", err)
@@ -255,9 +256,9 @@ func (rw *ReplayWorker) replayPacket(pkt *Packet) error {
 		u.Scheme = base.Scheme
 		u.Host = base.Host
 		reqURL = u.String()
-	} else if !rw.config.AllowOriginalDestinations {
+	case !rw.config.AllowOriginalDestinations:
 		return fmt.Errorf("refusing to replay capture-supplied URL %q without --base-url or --allow-original-destinations", redactURLForError(pkt.URL))
-	} else if !strings.Contains(reqURL, "://") {
+	case !strings.Contains(reqURL, "://"):
 		// PCAP requests are origin-form ("/path"). The gate derived its
 		// approval from the same captured authority, so use it here too; if
 		// no authority exists, fail closed instead of letting net/http pick

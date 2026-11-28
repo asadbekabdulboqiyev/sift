@@ -37,13 +37,6 @@ type gateOptions struct {
 	adminBypass func() bool
 }
 
-// bypassActive resolves the admin-unlock seam, defaulting to the host store.
-// Kept as a method so existing callers and tests that pin the seam still work;
-// the shared gate honours the same function through Config.AdminBypass.
-func (g gateOptions) bypassActive() bool {
-	return g.gateConfig().Bypass()
-}
-
 // gateConfig projects this CLI's option struct onto the shared gate config.
 func (g gateOptions) gateConfig() gate.Config {
 	return gate.Config{
@@ -115,11 +108,6 @@ func enforceAuthz(op authz.Operation, targets []string, argv []string, g gateOpt
 // as part of the plan instead of refusing to show the plan at all.
 func authzDecision(op authz.Operation, targets []string, argv []string, g gateOptions) authzOutcome {
 	return gate.Decision(op, targets, argv, g.gateConfig(), gateHooks())
-}
-
-// printAuthzDenial explains a refusal and what would lift it.
-func printAuthzDenial(targets []string, out authzOutcome) {
-	gate.PrintDenial(targets, out, gateHooks())
 }
 
 func recordAuthz(e authz.Entry, auditPath, webhook string) {

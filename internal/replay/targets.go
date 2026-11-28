@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// ReplayTargets returns every destination the engine can emit for this run,
+// Targets returns every destination the engine can emit for this run,
 // normalized to scheme://host[:port] so the authorization gate classifies the
 // host exactly once and can pin the socket to the addresses it approved.
 //
@@ -22,7 +22,7 @@ import (
 // Returning an error when nothing can be derived is deliberate: a replay with
 // no gate derivation is a replay with no socket control, which is precisely the
 // egress path this API exists to close.
-func ReplayTargets(config *ReplayConfig, packets []*Packet) ([]string, error) {
+func Targets(config *ReplayConfig, packets []*Packet) ([]string, error) {
 	if config == nil {
 		return nil, fmt.Errorf("cannot derive replay destinations: nil replay config")
 	}
