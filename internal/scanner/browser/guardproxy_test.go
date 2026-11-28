@@ -20,7 +20,7 @@ import (
 
 func proxyHost(t *testing.T, p *guardProxy) string {
 	t.Helper()
-	return strings.TrimPrefix(p.addr(), "http://")
+	return strings.TrimPrefix(p.URL().String(), "http://")
 }
 
 // rawProxyResponse sends a hand-written request to the proxy and parses the
@@ -50,7 +50,7 @@ func startTestProxy(t *testing.T, class authz.Class) *guardProxy {
 	if err != nil {
 		t.Fatalf("start proxy: %v", err)
 	}
-	t.Cleanup(func() { _ = p.close() })
+	t.Cleanup(func() { _ = p.Close() })
 	return p
 }
 
@@ -74,7 +74,7 @@ func TestGuardProxyListensOnEphemeralLoopback(t *testing.T) {
 	}
 	_ = conn.Close()
 
-	if err := p.close(); err != nil {
+	if err := p.Close(); err != nil {
 		t.Fatalf("close: %v", err)
 	}
 	if conn, err := net.Dial("tcp", addr); err == nil {
@@ -82,7 +82,7 @@ func TestGuardProxyListensOnEphemeralLoopback(t *testing.T) {
 		t.Fatal("proxy still accepting after close")
 	}
 	// close() must be idempotent (New() calls it on a failed probe).
-	if err := p.close(); err != nil {
+	if err := p.Close(); err != nil {
 		t.Fatalf("second close: %v", err)
 	}
 }
@@ -99,7 +99,7 @@ func TestGuardProxyAbsoluteFormClassDecision(t *testing.T) {
 	refused := startTestProxy(t, authz.ClassPublic)
 
 	do := func(p *guardProxy) *http.Response {
-		return rawProxyResponse(t, p.addr(), fmt.Sprintf("GET %s/probe HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", up.URL, strings.TrimPrefix(up.URL, "http://")))
+		return rawProxyResponse(t, p.URL().String(), fmt.Sprintf("GET %s/probe HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", up.URL, strings.TrimPrefix(up.URL, "http://")))
 	}
 	if resp := do(allowed); resp.StatusCode != http.StatusOK {
 		t.Fatalf("approved loopback: status %d, want 200", resp.StatusCode)
@@ -135,7 +135,7 @@ func TestGuardProxyCONNECTClassDecision(t *testing.T) {
 	// A real HTTPS client: proves the CONNECT tunnel carries TLS end-to-end.
 	client := up.Client()
 	tr := client.Transport.(*http.Transport).Clone()
-	proxyURL, _ := url.Parse(allowed.addr())
+	proxyURL, _ := url.Parse(allowed.URL().String())
 	tr.Proxy = http.ProxyURL(proxyURL)
 	client.Transport = tr
 	resp, err := client.Get(up.URL + "/probe")
@@ -149,7 +149,7 @@ func TestGuardProxyCONNECTClassDecision(t *testing.T) {
 	}
 
 	// Raw CONNECT to the refused proxy must be denied BEFORE a 200 is written.
-	r := rawProxyResponse(t, refused.addr(), fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", upHost, upHost))
+	r := rawProxyResponse(t, refused.URL().String(), fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", upHost, upHost))
 	if r.StatusCode != http.StatusForbidden {
 		t.Fatalf("refused CONNECT status = %d, want 403", r.StatusCode)
 	}
@@ -176,7 +176,7 @@ func TestGuardProxyAppliesControlToDestinationAndSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start proxy: %v", err)
 	}
-	defer p.close()
+	defer p.Close()
 
 	up := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "ok")
@@ -184,7 +184,7 @@ func TestGuardProxyAppliesControlToDestinationAndSocket(t *testing.T) {
 	defer up.Close()
 	client := up.Client()
 	tr := client.Transport.(*http.Transport).Clone()
-	proxyURL, _ := url.Parse(p.addr())
+	proxyURL, _ := url.Parse(p.URL().String())
 	tr.Proxy = http.ProxyURL(proxyURL)
 	client.Transport = tr
 	resp, err := client.Get(up.URL)
@@ -226,11 +226,11 @@ func TestGuardProxyRefusesLoopbackHostnamesUnderClassPublic(t *testing.T) {
 		if _, _, err := net.SplitHostPort(addr); err != nil {
 			t.Fatalf("bad target %q: %v", addr, err)
 		}
-		r := rawProxyResponse(t, p.addr(), fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", addr, addr))
+		r := rawProxyResponse(t, p.URL().String(), fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", addr, addr))
 		if r.StatusCode != http.StatusForbidden {
 			t.Errorf("CONNECT %s: status %d, want 403", addr, r.StatusCode)
 		}
-		r = rawProxyResponse(t, p.addr(), fmt.Sprintf("GET http://%s/x HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", addr, addr))
+		r = rawProxyResponse(t, p.URL().String(), fmt.Sprintf("GET http://%s/x HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", addr, addr))
 		if r.StatusCode != http.StatusForbidden {
 			t.Errorf("GET %s: status %d, want 403", addr, r.StatusCode)
 		}
@@ -250,7 +250,7 @@ func TestGuardProxyPreservesRequestAndResponse(t *testing.T) {
 	}))
 	defer up.Close()
 	p := startTestProxy(t, authz.ClassLoopback)
-	proxyURL, _ := url.Parse(p.addr())
+	proxyURL, _ := url.Parse(p.URL().String())
 	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}}
 
 	req, err := http.NewRequest(http.MethodPatch, up.URL+"/path?k=v", strings.NewReader("payload"))
@@ -291,7 +291,7 @@ func TestGuardProxyRejectsMalformedAuthority(t *testing.T) {
 		fmt.Sprintf("GET http://:%s/x HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n", strings.Split(upHost, ":")[1]), // no host
 	}
 	for i, raw := range cases {
-		resp := rawProxyResponse(t, p.addr(), raw)
+		resp := rawProxyResponse(t, p.URL().String(), raw)
 		if resp.StatusCode < 400 {
 			t.Errorf("case %d: status %d, want rejection", i, resp.StatusCode)
 		}
@@ -312,15 +312,15 @@ func TestGuardProxyIsNotAnOpenProxy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer p.close()
+	defer p.Close()
 
 	targets := []string{"169.254.169.254:80", "100.100.100.200:80", "10.0.0.1:80", "[::1]:80"}
 	for _, target := range targets {
-		r := rawProxyResponse(t, p.addr(), fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target, target))
+		r := rawProxyResponse(t, p.URL().String(), fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target, target))
 		if r.StatusCode != http.StatusForbidden {
 			t.Errorf("CONNECT %s: status %d, want 403 (open proxy)", target, r.StatusCode)
 		}
-		r = rawProxyResponse(t, p.addr(), fmt.Sprintf("GET http://%s/x HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", target, target))
+		r = rawProxyResponse(t, p.URL().String(), fmt.Sprintf("GET http://%s/x HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", target, target))
 		if r.StatusCode != http.StatusForbidden {
 			t.Errorf("GET %s: status %d, want 403 (open proxy)", target, r.StatusCode)
 		}
@@ -348,7 +348,7 @@ func TestGuardProxyRejectsUnsupportedMethodsAndSchemes(t *testing.T) {
 		fmt.Sprintf("GET https://%s/x HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", host, host),
 	}
 	for i, raw := range cases {
-		resp := rawProxyResponse(t, p.addr(), raw)
+		resp := rawProxyResponse(t, p.URL().String(), raw)
 		if resp.StatusCode < 400 {
 			t.Errorf("case %d: status %d, want rejection", i, resp.StatusCode)
 		}
@@ -427,7 +427,7 @@ func TestGuardProxyCloseTerminatesTunnels(t *testing.T) {
 	}
 
 	done := make(chan error, 1)
-	go func() { done <- p.close() }()
+	go func() { done <- p.Close() }()
 	select {
 	case err := <-done:
 		if err != nil {
@@ -471,10 +471,7 @@ func TestGuardProxyCloseTerminatesTunnels(t *testing.T) {
 		}
 	}
 upstreamsDrained:
-	p.mu.Lock()
-	remaining := len(p.conns)
-	closed := p.closed
-	p.mu.Unlock()
+	remaining, closed := p.State()
 	if remaining != 0 || !closed {
 		t.Fatalf("after close: tracked=%d closed=%v", remaining, closed)
 	}
@@ -511,7 +508,7 @@ func TestGuardProxyWebSocketUpgradePreservesCoalescedFrame(t *testing.T) {
 
 	p := startTestProxy(t, authz.ClassLoopback)
 	addr := ln.Addr().String()
-	conn, err := net.Dial("tcp", strings.TrimPrefix(p.addr(), "http://"))
+	conn, err := net.Dial("tcp", strings.TrimPrefix(p.URL().String(), "http://"))
 	if err != nil {
 		t.Fatal(err)
 	}

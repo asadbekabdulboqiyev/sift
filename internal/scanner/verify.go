@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/authz"
+	"github.com/asadbekabdulboqiyev/sift/internal/guardproxy"
 )
 
 // ---------------------------------------------------------------------------
@@ -56,6 +57,19 @@ type Verdict struct {
 type Verifier struct {
 	Client  *http.Client
 	Timeout time.Duration
+
+	// closer tears down the guard proxy owned by a controlled verifier. It is
+	// nil for the direct (nil-control) verifier.
+	closer io.Closer
+}
+
+// Close stops the verifier's guard-proxy listener. It is optional (the helper
+// has a GC backstop) but callers with a teardown seam should invoke it.
+func (v *Verifier) Close() error {
+	if v == nil || v.closer == nil {
+		return nil
+	}
+	return v.closer.Close()
 }
 
 // NewVerifier creates a verifier whose HTTP client never follows redirects.
@@ -84,10 +98,7 @@ func NewVerifierWithControl(timeout time.Duration, control func(network, address
 	if control == nil || v.Client == nil {
 		return v
 	}
-	v.Client.Transport = &http.Transport{
-		// The socket Control hook sees only the proxy address when one applies;
-		// re-check the finding URL itself (CWE-290).
-		Proxy: authz.ProxyWithControl(http.ProxyFromEnvironment, control),
+	base := &http.Transport{
 		DialContext: (&net.Dialer{
 			Timeout:   v.Timeout,
 			KeepAlive: 30 * time.Second,
@@ -96,6 +107,18 @@ func NewVerifierWithControl(timeout time.Duration, control func(network, address
 		TLSHandshakeTimeout: v.Timeout,
 		MaxIdleConns:        100,
 		IdleConnTimeout:     90 * time.Second,
+	}
+	// Airtight path: finding URLs are attacker-controlled, so they must never
+	// be resolved independently by an ambient proxy. The local guard proxy
+	// checks every answer and dials the checked literal IP with control.
+	tr, closer, err := guardproxy.WrapTransport(base, control)
+	if err == nil {
+		v.Client.Transport = tr
+		v.closer = closer
+	} else {
+		// Defense in depth: never leave a controlled verifier uncontrolled.
+		base.Proxy = authz.ProxyWithControl(http.ProxyFromEnvironment, control)
+		v.Client.Transport = base
 	}
 	return v
 }

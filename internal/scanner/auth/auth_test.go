@@ -546,10 +546,17 @@ func TestClientWithDialControlRefuses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAuthSession: %v", err)
 	}
+	defer sess.Close()
 	client := sess.ClientWithDialControl(func(network, address string, c syscall.RawConn) error {
 		return errors.New("blocked by test gate")
 	})
-	if _, err := client.Get(srv.URL); err == nil {
-		t.Fatal("Get succeeded despite dial control refusal")
+	resp, err := client.Get(srv.URL)
+	if err == nil {
+		// A controlled client is pinned to the local guard proxy; the
+		// refusal is an HTTP 403 rather than a client-side dial error.
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("Get returned %d despite dial control refusal", resp.StatusCode)
+		}
 	}
 }

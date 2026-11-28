@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/authz"
+	"github.com/asadbekabdulboqiyev/sift/internal/guardproxy"
 	"github.com/asadbekabdulboqiyev/sift/internal/scanner/browser"
 )
 
@@ -112,8 +113,38 @@ type AuthSession struct {
 	authClient *http.Client // private client used only for login/refresh calls
 	jar        http.CookieJar
 
-	mu sync.Mutex // serializes login/refresh and guards ok
-	ok bool
+	mu      sync.Mutex // serializes login/refresh and guards ok/closers
+	ok      bool
+	closers []io.Closer // guard-proxy listeners owned by controlled clients
+}
+
+// Close stops every guard proxy created for this session's controlled clients.
+// It is idempotent and safe to call on error paths; the helper's finalizer is a
+// backstop for callers with no teardown seam.
+func (s *AuthSession) Close() error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	closers := s.closers
+	s.closers = nil
+	s.mu.Unlock()
+	var firstErr error
+	for _, c := range closers {
+		if err := c.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+func (s *AuthSession) addCloser(c io.Closer) {
+	if c == nil {
+		return
+	}
+	s.mu.Lock()
+	s.closers = append(s.closers, c)
+	s.mu.Unlock()
 }
 
 // NewAuthSession validates cfg, performs the initial login when required and
@@ -234,7 +265,9 @@ func NewAuthSession(cfg AuthConfig, timeout time.Duration) (*AuthSession, error)
 	// operator-configured login host would bypass the same gate every other
 	// scanner request obeys.
 	if cfg.DialControl != nil {
-		s.authClient.Transport = controlledTransport(timeout, cfg.DialControl)
+		tr, closer := controlledTransport(timeout, cfg.DialControl)
+		s.authClient.Transport = tr
+		s.addCloser(closer)
 	}
 
 	if cfg.Type == AuthForm {
@@ -257,17 +290,22 @@ func (s *AuthSession) Client() *http.Client { return s.client }
 
 // controlledTransport builds a transport whose socket dial is authorized by
 // control. Shared by the login client and by ClientWithDialControl so the two
-// cannot drift on proxy/timeout/keepalive settings.
-func controlledTransport(timeout time.Duration, control func(network, address string, c syscall.RawConn) error) *http.Transport {
-	return &http.Transport{
-		// The socket Control hook sees only the proxy address when one applies,
-		// so wrap the selector to re-check the destination itself (CWE-290).
-		Proxy:               authz.ProxyWithControl(http.ProxyFromEnvironment, control),
+// cannot drift on proxy/timeout/keepalive settings. The returned closer owns
+// the local guard proxy; the caller must keep it alive with its session.
+func controlledTransport(timeout time.Duration, control func(network, address string, c syscall.RawConn) error) (*http.Transport, io.Closer) {
+	tr := &http.Transport{
 		DialContext:         (&net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second, Control: control}).DialContext,
 		TLSHandshakeTimeout: timeout,
 		MaxIdleConns:        100,
 		IdleConnTimeout:     90 * time.Second,
 	}
+	guarded, closer, err := guardproxy.WrapTransport(tr, control)
+	if err != nil {
+		// Defense in depth: never leave a controlled client uncontrolled.
+		tr.Proxy = authz.ProxyWithControl(http.ProxyFromEnvironment, control)
+		return tr, nil
+	}
+	return guarded, closer
 }
 
 // ClientWithDialControl returns a copy of the authenticated client whose
@@ -280,7 +318,9 @@ func (s *AuthSession) ClientWithDialControl(control func(network, address string
 		return s.client
 	}
 	clone := *s.client
-	var rt http.RoundTripper = controlledTransport(s.client.Timeout, control)
+	baseRT, closer := controlledTransport(s.client.Timeout, control)
+	s.addCloser(closer)
+	var rt http.RoundTripper = baseRT
 	switch s.cfg.Type {
 	case AuthHeader:
 		rt = &headerInjector{base: rt, name: http.CanonicalHeaderKey(strings.TrimSpace(s.cfg.HeaderName)), value: s.cfg.HeaderValue}

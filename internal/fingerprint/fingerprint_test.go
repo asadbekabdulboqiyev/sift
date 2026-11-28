@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -201,6 +202,80 @@ func TestProfilesProduceDistinctJA3(t *testing.T) {
 		t.Fatalf("profiles collapsed to one JA3: %v", h)
 	}
 	t.Logf("JA3 hashes seen: %v", h)
+}
+
+// dialAndFetchWithOptions drives one real TLS exchange through NewDialerChecked
+// so the on-wire ClientHello can be captured and compared.
+func dialAndFetchWithOptions(t *testing.T, ts *httptest.Server, opts Options) {
+	t.Helper()
+	dialer, err := NewDialerChecked(opts)
+	if err != nil {
+		t.Fatalf("NewDialerChecked: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, err := dialer(ctx, "tcp", ts.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+	fmt.Fprintf(conn, "GET / HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", ts.Listener.Addr().String())
+	data, err := io.ReadAll(io.LimitReader(conn, 1<<14))
+	if err != nil {
+		t.Fatalf("request via custom dial seam: %v", err)
+	}
+	if !bytes.Contains(data, []byte(" 200 ")) {
+		t.Fatalf("expected HTTP 200, got %q", string(data))
+	}
+}
+
+// TestOptionsDialContextOverridePreservesFingerprint proves the optional dial
+// seam replaces only the TCP leg: the override is called exactly once and the
+// resulting ClientHello JA4 is identical to the nil (legacy Dialer) path.
+// JA4 is used because Chrome randomizes GREASE values per handshake; JA3
+// deliberately keeps GREASE and would differ between any two connections.
+func TestOptionsDialContextOverridePreservesFingerprint(t *testing.T) {
+	ts, cl := tlsServer(t)
+	var calls atomic.Int32
+	base := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
+	override := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		calls.Add(1)
+		return base.DialContext(ctx, network, addr)
+	}
+	common := Options{
+		Fingerprint:        Chrome,
+		InsecureSkipVerify: true,
+		NextProtos:         []string{"http/1.1"},
+		HandshakeTimeout:   10 * time.Second,
+	}
+	withOverride := common
+	withOverride.DialContext = override
+	dialAndFetchWithOptions(t, ts, withOverride)
+	dialAndFetchWithOptions(t, ts, common)
+
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("DialContext override called %d times, want exactly 1", got)
+	}
+	cl.mu.Lock()
+	conns := append([]*recordingConn(nil), cl.conns...)
+	cl.mu.Unlock()
+	if len(conns) != 2 {
+		t.Fatalf("captured %d connections, want 2", len(conns))
+	}
+	hashes := make([]string, 0, 2)
+	for _, c := range conns {
+		c.mu.Lock()
+		raw := append([]byte(nil), c.records...)
+		c.mu.Unlock()
+		fp, err := JA4FromRecord(raw)
+		if err != nil {
+			t.Fatalf("captured ClientHello: %v", err)
+		}
+		hashes = append(hashes, fp)
+	}
+	if hashes[0] != hashes[1] {
+		t.Fatalf("DialContext override changed the ClientHello: %q vs %q", hashes[0], hashes[1])
+	}
 }
 
 // TestNewDialerCheckedRejectsUnknownProfile pins F19: a bad profile is a

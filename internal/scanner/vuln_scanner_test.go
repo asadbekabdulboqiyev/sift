@@ -1048,7 +1048,15 @@ func TestVulnScannerDialControlRefuses(t *testing.T) {
 	vs := NewVulnScannerWithControl(srv.URL, func(network, address string, c syscall.RawConn) error {
 		return errors.New("blocked by test gate")
 	})
-	if _, err := vs.get(srv.URL); err == nil {
-		t.Fatal("get() succeeded despite dial control refusal")
+	defer vs.Close()
+	resp, err := vs.get(srv.URL)
+	if err == nil {
+		// A controlled transport is pinned to the local guard proxy. It
+		// refuses the destination with an HTTP 403 instead of failing the
+		// client dial, so a refusal is observable as either outcome.
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("get() returned %d despite dial control refusal", resp.StatusCode)
+		}
 	}
 }

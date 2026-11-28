@@ -7,11 +7,13 @@ package engine
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -22,6 +24,8 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/config"
+	"github.com/asadbekabdulboqiyev/sift/internal/fingerprint"
+	"github.com/asadbekabdulboqiyev/sift/internal/guardproxy"
 )
 
 var errTestDialRefused = errors.New("test dial refused")
@@ -58,6 +62,53 @@ func newEngineForDialControl(t *testing.T, sc *config.Scenario, control func(str
 	return e
 }
 
+// TestControlledTransportUsesLoopbackGuard pins the split-horizon fix at the
+// engine boundary: the controlled transport's Proxy selector resolves to the
+// local guard listener, the caller's Control still runs on every direct dial,
+// and only that exact guard socket is exempt.
+func TestControlledTransportUsesLoopbackGuard(t *testing.T) {
+	var calls atomic.Int32
+	e := newEngineForDialControl(t, dialControlScenario("http://127.0.0.1:1"), func(network, address string, c syscall.RawConn) error {
+		calls.Add(1)
+		return nil
+	})
+	defer e.Close()
+
+	if e.transport.Proxy == nil {
+		t.Fatal("controlled transport has no proxy selector")
+	}
+	req, err := http.NewRequest(http.MethodGet, "http://example.com/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := e.transport.Proxy(req)
+	if err != nil {
+		t.Fatalf("proxy selector: %v", err)
+	}
+	if u == nil || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || u.Port() == "" {
+		t.Fatalf("proxy = %v, want an ephemeral loopback guard listener", u)
+	}
+
+	// A non-guard dial still passes through the caller's hook.
+	before := calls.Load()
+	_, _ = e.transport.DialContext(context.Background(), "tcp", "127.0.0.1:1")
+	if calls.Load() <= before {
+		t.Fatal("caller Control was not installed on a direct dial")
+	}
+
+	// The socket to the guard itself is exempt; otherwise a public-only class
+	// would refuse the loopback listener and no request could reach it.
+	before = calls.Load()
+	guardConn, err := e.transport.DialContext(context.Background(), "tcp", u.Host)
+	if err != nil {
+		t.Fatalf("dial guard listener %s: %v", u.Host, err)
+	}
+	_ = guardConn.Close()
+	if calls.Load() != before {
+		t.Fatal("guard socket was checked as a destination")
+	}
+}
+
 // TestHTTPTransportDialControl verifies the plain HTTP dial path installed on
 // the shared transport, and that a refusal aborts the request before connect.
 func TestHTTPTransportDialControl(t *testing.T) {
@@ -86,11 +137,16 @@ func TestHTTPTransportDialControlRejects(t *testing.T) {
 
 	var calls atomic.Int32
 	e := newEngineForDialControl(t, dialControlScenario(srv.URL), refuseDialControl(&calls))
-	_, err := e.client.Get(srv.URL)
+	resp, err := e.client.Get(srv.URL)
 	if err == nil {
-		t.Fatal("request succeeded although the dial control refused it")
-	}
-	if !strings.Contains(err.Error(), errTestDialRefused.Error()) {
+		// A controlled transport is pinned to the local guard proxy. The
+		// proxy refuses the destination with 403 instead of failing the
+		// client's dial, so a refusal is observable as either outcome.
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("request returned %d although the dial control refused it", resp.StatusCode)
+		}
+	} else if !strings.Contains(err.Error(), errTestDialRefused.Error()) {
 		t.Fatalf("error = %v, want the dial control refusal", err)
 	}
 	if got := calls.Load(); got < 1 {
@@ -100,8 +156,8 @@ func TestHTTPTransportDialControlRejects(t *testing.T) {
 
 // TestUTLSTransportDialControl verifies the uTLS DialTLSContext path. The test
 // server uses a self-signed certificate, so the handshake may fail, but the
-// socket-level hook must still run before that handshake and a refusal must
-// surface as the request error.
+// guard must still check the destination before that handshake and a refusal
+// must surface as a guard CONNECT error.
 func TestUTLSTransportDialControl(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -140,6 +196,160 @@ func TestUTLSTransportDialControlRejects(t *testing.T) {
 	}
 	if got := calls.Load(); got < 1 {
 		t.Fatalf("uTLS dial control called %d times, want at least 1", got)
+	}
+}
+
+// TestControlledUTLSTransportUsesLoopbackGuard pins the split-horizon fix at
+// the fingerprint boundary: Proxy must stay nil (Go would otherwise handshake
+// with the proxy), and the guard must be owned by the transport so Engine.Close
+// and engineWSDialer share one listener.
+func TestControlledUTLSTransportUsesLoopbackGuard(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	sc := dialControlScenario(srv.URL)
+	sc.Profile.TLSFingerprint = "chrome"
+	var calls atomic.Int32
+	e := newEngineForDialControl(t, sc, allowDialControl(&calls))
+	defer e.Close()
+
+	if e.transport.Proxy != nil {
+		t.Fatal("uTLS transport has a Proxy selector, want nil (CONNECT is done in the dial seam)")
+	}
+	if e.transport.DialTLSContext == nil {
+		t.Fatal("fingerprint transport has no DialTLSContext")
+	}
+	closerValue, ok := guardedTransports.Load(e.transport)
+	if !ok {
+		t.Fatal("uTLS transport did not register a guard closer")
+	}
+	lazy, ok := closerValue.(*guardproxy.Lazy)
+	if !ok {
+		t.Fatalf("uTLS guard closer has type %T, want *guardproxy.Lazy", closerValue)
+	}
+	u, err := lazy.URL()
+	if err != nil {
+		t.Fatalf("guard URL: %v", err)
+	}
+	if u.Hostname() != "127.0.0.1" || u.Port() == "" {
+		t.Fatalf("guard URL = %v, want an ephemeral loopback listener", u)
+	}
+
+	_, _ = e.client.Get(srv.URL) // self-signed cert: TLS may fail, guard must run
+	if got := calls.Load(); got < 1 {
+		t.Fatalf("guarded uTLS dial checked the destination %d times, want at least 1", got)
+	}
+
+	if err := e.Close(); err != nil {
+		t.Fatalf("Engine.Close: %v", err)
+	}
+	if !lazy.Closed() {
+		t.Fatal("Engine.Close did not close the uTLS guard listener")
+	}
+}
+
+// TestControlledUTLSTransportCONNECTRefusesDestination proves the refusal is
+// produced by the guard's CONNECT response, not by a socket-level dial error:
+// the guard socket itself is exempt, while the destination is checked and
+// refused with 403 before any ClientHello can reach the origin.
+func TestControlledUTLSTransportCONNECTRefusesDestination(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	sc := dialControlScenario(srv.URL)
+	sc.Profile.TLSFingerprint = "chrome"
+	var calls atomic.Int32
+	var mu sync.Mutex
+	var checked []string
+	control := func(network, address string, c syscall.RawConn) error {
+		calls.Add(1)
+		mu.Lock()
+		checked = append(checked, address)
+		mu.Unlock()
+		return errTestDialRefused
+	}
+	e := newEngineForDialControl(t, sc, control)
+	defer e.Close()
+	closerValue, ok := guardedTransports.Load(e.transport)
+	if !ok {
+		t.Fatal("uTLS transport did not register a guard closer")
+	}
+	u, err := closerValue.(*guardproxy.Lazy).URL()
+	if err != nil {
+		t.Fatalf("guard URL: %v", err)
+	}
+
+	_, err = e.client.Get(srv.URL)
+	if err == nil {
+		t.Fatal("uTLS request succeeded although the dial control refused it")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "403 Forbidden") || !strings.Contains(msg, "guard proxy") {
+		t.Fatalf("error = %q, want a 403 guard CONNECT refusal", msg)
+	}
+	if !strings.Contains(msg, errTestDialRefused.Error()) {
+		t.Fatalf("error = %q, want the dial control refusal in the guard body", msg)
+	}
+	if got := calls.Load(); got < 1 {
+		t.Fatalf("uTLS dial control called %d times, want at least 1", got)
+	}
+	mu.Lock()
+	seen := append([]string(nil), checked...)
+	mu.Unlock()
+	if len(seen) == 0 {
+		t.Fatal("no address was checked by the caller's Control hook")
+	}
+	for _, address := range seen {
+		if address == u.Host {
+			t.Fatalf("guard socket %s was checked as a destination", address)
+		}
+	}
+}
+
+// TestGuardConnectDialContextCompletesUTLSHandshake drives the full authorized
+// tunnel: loopback guard socket, CONNECT, then a real uTLS ClientHello to the
+// origin. InsecureSkipVerify is used only here because the test server is
+// self-signed; production engines keep certificate verification enabled.
+func TestGuardConnectDialContextCompletesUTLSHandshake(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	var calls atomic.Int32
+	control := allowDialControl(&calls)
+	lazy := guardproxy.NewLazy(guardproxy.Options{Control: control})
+	defer func() { _ = lazy.Close() }()
+	dialer, err := fingerprint.NewDialerChecked(fingerprint.Options{
+		Fingerprint:        fingerprint.Chrome,
+		DialContext:        guardConnectDialContext(lazy, control),
+		InsecureSkipVerify: true,
+		NextProtos:         []string{"http/1.1"},
+	})
+	if err != nil {
+		t.Fatalf("uTLS dialer: %v", err)
+	}
+	client := &http.Client{Transport: &http.Transport{
+		DialTLSContext: dialer,
+		TLSClientConfig: &tls.Config{
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: true,
+		},
+	}}
+	resp, err := client.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("request through guarded uTLS tunnel: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if got := calls.Load(); got < 1 {
+		t.Fatalf("guarded uTLS dial checked the destination %d times, want at least 1", got)
 	}
 }
 

@@ -10,8 +10,8 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"github.com/asadbekabdulboqiyev/sift/internal/authz"
 	"github.com/asadbekabdulboqiyev/sift/internal/config"
+	"github.com/asadbekabdulboqiyev/sift/internal/guardproxy"
 )
 
 // wsReadLimit caps the size of a single WebSocket frame read during a step.
@@ -23,25 +23,65 @@ const wsWriteWait = 5 * time.Second
 // newWSDialer builds a websocket.Dialer honoring the step timeout and the
 // ambient context (so Ctrl+C cancels an in-progress handshake). control is
 // passed down to the underlying TCP dial so the authorization decision also
-// covers the socket used by the WebSocket upgrade.
+// covers the socket used by the WebSocket upgrade. A controlled dialer uses a
+// local guard proxy: gorilla hands the ws/wss URL to the proxy selector, and
+// the guard resolves/checks that destination and dials the checked literal IP.
 func newWSDialer(ctx context.Context, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) *websocket.Dialer {
-	return newWSDialerWithProxy(ctx, timeout, control, http.ProxyFromEnvironment)
+	if control == nil {
+		return newWSDialerWithProxy(ctx, timeout, nil, http.ProxyFromEnvironment)
+	}
+	lazy := guardproxy.NewLazy(guardproxy.Options{Control: control})
+	return wsDialerForGuard(timeout, control, lazy)
+}
+
+// wsDialerForGuard pins a websocket dialer at a guard proxy. The Control hook
+// stays on the socket to the proxy but exempts that exact loopback address;
+// the guard applies the original decision to the destination itself.
+func wsDialerForGuard(timeout time.Duration, control func(network, address string, c syscall.RawConn) error, lazy *guardproxy.Lazy) *websocket.Dialer {
+	dialer := &net.Dialer{Timeout: timeout, Control: lazy.Control(control)}
+	return &websocket.Dialer{
+		Proxy:            lazy.ProxySelector(),
+		HandshakeTimeout: timeout,
+		NetDialContext:   dialer.DialContext,
+	}
 }
 
 // newWSDialerWithProxy is the testable core: proxyBase is injectable so tests
-// can prove the destination check without depending on the process environment.
+// can pin the nil-control passthrough. With a non-nil control it builds an
+// airtight guard proxy and ignores proxyBase (an ambient proxy performs its
+// own DNS lookup and is the split-horizon path being removed).
 func newWSDialerWithProxy(_ context.Context, timeout time.Duration, control func(network, address string, c syscall.RawConn) error, proxyBase func(*http.Request) (*url.URL, error)) *websocket.Dialer {
-	return &websocket.Dialer{
-		// The socket Control hook sees only the proxy address behind an HTTP
-		// proxy, so re-check the ws/wss destination before the proxy dial
-		// (CWE-290). A nil control keeps the direct selector untouched.
-		Proxy:            authz.ProxyWithControl(proxyBase, control),
-		HandshakeTimeout: timeout,
-		NetDialContext: func(netCtx context.Context, network, addr string) (net.Conn, error) {
-			d := &net.Dialer{Timeout: timeout, Control: control}
-			return d.DialContext(netCtx, network, addr)
-		},
+	if control == nil {
+		return &websocket.Dialer{
+			Proxy:            proxyBase,
+			HandshakeTimeout: timeout,
+			NetDialContext: func(netCtx context.Context, network, addr string) (net.Conn, error) {
+				d := &net.Dialer{Timeout: timeout}
+				return d.DialContext(netCtx, network, addr)
+			},
+		}
 	}
+	lazy := guardproxy.NewLazy(guardproxy.Options{Control: control})
+	return wsDialerForGuard(timeout, control, lazy)
+}
+
+// engineWSDialer reuses the engine's guard proxy when the HTTP transport owns
+// one, so a WebSocket upgrade does not open a second listener per step. This
+// includes the uTLS transport, whose guard now tunnels the fingerprinted TLS
+// dial. When the transport has no guard (a nil-control build), it creates one
+// and registers it for run teardown.
+func (e *Engine) engineWSDialer(timeout time.Duration) *websocket.Dialer {
+	if lazy, ok := guardedTransports.Load(e.transport); ok {
+		return wsDialerForGuard(timeout, e.dialControl, lazy.(*guardproxy.Lazy))
+	}
+	var lazy *guardproxy.Lazy
+	if existing, ok := guardedEngines.Load(e); ok {
+		lazy = existing.(*guardproxy.Lazy)
+	} else {
+		lazy = guardproxy.NewLazy(guardproxy.Options{Control: e.dialControl})
+		guardedEngines.Store(e, lazy)
+	}
+	return wsDialerForGuard(timeout, e.dialControl, lazy)
 }
 
 // wsDial performs the WebSocket handshake against rawURL with rendered headers.
@@ -52,7 +92,13 @@ func (e *Engine) wsDial(ctx context.Context, rawURL string, step config.Step, va
 	}
 	dialCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	conn, resp, err := newWSDialer(ctx, timeout, e.dialControl).DialContext(dialCtx, rawURL, header)
+	var dialer *websocket.Dialer
+	if e.dialControl == nil {
+		dialer = newWSDialer(ctx, timeout, nil)
+	} else {
+		dialer = e.engineWSDialer(timeout)
+	}
+	conn, resp, err := dialer.DialContext(dialCtx, rawURL, header)
 	if err != nil {
 		status := 0
 		if resp != nil {
@@ -247,6 +293,9 @@ func (e *Engine) initSessionMaps() {
 // a run: WebSockets receive a proper Close handshake, raw sockets and gRPC
 // ClientConns are closed.
 func (e *Engine) closeSessions() {
+	// Tear down guard-proxy listeners with the run's protocol sessions. The
+	// Lazy instances reopen on demand, so a reused Engine still works.
+	_ = e.Close()
 	e.sessMu.Lock()
 	defer e.sessMu.Unlock()
 	for _, c := range e.wsConns {

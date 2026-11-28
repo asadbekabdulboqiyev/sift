@@ -86,8 +86,14 @@ type Options struct {
 	// Fingerprint is the ClientHello profile to present.
 	Fingerprint Profile
 	// Dialer performs the TCP part of the dial. Zero value means a 10s /
-	// 30s keep-alive dialer.
+	// 30s keep-alive dialer. It is used only when DialContext is nil.
 	Dialer net.Dialer
+	// DialContext optionally replaces the TCP leg of the dial. When nil,
+	// Options.resolved binds it to Dialer.DialContext, so every existing
+	// caller keeps the exact old behavior. A caller that must tunnel the
+	// ClientHello (e.g. an authorized CONNECT proxy) supplies this hook;
+	// the uTLS handshake and preset selection stay unchanged.
+	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
 	// HandshakeTimeout bounds the whole TCP+TLS dial. Zero means 10s.
 	HandshakeTimeout time.Duration
 	// InsecureSkipVerify disables server certificate verification. The
@@ -116,6 +122,11 @@ func (o Options) resolved() Options {
 	}
 	if o.Dialer.KeepAlive == 0 {
 		o.Dialer.KeepAlive = 30 * time.Second
+	}
+	if o.DialContext == nil {
+		// Method value from the resolved copy: nil stays fully backward
+		// compatible with the original net.Dialer.DialContext path.
+		o.DialContext = o.Dialer.DialContext
 	}
 	if len(o.NextProtos) == 0 {
 		o.NextProtos = []string{"h2", "http/1.1"}
@@ -156,7 +167,7 @@ func NewDialer(opts Options) func(ctx context.Context, network, addr string) (ne
 // newDialer builds the uTLS dialer for an already-validated profile ID.
 func newDialer(opts Options, id utls.ClientHelloID) func(ctx context.Context, network, addr string) (net.Conn, error) {
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
-		raw, err := opts.Dialer.DialContext(ctx, network, addr)
+		raw, err := opts.DialContext(ctx, network, addr)
 		if err != nil {
 			return nil, err
 		}

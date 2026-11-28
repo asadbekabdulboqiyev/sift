@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/asadbekabdulboqiyev/sift/internal/authz"
+	"github.com/asadbekabdulboqiyev/sift/internal/guardproxy"
 	proreport "github.com/asadbekabdulboqiyev/sift/internal/report"
 )
 
@@ -28,6 +29,18 @@ type VulnScanner struct {
 	// ids is owned by this scanner instance. A scan run must never consume or
 	// observe another run's ID sequence, even when runs execute concurrently.
 	ids vulnIDGenerator
+
+	// closer tears down the guard proxy owned by a controlled scanner.
+	closer io.Closer
+}
+
+// Close stops the scanner's guard-proxy listener. It is optional (the helper
+// has a GC backstop) but callers with a teardown seam should invoke it.
+func (vs *VulnScanner) Close() error {
+	if vs == nil || vs.closer == nil {
+		return nil
+	}
+	return vs.closer.Close()
 }
 
 // vulnIDGenerator hands out sequential finding IDs for one scan run. Every
@@ -130,15 +143,23 @@ func NewVulnScanner(target string) *VulnScanner {
 // standalone callers and tests.
 func NewVulnScannerWithControl(target string, control func(network, address string, c syscall.RawConn) error) *VulnScanner {
 	tr := http.DefaultTransport.(*http.Transport).Clone()
+	var closer io.Closer
 	if control != nil {
 		tr.DialContext = (&net.Dialer{
 			Timeout:   10 * time.Second,
 			KeepAlive: 30 * time.Second,
 			Control:   control,
 		}).DialContext
-		// The socket hook sees only the proxy address behind an HTTP proxy, so
-		// re-check the target itself before the proxy dial (CWE-290).
-		tr.Proxy = authz.ProxyWithControl(tr.Proxy, control)
+		// Airtight path: scanned URLs come from crawled pages, so an ambient
+		// proxy must not resolve them independently. The local guard proxy
+		// checks every answer and dials the checked literal IP with control.
+		guarded, c, err := guardproxy.WrapTransport(tr, control)
+		if err == nil {
+			tr = guarded
+			closer = c
+		} else {
+			tr.Proxy = authz.ProxyWithControl(tr.Proxy, control)
+		}
 	}
 	return &VulnScanner{
 		Target: target,
@@ -152,6 +173,7 @@ func NewVulnScannerWithControl(target string, control func(network, address stri
 		Results: &VulnReport{
 			OWASP: make(map[string][]Vulnerability),
 		},
+		closer: closer,
 	}
 }
 

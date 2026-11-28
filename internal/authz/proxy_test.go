@@ -141,15 +141,18 @@ func TestProxyWithControlRefusesDestinationBeforeProxyDial(t *testing.T) {
 	}
 }
 
-// TestControlledTransportsUseProxyWithControl pins the wiring at every Go
-// HTTP client in the pentest path that pairs a proxy selector with a dial
-// control. The proxy tests above prove the helper works; this proves the
-// callers actually apply it so none can silently drop the destination check.
-func TestControlledTransportsUseProxyWithControl(t *testing.T) {
+// TestControlledTransportsUseGuardProxy pins the wiring at every Go HTTP
+// client in the pentest path that pairs a proxy selector with a dial control.
+// The legacy in-process check was split-horizon-vulnerable; these callers must
+// now pin their Proxy to a local guard proxy that dials the checked literal IP.
+func TestControlledTransportsUseGuardProxy(t *testing.T) {
 	for path, want := range map[string]string{
-		"../scanner/auth/auth.go":    "authz.ProxyWithControl(http.ProxyFromEnvironment, control)",
-		"../scanner/verify.go":       "authz.ProxyWithControl(http.ProxyFromEnvironment, control)",
-		"../scanner/vuln_scanner.go": "authz.ProxyWithControl(tr.Proxy, control)",
+		"../scanner/auth/auth.go":       "guardproxy.WrapTransport(tr, control)",
+		"../scanner/verify.go":          "guardproxy.WrapTransport(base, control)",
+		"../scanner/vuln_scanner.go":    "guardproxy.WrapTransport(tr, control)",
+		"../engine/client.go":           "guardproxy.WrapTransport(tr, control)",
+		"../engine/ws_client.go":        "guardproxy.NewLazy(guardproxy.Options{Control: control})",
+		"../../cmd/sift/cmd_pentest.go": "guardproxy.WrapTransport(tr, control)",
 	} {
 		src, err := os.ReadFile(path)
 		if err != nil {
@@ -157,7 +160,7 @@ func TestControlledTransportsUseProxyWithControl(t *testing.T) {
 			continue
 		}
 		if !strings.Contains(string(src), want) {
-			t.Errorf("%s does not wrap its proxy selector with the gate check; want %q", path, want)
+			t.Errorf("%s does not use the local guard proxy; want %q", path, want)
 		}
 	}
 }

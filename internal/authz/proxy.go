@@ -32,6 +32,11 @@ import (
 // lookup and the proxy's own lookup. It narrows the window to the same accepted
 // limit already present in Guard.checkProxyTarget and engine.proxyWithControl;
 // the only airtight path is the guard proxy, which dials the checked literal IP.
+//
+// Migration note: new controlled transports should prefer internal/guardproxy's
+// WrapTransport, which resolves, checks and dials the checked literal IP itself.
+// This helper is intentionally retained: replay's library path and the
+// fallback branch of each guard-proxy caller still need the in-process check.
 func ProxyWithControl(base func(*http.Request) (*url.URL, error), control func(network, address string, c syscall.RawConn) error) func(*http.Request) (*url.URL, error) {
 	if base == nil || control == nil {
 		return base
